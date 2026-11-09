@@ -28,22 +28,131 @@
   a.card span { color: var(--dim); }
   h2 { font-size: 18px; margin: 28px 0 6px; }
   ol { margin: 0; padding-left: 1.3em; color: var(--dim); }
+  /* wrap-reverse: on a narrow screen the language menu moves above the title instead of squeezing it */
+  .top { display: flex; flex-wrap: wrap-reverse; align-items: center; gap: 0 16px; }
+  .top h1 { flex: 1 1 auto; }
+  select.lang { margin-left: auto; font: inherit; font-size: 15px; color: var(--ink); background: var(--panel);
+    border: 2px solid var(--line); border-radius: 10px; padding: 6px 10px; min-height: 44px; cursor: pointer; }
+  select.lang:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  /* Japanese and Korean pick native fonts first so kanji take Japanese glyph forms, not the TC ones above */
+  html:lang(ja) body { font-family: system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif; }
+  html:lang(ko) body { font-family: system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
 </style>
 </head>
 <body>
 <main>
-  <h1>同步場記板</h1>
-  <p class="sub">多機長時間錄影的同步與速率校正工具。</p>
-  <a class="card" href="sync-slate.html"><b>場記板</b><span>手機用：時鐘、倒數、黑白方波、嗶聲、波形碼、LTC。</span></a>
-  <a class="card" href="sync-analyzer.html"><b>同步分析器</b><span>電腦用：讀取素材，算出速度比例、校正後長度，對齊到基準檔。檔案不會上傳。</span></a>
-  <h2>把場記板裝到手機</h2>
+  <div class="top">
+    <h1 data-i18n="title">同步場記板</h1>
+    <select id="lang" class="lang" data-i18n-attr="aria-label:lang.label" aria-label="語言">
+      <option value="" data-i18n="lang.auto">自動</option>
+      <option value="zh-Hant" lang="zh-Hant">繁體中文</option>
+      <option value="en" lang="en">English</option>
+      <option value="ja" lang="ja">日本語</option>
+      <option value="ko" lang="ko">한국어</option>
+    </select>
+  </div>
+  <p class="sub" data-i18n="sub">多機長時間錄影的同步與速率校正工具。</p>
+  <a class="card" href="sync-slate.html"><b data-i18n="slate.name">場記板</b><span data-i18n="slate.desc">手機用：時鐘、倒數、黑白方波、嗶聲、波形碼、LTC。</span></a>
+  <a class="card" href="sync-analyzer.html"><b data-i18n="analyzer.name">同步分析器</b><span data-i18n="analyzer.desc">電腦用：讀取素材，算出速度比例、校正後長度，對齊到基準檔。檔案不會上傳。</span></a>
+  <h2 data-i18n="install.title">把場記板裝到手機</h2>
   <ol>
-    <li>用 Safari（iPhone）或 Chrome（Android）開啟本頁；從 LINE 等 App 內開啟時，請先改用瀏覽器開啟。</li>
-    <li>iPhone：分享 → 加入主畫面。Android：右上角選單 → 安裝應用程式。</li>
-    <li>裝好後開一次，再切成飛航模式確認可以離線使用。</li>
+    <li data-i18n="install.1">用 Safari（iPhone）或 Chrome（Android）開啟本頁；從 LINE 等 App 內開啟時，請先改用瀏覽器開啟。</li>
+    <li data-i18n="install.2">iPhone：分享 → 加入主畫面。Android：右上角選單 → 安裝應用程式。</li>
+    <li data-i18n="install.3">裝好後開一次，再切成飛航模式確認可以離線使用。</li>
   </ol>
 </main>
 <script>
+  var I18N = {
+    'zh-Hant': {
+      'title': '同步場記板',
+      'lang.label': '語言', 'lang.auto': '自動',
+      'sub': '多機長時間錄影的同步與速率校正工具。',
+      'slate.name': '場記板', 'slate.desc': '手機用：時鐘、倒數、黑白方波、嗶聲、波形碼、LTC。',
+      'analyzer.name': '同步分析器', 'analyzer.desc': '電腦用：讀取素材，算出速度比例、校正後長度，對齊到基準檔。檔案不會上傳。',
+      'install.title': '把場記板裝到手機',
+      'install.1': '用 Safari（iPhone）或 Chrome（Android）開啟本頁；從 LINE 等 App 內開啟時，請先改用瀏覽器開啟。',
+      'install.2': 'iPhone：分享 → 加入主畫面。Android：右上角選單 → 安裝應用程式。',
+      'install.3': '裝好後開一次，再切成飛航模式確認可以離線使用。'
+    },
+    en: {
+      'title': 'Sync Slate',
+      'lang.label': 'Language', 'lang.auto': 'Auto',
+      'sub': 'Sync and clock-drift correction for long multicam shoots.',
+      'slate.name': 'Slate', 'slate.desc': 'For phones: clock, countdown, square-wave flashes, beeps, waveform code, LTC.',
+      'analyzer.name': 'Sync Analyzer', 'analyzer.desc': 'For computers: reads your footage, works out the speed ratio and corrected length, and aligns everything to a reference file. Files are never uploaded.',
+      'install.title': 'Install the slate on your phone',
+      'install.1': 'Open this page in Safari (iPhone) or Chrome (Android). If it opened inside an app such as LINE, open it in the browser first.',
+      'install.2': 'iPhone: Share → Add to Home Screen. Android: menu at the top right → Install app.',
+      'install.3': 'Open it once after installing, then switch to airplane mode to check that it works offline.'
+    },
+    ja: {
+      'title': '同期カチンコ',
+      'lang.label': '言語', 'lang.auto': '自動',
+      'sub': '長時間マルチカメラ収録の同期とクロックずれ補正のためのツールです。',
+      'slate.name': 'カチンコ', 'slate.desc': 'スマートフォン用：時計、カウントダウン、白黒の点滅、ビープ音、波形コード、LTC。',
+      'analyzer.name': '同期アナライザー', 'analyzer.desc': 'パソコン用：素材を読み込んで速度比と補正後の長さを算出し、基準ファイルに揃えます。ファイルはアップロードされません。',
+      'install.title': 'カチンコをスマートフォンにインストール',
+      'install.1': 'Safari（iPhone）または Chrome（Android）でこのページを開きます。LINE などのアプリ内で開いた場合は、先にブラウザで開き直してください。',
+      'install.2': 'iPhone：共有 → ホーム画面に追加。Android：右上のメニュー → アプリをインストール。',
+      'install.3': 'インストール後に一度開き、機内モードに切り替えてオフラインで使えることを確認してください。'
+    },
+    ko: {
+      'title': '싱크 슬레이트',
+      'lang.label': '언어', 'lang.auto': '자동',
+      'sub': '장시간 멀티캠 촬영의 싱크와 클럭 드리프트를 보정하는 도구입니다.',
+      'slate.name': '슬레이트', 'slate.desc': '휴대폰용: 시계, 카운트다운, 흑백 깜빡임, 비프음, 파형 코드, LTC.',
+      'analyzer.name': '싱크 분석기', 'analyzer.desc': '컴퓨터용: 소스 파일을 읽어 속도 비율과 보정 후 길이를 계산하고 기준 파일에 맞춥니다. 파일은 업로드되지 않습니다.',
+      'install.title': '슬레이트를 휴대폰에 설치하기',
+      'install.1': 'Safari(iPhone) 또는 Chrome(Android)으로 이 페이지를 여세요. LINE 같은 앱 안에서 열렸다면 먼저 브라우저로 다시 여세요.',
+      'install.2': 'iPhone: 공유 → 홈 화면에 추가. Android: 오른쪽 위 메뉴 → 앱 설치.',
+      'install.3': '설치 후 한 번 실행한 다음, 비행기 모드로 바꿔 오프라인에서 작동하는지 확인하세요.'
+    }
+  };
+  // ---- i18n: every page uses the same detection; the choice is shared through localStorage ----
+  var LANGS = ['zh-Hant', 'en', 'ja', 'ko'];
+  function pickLang() {
+    try { var s = localStorage.getItem('slate-lang'); if (LANGS.indexOf(s) >= 0) return s; } catch (e) {}
+    var list = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || ''];
+    for (var i = 0; i < list.length; i++) {
+      var l = String(list[i]).toLowerCase();
+      if (l.indexOf('zh') === 0) return 'zh-Hant';
+      if (l.indexOf('ja') === 0) return 'ja';
+      if (l.indexOf('ko') === 0) return 'ko';
+      if (l.indexOf('en') === 0) return 'en';
+    }
+    return 'en';
+  }
+  var lang = pickLang();
+  // Missing keys fall back to English, then Chinese; {name} is replaced from vars.
+  function t(key, vars) {
+    var dicts = [I18N[lang], I18N.en, I18N['zh-Hant']], s;
+    for (var i = 0; i < dicts.length && s === undefined; i++) s = dicts[i][key];
+    if (s === undefined) return key;
+    return vars ? s.replace(/\{(\w+)\}/g, function (m, k) { return k in vars ? String(vars[k]) : m; }) : s;
+  }
+  function applyI18n() {
+    document.documentElement.lang = lang;
+    document.title = t('title');
+    var els = document.querySelectorAll('[data-i18n]'), i, j;
+    for (i = 0; i < els.length; i++) els[i].textContent = t(els[i].getAttribute('data-i18n'));
+    els = document.querySelectorAll('[data-i18n-html]');   // own strings only, never user input
+    for (i = 0; i < els.length; i++) els[i].innerHTML = t(els[i].getAttribute('data-i18n-html'));
+    els = document.querySelectorAll('[data-i18n-attr]');
+    for (i = 0; i < els.length; i++) {
+      var pairs = els[i].getAttribute('data-i18n-attr').split(';');
+      for (j = 0; j < pairs.length; j++) { var p = pairs[j].split(':'); els[i].setAttribute(p[0].trim(), t(p[1].trim())); }
+    }
+  }
+  var langSel = document.getElementById('lang'), saved = null;
+  try { saved = localStorage.getItem('slate-lang'); } catch (e) {}
+  langSel.value = LANGS.indexOf(saved) >= 0 ? saved : '';
+  langSel.addEventListener('change', function () {
+    try { if (langSel.value) localStorage.setItem('slate-lang', langSel.value); else localStorage.removeItem('slate-lang'); } catch (e) {}
+    lang = langSel.value || pickLang();
+    applyI18n();
+  });
+  applyI18n();
+
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost'))
     navigator.serviceWorker.register('sw.js').catch(function () {});
 </script>

@@ -27,6 +27,14 @@
   .wrap { max-width: 980px; margin: 0 auto; padding: 32px max(20px, env(safe-area-inset-left, 0px)) 64px; }
   h1, h2, .num { font-family: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif; }
   h1 { font-size: 44px; line-height: 1; margin: 0 0 10px; letter-spacing: .01em; }
+  /* wrap-reverse: on a narrow screen the language menu moves above the title instead of squeezing it */
+  .top { display: flex; flex-wrap: wrap-reverse; align-items: flex-start; gap: 0 16px; }
+  .top h1 { flex: 1 1 auto; }
+  .top .lang { margin-left: auto; margin-bottom: 10px; font-size: 15px; padding: 6px 10px; }
+  /* Japanese and Korean pick native fonts first so kanji take Japanese glyph forms, not the TC ones above */
+  html:lang(ja) body { font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif; }
+  html:lang(ko) body { font-family: system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+  @media (max-width: 480px) { html:lang(ja) h1 { font-size: 36px; } }
   h2 { font-size: 26px; margin: 36px 0 12px; }
   .lede { color: var(--dim); max-width: 62ch; margin: 0 0 24px; }
   .drop { border: 2px dashed var(--line); border-radius: 14px; padding: 28px; text-align: center; background: var(--panel);
@@ -69,39 +77,48 @@
 </head>
 <body>
 <main class="wrap">
-  <h1>同步分析器</h1>
+  <div class="top">
+    <h1 data-i18n="title">同步分析器</h1>
+    <select id="lang" class="lang" data-i18n-attr="aria-label:lang.label" aria-label="語言">
+      <option value="" data-i18n="lang.auto">自動</option>
+      <option value="zh-Hant" lang="zh-Hant">繁體中文</option>
+      <option value="en" lang="en">English</option>
+      <option value="ja" lang="ja">日本語</option>
+      <option value="ko" lang="ko">한국어</option>
+    </select>
+  </div>
   <p class="sr-only" id="live" role="status"></p>
-  <p class="lede">把錄到波形碼的影片或錄音檔拖進來，算出每個檔案的起點真實時間與校正後長度。只讀檔案頭尾，檔案留在這台電腦上，不會上傳。</p>
+  <p class="lede" data-i18n="lede">把錄到波形碼的影片或錄音檔拖進來，算出每個檔案的起點真實時間與校正後長度。只讀檔案頭尾，檔案留在這台電腦上，不會上傳。</p>
 
   <div class="drop" id="drop">
     <input type="file" id="pick" multiple hidden accept=".mp4,.mov,.m4a,.wav,.MP4,.MOV,.M4A,.WAV,video/*,audio/*">
-    <button class="primary" id="pickBtn">選擇檔案</button>
-    <p>或把檔案拖到這裡。支援 MP4、MOV（H.264／H.265，AAC 或 PCM 音訊）、M4A 與 WAV。</p>
+    <button class="primary" id="pickBtn" data-i18n="pick">選擇檔案</button>
+    <p data-i18n="dropHint">或把檔案拖到這裡。支援 MP4、MOV（H.264／H.265，AAC 或 PCM 音訊）、M4A 與 WAV。</p>
   </div>
   <div class="opts">
-    <label>只錄了 <select id="optOnly"><option value="">自動判斷</option><option value="head">開頭</option><option value="tail">結尾</option></select></label>
-    <label><input type="checkbox" id="optFull">整段都有波形碼（抽查中段，必要時分段）</label>
-    <label><input type="checkbox" id="optMinute">尋找分鐘標記（顯示完整時分秒，較慢）</label>
+    <label><span data-i18n="opt.only">波形碼位置</span> <select id="optOnly"><option value="" data-i18n="opt.auto">自動偵測</option><option value="head" data-i18n="opt.head">開頭</option><option value="tail" data-i18n="opt.tail">結尾</option></select></label>
+    <label><input type="checkbox" id="optFull"><span data-i18n="opt.full">整段都有波形碼（抽查中段，必要時分段）</span></label>
+    <label><input type="checkbox" id="optMinute"><span data-i18n="opt.minute">尋找分鐘標記（顯示完整時分秒，較慢）</span></label>
   </div>
 
   <div id="results"></div>
 
   <section id="relSec" hidden>
-    <h2>對齊到基準檔</h2>
-    <p class="note">以指定的基準檔為準，時間都以基準檔自己的時間軸計（從它的第一格起算）。細部仍以畫面確認。</p>
-    <label class="opts">基準檔 <select id="refSel"></select></label>
+    <h2 data-i18n="rel.title">對齊到基準檔</h2>
+    <p class="note" data-i18n="rel.note">以指定的基準檔為準，時間都以基準檔自己的時間軸計（從它的第一格起算）。細部仍以畫面確認。</p>
+    <label class="opts"><span data-i18n="rel.ref">基準檔</span> <select id="refSel"></select></label>
     <div class="tablewrap"><table id="relTable"></table></div>
     <p class="note" id="relNote"></p>
-    <h2>時間換算</h2>
+    <h2 data-i18n="conv.title">時間換算</h2>
     <div class="opts conv">
-      <label>從 <select id="convSrc"></select></label>
-      <label>的 <input id="convT" type="number" step="any" value="0" inputmode="decimal" aria-label="秒數"> 秒</label>
+      <label><span data-i18n="conv.from">從</span> <select id="convSrc"></select></label>
+      <label><span data-i18n="conv.of">的</span> <input id="convT" type="number" step="any" value="0" inputmode="decimal" data-i18n-attr="aria-label:conv.aria" aria-label="秒數"> <span data-i18n="conv.sec">秒</span></label>
     </div>
     <div class="tablewrap"><table id="convTable"></table></div>
   </section>
 
   <section id="txtSec" hidden>
-    <h2 id="txtTitle">文字報告</h2>
+    <h2 id="txtTitle" data-i18n="txt.title">文字報告</h2>
     <textarea id="report" readonly aria-labelledby="txtTitle"></textarea>
   </section>
 </main>
@@ -110,6 +127,8 @@
 (function () {
 'use strict';
 const $ = id => document.getElementById(id);
+// Errors carry a dictionary key, not text, so a result can be re-rendered after the language changes.
+const fail = (key, vars) => Object.assign(new Error(key), { i18n: { key, vars } });
 
 // =========================================================== container parsing
 const fourcc = (dv, o) => String.fromCharCode(dv.getUint8(o), dv.getUint8(o + 1), dv.getUint8(o + 2), dv.getUint8(o + 3));
@@ -271,21 +290,21 @@ function pcmSpec(en) {
 async function openMp4(file) {
   const boxes = await topBoxes(file);
   const mv = boxes.find(b => b.type === 'moov');
-  if (!mv) throw new Error('找不到 MP4／MOV 的索引（moov），檔案可能不完整');
-  if (boxes.some(b => b.type === 'moof')) throw new Error('不支援分段式（fragmented）MP4');
+  if (!mv) throw fail('err.noMoov');
+  if (boxes.some(b => b.type === 'moof')) throw fail('err.frag');
   const m = parseMoov(new DataView(await file.slice(mv.off, mv.off + mv.size).arrayBuffer()));
   const aud = m.tracks.find(t => t.handler === 'soun');
   const vid = m.tracks.find(t => t.handler === 'vide');
-  if (!aud || !aud.entry) throw new Error('檔案沒有音訊軌');
+  if (!aud || !aud.entry) throw fail('err.noAudio');
 
   // ---- audio sample/time tables
   const en = aud.entry, ed = editStart(aud, m.movieTs);
   const isAac = en.fmt === 'mp4a';
   const pcm = isAac ? null : pcmSpec(en);
-  if (!isAac && !pcm) throw new Error('不支援的音訊格式：' + en.fmt);
+  if (!isAac && !pcm) throw fail('err.codec', { fmt: en.fmt });
   let sr = aud.ts, channels = en.channels, codec = null;
   if (isAac) {
-    if (!en.asc) throw new Error('AAC 缺少解碼設定');
+    if (!en.asc) throw fail('err.asc');
     const b0 = en.asc[0], b1 = en.asc[1];
     const aot = b0 >> 3, sfi = ((b0 & 7) << 1) | (b1 >> 7), cc = (b1 >> 3) & 15;
     const SR = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
@@ -366,7 +385,7 @@ async function openWav(file) {
   let off = 12, fmt = null, dataOff = null, dataSize = null, ds64Data = null, bext = null;
   const head = await sliceDV(file, 0, 12);
   const riff = fourcc(head, 0);
-  if ((riff !== 'RIFF' && riff !== 'RF64' && riff !== 'BW64') || fourcc(head, 8) !== 'WAVE') throw new Error('不是有效的 WAV 檔');
+  if ((riff !== 'RIFF' && riff !== 'RF64' && riff !== 'BW64') || fourcc(head, 8) !== 'WAVE') throw fail('err.wav');
   while (off + 8 <= file.size) {
     const h = await sliceDV(file, off, off + 8);
     const id = fourcc(h, 0);
@@ -388,8 +407,8 @@ async function openWav(file) {
     }
     off += 8 + size + (size & 1);
   }
-  if (!fmt || dataOff === null) throw new Error('WAV 缺少格式或資料區塊');
-  if (fmt.tag !== 1 && fmt.tag !== 3) throw new Error('不支援的 WAV 編碼（只支援 PCM 與浮點）');
+  if (!fmt || dataOff === null) throw fail('err.wavChunks');
+  if (fmt.tag !== 1 && fmt.tag !== 3) throw fail('err.wavCodec');
   const bytes = fmt.bits / 8;
   const pcm = { float: fmt.tag === 3, le: true, bytes, frame: fmt.block };
   dataSize = Math.min(dataSize, file.size - dataOff);
@@ -660,7 +679,7 @@ const NTSC = [24000 / 1001, 30000 / 1001, 60000 / 1001, 120000 / 1001];
 // first second read in single-end mode). Middle probes are placed with the current line, then added.
 function solve(head, tail, probes) {
   const LH = head.length ? label(head) : null, LT = tail.length ? label(tail) : null;
-  if (!LH && !LT) return { error: '讀到的秒數彼此不一致，無法判讀' };
+  if (!LH && !LT) return { error: { key: 'err.inconsistent' } };
   let pts, base, M, ambiguous = false, clusters, tailCluster = null;
   if (LH && LT) {
     const lh = LH.lab, lt = LT.lab, [tH, rH] = lh[0], [tT, rT] = lt[lt.length - 1], fileDiff = tT - tH;
@@ -675,7 +694,7 @@ function solve(head, tail, probes) {
     const rho = locs.length ? locs.reduce((a, [k, w]) => a + k * w, 0) / locs.reduce((a, [, w]) => a + w, 0) : 1;
     const span = locs.length ? Math.max(...locs.map(([, w]) => w)) : 0;
     const pred = fileDiff / rho, rd = mod(rT - rH, 60), realDiff = rd + 60 * Math.round((pred - rd) / 60);
-    if (realDiff <= 0) return { error: '頭尾讀到的時間不合理' };
+    if (realDiff <= 0) return { error: { key: 'err.headTail' } };
     ambiguous = (span ? 0.003 / span : 0.01) * pred > 15 || Math.abs(pred - realDiff) > 15;
     let mh = LH.mod, mt = LT.mod;
     if (mh === 3600 && mt === 3600 && mod(rT - rH - realDiff, 3600) !== 0) mh = mt = 60;
@@ -740,7 +759,7 @@ function solve(head, tail, probes) {
   const res = P.map(p => p[0] - (c + rate * p[1]));
   const rms = Math.sqrt(res.reduce((a, v) => a + v * v, 0) / n);
   if (Math.abs(rate - 1) > 0.01 || (!probeClusters.length && rms > 0.005))
-    return { error: `讀取結果不合理（速率偏差 ${((rate - 1) * 100).toFixed(3)}%，擬合殘差 ${(rms * 1000).toFixed(1)} ms），可能有秒數讀錯，請檢查訊號品質` };
+    return { error: { key: 'err.badFit', vars: { pct: ((rate - 1) * 100).toFixed(3), ms: (rms * 1000).toFixed(1) } } };
   const Rk = P.map(p => p[1]), Rm = Rk.reduce((a, v) => a + v, 0) / n;
   const sxx = Rk.reduce((a, v) => a + (v - Rm) ** 2, 0);
   const sigma = Math.max(n > 2 ? Math.sqrt(res.reduce((a, v) => a + v * v, 0) / (n - 2)) : 0.0003, 1e-5);
@@ -757,7 +776,7 @@ function solve(head, tail, probes) {
     if (maxDev > 2) segs = centers.slice(1).map(([t2, r2], i) => { const [t1, r1] = centers[i]; return { from: t1, to: t2, rate: (t2 - t1) / (r2 - r1) }; });
   }
   return { rate, c, base, M, ambiguous, n, rejected: pts.length - n, rms, uncPpm, predSe, segs, maxDev,
-    both: !!(LH && LT), which: LH && LT ? '頭尾' : (LH ? '開頭' : '結尾'), usedPulses };
+    both: !!(LH && LT), which: LH && LT ? 'both' : (LH ? 'head' : 'tail'), usedPulses };
 }
 
 async function analyze(file, opts, tick) {
@@ -772,7 +791,7 @@ async function analyze(file, opts, tick) {
     if (!(tail.started || tail.done)) await tail.step();
     if (head.pos >= tail.pos) { if (!head.started) head.done = true; if (!tail.started) tail.done = true; break; }
   }
-  if (!head.found.length && !tail.found.length) return { file: file.name, error: '整個檔案都讀不到波形碼' };
+  if (!head.found.length && !tail.found.length) return { file: file.name, error: { key: 'err.noCode' } };
   let singleFrom = null;
   if (head.found.length && tail.found.length &&
       Math.min(...tail.found.map(d => d.t)) - Math.max(...head.found.map(d => d.t)) < 60) {
@@ -780,7 +799,7 @@ async function analyze(file, opts, tick) {
     head.found.sort((x, y) => x.t - y.t);
     if (head.used === null) head.used = tail.used;
     tail.found = []; tail.done = true;
-    if (head.found[0].t > D / 2) singleFrom = '結尾';
+    if (head.found[0].t > D / 2) singleFrom = 'tail';
   }
   // 2) Refine to the target precision.
   let fit;
@@ -817,8 +836,8 @@ async function analyze(file, opts, tick) {
   for (const e of NTSC) if (fps && Math.abs(fps - e) < 0.005) fps = e;
   const hasV = m.vOff !== null && m.vOff !== undefined;
   let mOff, mLen, kind;
-  if (hasV) { mOff = m.vOff; mLen = fps && m.vFrames ? m.vFrames / fps : m.vDur; kind = '畫面'; }
-  else { mOff = m.aOff; mLen = (m.kind === 'wav' ? m.duration : (m.endTime - m.aStartAbs)); kind = '音訊'; }
+  if (hasV) { mOff = m.vOff; mLen = fps && m.vFrames ? m.vFrames / fps : m.vDur; kind = 'video'; }
+  else { mOff = m.aOff; mLen = (m.kind === 'wav' ? m.duration : (m.endTime - m.aStartAbs)); kind = 'audio'; }
   let corrected = mLen / rate, segments = null;
   let worstMs = Math.max(fit.predSe((0 - c) / rate), fit.predSe((D - c) / rate)) * 1000;
   if (fit.segs) {
@@ -833,17 +852,340 @@ async function analyze(file, opts, tick) {
   }
   const startLabel = realAt(mOff);
   let startClock = startLabel, clockMod = M, hintSrc = null, hint = null;
-  if (m.kind === 'mp4' && m.created) { const d = new Date((m.created - 2082844800) * 1000); hint = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds(); hintSrc = '檔案建立時間'; }
-  else if (m.kind === 'wav' && m.bext && m.bext.timeRef) { hint = m.bext.timeRef / m.sr; hintSrc = 'BWF 時間參考'; }
-  else { const d = new Date(file.lastModified); hint = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds(); hintSrc = '檔案修改時間（可能不準）'; }
+  if (m.kind === 'mp4' && m.created) { const d = new Date((m.created - 2082844800) * 1000); hint = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds(); hintSrc = 'created'; }
+  else if (m.kind === 'wav' && m.bext && m.bext.timeRef) { hint = m.bext.timeRef / m.sr; hintSrc = 'bext'; }
+  else { const d = new Date(file.lastModified); hint = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds(); hintSrc = 'mtime'; }
   if (M === 3600 && hint !== null) { startClock = Math.round((hint - startLabel) / 3600) * 3600 + startLabel; clockMod = 86400; }
   else hintSrc = null;
   const used = [head, tail].filter(e => e.found.length).map(e => e.used);
-  const mode = probes.length ? '全段' : (fit.both ? '頭尾' : '僅' + (singleFrom || fit.which));
+  // mode: 'full' (middle probed), 'both' (head and tail), or the single end read: 'head' / 'tail'
+  const mode = probes.length ? 'full' : (fit.both ? 'both' : (singleFrom || fit.which));
   return { file: file.name, kind, mode, channel: [used[0], used[used.length - 1]], startLabel, mod: M, startClock, clockMod, hintSrc,
     length: mLen, correctedLength: corrected, frames: hasV ? m.vFrames : null, fps: hasV ? fps : null,
     rate, ppm: (rate - 1) * 1e6, uncPpm: fit.uncPpm, worstMs, edgesUsed: fit.n, edgesRejected: fit.rejected,
     fitRmsMs: fit.rms * 1000, segments, midDevMs: fit.maxDev, aOff: m.aOff, vOff: hasV ? m.vOff : null, ambiguous: fit.ambiguous };
+}
+
+// =========================================================== i18n
+const I18N = {
+  'zh-Hant': {
+    'title': '同步分析器',
+    'lang.label': '語言', 'lang.auto': '自動',
+    'lede': '把錄到波形碼的影片或錄音檔拖進來，算出每個檔案的起點真實時間與校正後長度。只讀檔案頭尾，檔案留在這台電腦上，不會上傳。',
+    'pick': '選擇檔案',
+    'dropHint': '或把檔案拖到這裡。支援 MP4、MOV（H.264／H.265，AAC 或 PCM 音訊）、M4A 與 WAV。',
+    'opt.only': '波形碼位置', 'opt.auto': '自動偵測', 'opt.head': '開頭', 'opt.tail': '結尾',
+    'opt.full': '整段都有波形碼（抽查中段，必要時分段）',
+    'opt.minute': '尋找分鐘標記（顯示完整時分秒，較慢）',
+    'rel.title': '對齊到基準檔',
+    'rel.note': '以指定的基準檔為準，時間都以基準檔自己的時間軸計（從它的第一格起算）。細部仍以畫面確認。',
+    'rel.ref': '基準檔',
+    'rel.note60': '起點位置以秒數判定，各檔案開始時間相差須在 ±30 秒內；更大的差距請以畫面確認，或勾選「尋找分鐘標記」。',
+    'conv.title': '時間換算', 'conv.from': '從', 'conv.of': '的', 'conv.sec': '秒', 'conv.aria': '秒數',
+    'conv.need': '請輸入秒數',
+    'th.file': '檔案', 'th.start': '起點位於基準檔（秒）', 'th.speed': '播放速度', 'th.len': '基準時間軸上的長度（秒）',
+    'th.same': '同一時刻（秒）', 'refMark': '（基準）',
+    'txt.title': '文字報告',
+    'kind.video': '畫面', 'kind.audio': '音訊',
+    'mode.full': '全段', 'mode.both': '頭尾', 'mode.head': '僅開頭', 'mode.tail': '僅結尾',
+    'hint.created': '檔案建立時間', 'hint.bext': 'BWF 時間參考', 'hint.mtime': '檔案修改時間（可能不準）',
+    'hintNote': '（「時」依{src}推定）',
+    'sec': '{v} 秒',
+    'card.rate': '速度比例', 'card.rateNote': '以此速度播放即對齊真實時間',
+    'card.len': '校正後長度', 'card.orig': '{kind}原長 {len} 秒{frames}', 'card.frames': '（{n} 格）',
+    'card.start': '{kind}起點真實時間', 'card.end': '{kind}結束真實時間',
+    'card.fps': '修正後影格率', 'card.mode': '模式',
+    'card.drift': '時鐘偏差', 'card.driftV': '{ppm} ppm（量測精度約 ±{unc} ppm）',
+    'card.err': '預估誤差', 'card.errV': '檔案任何位置約 ±{ms} ms{seg}', 'card.afterSeg': '（分段後）',
+    'card.seg': '第 {i} 段', 'card.segV': '{a} ～ {b} 秒：播放速度 {v} %',
+    'card.mid': '中段實測偏差', 'card.midV': '最多 {ms} ms（線性，不需分段）',
+    'card.fit': '擬合', 'card.fitV': '使用 {n} 個秒前緣，殘差 {ms} ms', 'card.rejected': '，排除 {n} 個異常點',
+    'card.chan': '波形碼聲道', 'card.chan1': '第 {n} 聲道', 'card.chan2': '開頭第 {a} 聲道，結尾第 {b} 聲道',
+    'card.offs': '軌道起點偏移', 'card.offsA': '音訊軌 {a} 秒', 'card.offsV': '，畫面軌 {v} 秒',
+    'warn.seg': '非線性漂移：中段偏離直線最多 {ms} ms，建議依上列分段調速（抽查越多處、分段越細越準）',
+    'warn.single': '只讀到單端：速率只代表那一小段時間，未涵蓋整段，機身溫度變化可能造成偏差',
+    'warn.amb': '頭尾之間的整分鐘數無法確定，請確認結果是否合理（可勾選「尋找分鐘標記」或實測中段）',
+    'rep.rate':   '  ▶ 速度比例        : {v} %',
+    'rep.len':    '  ▶ 校正後長度      : {v} 秒（{kind}原長 {len} 秒{frames}）',
+    'rep.frames': '，{n} 格',
+    'rep.start':  '    {kind}起點真實時間  : {clock}{hint}',
+    'rep.end':    '    {kind}結束真實時間  : {clock}',
+    'rep.fps':    '  修正後影格率      : {a} → {b} fps',
+    'rep.drift':  '  時鐘偏差          : {ppm} ppm（量測精度約 ±{unc} ppm）',
+    'rep.fit':    '  擬合              : {n} 個秒前緣，殘差 {ms} ms',
+    'rep.offs':   '  軌道起點偏移      : 音訊軌 {a} 秒{vid}',
+    'rep.mode':   '  模式              : {mode}',
+    'rep.err':    '  預估誤差          : 檔案任何位置約 ±{ms} ms{seg}',
+    'rep.seg':    '  第 {i} 段            : {a} ～ {b} 秒，播放速度 {v} %',
+    'rep.mid':    '  中段實測偏差      : 最多 {ms} ms（線性）',
+    'rep.single': '  ⚠ 只讀到單端：未涵蓋整段，機身溫度變化可能造成偏差',
+    'rep.relHead': '對齊到基準檔：{file}（以基準檔自己的時間軸計）',
+    'rep.relRow': '  {file}{ref}：起點 {off} 秒，播放速度 {v} %，長度 {len} 秒',
+    'prog.start': '分析中…', 'prog.n': '分析中…已讀取 {n} 個區塊',
+    'live.start': '正在分析 {n} 個檔案', 'live.done': '分析完成：{n} 個檔案', 'live.bad': '，其中 {n} 個無法分析',
+    'alert.webcodecs': '這個瀏覽器不支援 WebCodecs 音訊解碼，MP4／MOV 中的 AAC 音訊可能無法分析。建議使用 Chrome、Edge、Firefox 桌面版或 Safari 26 以上。',
+    'err.noMoov': '找不到 MP4／MOV 的索引（moov），檔案可能不完整',
+    'err.frag': '不支援片段式（fragmented）MP4',
+    'err.noAudio': '檔案沒有音訊軌',
+    'err.codec': '不支援的音訊格式：{fmt}',
+    'err.asc': 'AAC 缺少解碼設定',
+    'err.wav': '不是有效的 WAV 檔',
+    'err.wavChunks': 'WAV 缺少格式或資料區塊',
+    'err.wavCodec': '不支援的 WAV 編碼（只支援 PCM 與浮點）',
+    'err.inconsistent': '讀到的秒數彼此不一致，無法判讀',
+    'err.headTail': '頭尾讀到的時間不合理',
+    'err.badFit': '讀取結果不合理（速率偏差 {pct}%，擬合殘差 {ms} ms），可能有秒數讀錯，請檢查訊號品質',
+    'err.noCode': '整個檔案都讀不到波形碼',
+  },
+  en: {
+    'title': 'Sync Analyzer',
+    'lang.label': 'Language', 'lang.auto': 'Auto',
+    'lede': 'Drop in video or audio files containing the waveform code to get each file’s real start time and corrected length. Only the head and tail of each file are read; your files stay on this computer and are never uploaded.',
+    'pick': 'Choose files',
+    'dropHint': 'Or drag files here. Supports MP4 and MOV (H.264/H.265 with AAC or PCM audio), M4A and WAV.',
+    'opt.only': 'Code recorded at', 'opt.auto': 'Auto-detect', 'opt.head': 'Head only', 'opt.tail': 'Tail only',
+    'opt.full': 'Whole recording (spot-check the middle, split into segments if needed)',
+    'opt.minute': 'Look for minute markers (shows full hh:mm:ss, slower)',
+    'rel.title': 'Align to a reference file',
+    'rel.note': 'Every time is given on the reference file’s own timeline (counted from its first frame). Confirm the fine alignment against the picture.',
+    'rel.ref': 'Reference file',
+    'rel.note60': 'Start positions are worked out from the seconds alone, so the files must start within ±30 s of each other. For larger gaps, check against the picture or check “Look for minute markers”.',
+    'conv.title': 'Time conversion', 'conv.from': 'At', 'conv.of': 'in', 'conv.sec': 's', 'conv.aria': 'Seconds',
+    'conv.need': 'Enter a time in seconds',
+    'th.file': 'File', 'th.start': 'Start on reference (s)', 'th.speed': 'Playback speed', 'th.len': 'Length on reference timeline (s)',
+    'th.same': 'Same moment (s)', 'refMark': ' (reference)',
+    'txt.title': 'Text report',
+    'kind.video': 'Video', 'kind.audio': 'Audio',
+    'mode.full': 'Full length', 'mode.both': 'Head and tail', 'mode.head': 'Head only', 'mode.tail': 'Tail only',
+    'hint.created': 'the file creation time', 'hint.bext': 'the BWF time reference', 'hint.mtime': 'the file’s modification time, which may be inaccurate',
+    'hintNote': ' (hour inferred from {src})',
+    'sec': '{v} s',
+    'card.rate': 'Speed ratio', 'card.rateNote': 'Play at this speed to match real time',
+    'card.len': 'Corrected length', 'card.orig': '{kind} length {len} s{frames}', 'card.frames': ' ({n} frames)',
+    'card.start': '{kind} start (real time)', 'card.end': '{kind} end (real time)',
+    'card.fps': 'Corrected frame rate', 'card.mode': 'Mode',
+    'card.drift': 'Clock drift', 'card.driftV': '{ppm} ppm (measured to about ±{unc} ppm)',
+    'card.err': 'Estimated error', 'card.errV': 'about ±{ms} ms anywhere in the file{seg}', 'card.afterSeg': ' (segmented)',
+    'card.seg': 'Segment {i}', 'card.segV': '{a} – {b} s: playback speed {v} %',
+    'card.mid': 'Measured mid-file deviation', 'card.midV': 'at most {ms} ms (linear, no segments needed)',
+    'card.fit': 'Fit', 'card.fitV': '{n} second-pulse edges used, residual {ms} ms', 'card.rejected': '; outliers rejected: {n}',
+    'card.chan': 'Waveform code channel', 'card.chan1': 'Channel {n}', 'card.chan2': 'Channel {a} at the head, channel {b} at the tail',
+    'card.offs': 'Track start offset', 'card.offsA': 'audio track {a} s', 'card.offsV': ', video track {v} s',
+    'warn.seg': 'Non-linear drift: the middle strays from a straight line by up to {ms} ms. Retime each segment to the speeds listed above (more spot checks and finer segments are more accurate).',
+    'warn.single': 'Only one end was read: the rate reflects just that short stretch, not the whole recording, and temperature changes in the device may throw it off.',
+    'warn.amb': 'The number of whole minutes between head and tail is uncertain. Check that the result makes sense (check “Look for minute markers” or measure the middle).',
+    'rep.rate':   '  ▶ Speed ratio         : {v} %',
+    'rep.len':    '  ▶ Corrected length    : {v} s ({kind} length {len} s{frames})',
+    'rep.frames': ', {n} frames',
+    'rep.start':  '    {kind} start (real)  : {clock}{hint}',
+    'rep.end':    '    {kind} end (real)    : {clock}',
+    'rep.fps':    '  Corrected frame rate  : {a} → {b} fps',
+    'rep.drift':  '  Clock drift           : {ppm} ppm (measured to about ±{unc} ppm)',
+    'rep.fit':    '  Fit                   : {n} second-pulse edges, residual {ms} ms',
+    'rep.offs':   '  Track start offset    : audio track {a} s{vid}',
+    'rep.mode':   '  Mode                  : {mode}',
+    'rep.err':    '  Estimated error       : about ±{ms} ms anywhere in the file{seg}',
+    'rep.seg':    '  Segment {i}             : {a} – {b} s, playback speed {v} %',
+    'rep.mid':    '  Mid-file deviation    : at most {ms} ms (linear)',
+    'rep.single': '  ⚠ Only one end was read: the whole recording is not covered; temperature changes in the device may throw the rate off',
+    'rep.relHead': 'Aligned to reference file: {file} (on the reference file’s own timeline)',
+    'rep.relRow': '  {file}{ref}: start {off} s, playback speed {v} %, length {len} s',
+    'prog.start': 'Analyzing…', 'prog.n': 'Analyzing… chunks read: {n}',
+    'live.start': 'Analyzing files: {n}', 'live.done': 'Analysis complete. Files: {n}', 'live.bad': '; {n} could not be analyzed',
+    'alert.webcodecs': 'This browser does not support WebCodecs audio decoding, so AAC audio in MP4/MOV files may not be analyzable. Use desktop Chrome, Edge or Firefox, or Safari 26 or later.',
+    'err.noMoov': 'MP4/MOV index (moov) not found; the file may be incomplete',
+    'err.frag': 'Fragmented MP4 is not supported',
+    'err.noAudio': 'The file has no audio track',
+    'err.codec': 'Unsupported audio format: {fmt}',
+    'err.asc': 'AAC decoder configuration is missing',
+    'err.wav': 'Not a valid WAV file',
+    'err.wavChunks': 'The WAV file is missing its format or data chunk',
+    'err.wavCodec': 'Unsupported WAV encoding (only PCM and floating point are supported)',
+    'err.inconsistent': 'The seconds read do not agree with each other and cannot be decoded',
+    'err.headTail': 'The times read at the head and tail do not add up',
+    'err.badFit': 'Implausible result (rate deviation {pct}%, fit residual {ms} ms). Some seconds may have been misread; check the signal quality.',
+    'err.noCode': 'No waveform code could be read anywhere in the file',
+  },
+  ja: {
+    'title': '同期アナライザー',
+    'lang.label': '言語', 'lang.auto': '自動',
+    'lede': '波形コードを収録した動画・音声ファイルをドロップすると、各ファイルの開始時の実時刻と補正後の長さを算出します。読み込むのはファイルの先頭と末尾だけです。ファイルはこのパソコンから出ることはなく、アップロードされません。',
+    'pick': 'ファイルを選択',
+    'dropHint': 'またはここにファイルをドラッグしてください。MP4・MOV（H.264／H.265、AAC または PCM 音声）、M4A、WAV に対応しています。',
+    'opt.only': 'コードの収録位置', 'opt.auto': '自動検出', 'opt.head': '先頭のみ', 'opt.tail': '末尾のみ',
+    'opt.full': '全編に波形コードあり（中盤も数か所チェックし、必要なら区間分割）',
+    'opt.minute': '分マーカーを探す（時:分:秒をすべて表示、時間がかかります）',
+    'rel.title': '基準ファイルに揃える',
+    'rel.note': '時刻はすべて基準ファイル自身のタイムライン（最初のフレームから起算）で表します。細かな位置は映像で確認してください。',
+    'rel.ref': '基準ファイル',
+    'rel.note60': '開始位置は秒の値だけで判定するため、各ファイルの開始時刻の差は ±30 秒以内である必要があります。それ以上離れている場合は映像で確認するか、「分マーカーを探す」をオンにしてください。',
+    'conv.title': '時刻の換算', 'conv.from': 'ファイル', 'conv.of': 'の', 'conv.sec': '秒', 'conv.aria': '秒数',
+    'conv.need': '秒数を入力してください',
+    'th.file': 'ファイル', 'th.start': '基準ファイル上の開始位置（秒）', 'th.speed': '再生速度', 'th.len': '基準タイムライン上の長さ（秒）',
+    'th.same': '同じ瞬間（秒）', 'refMark': '（基準）',
+    'txt.title': 'テキストレポート',
+    'kind.video': '映像', 'kind.audio': '音声',
+    'mode.full': '全編', 'mode.both': '先頭と末尾', 'mode.head': '先頭のみ', 'mode.tail': '末尾のみ',
+    'hint.created': 'ファイルの作成日時', 'hint.bext': 'BWF のタイムリファレンス', 'hint.mtime': 'ファイルの更新日時（不正確な場合あり）',
+    'hintNote': '（「時」は{src}から推定）',
+    'sec': '{v} 秒',
+    'card.rate': '速度比', 'card.rateNote': 'この速度で再生すると実時間に一致します',
+    'card.len': '補正後の長さ', 'card.orig': '{kind}の元の長さ {len} 秒{frames}', 'card.frames': '（{n} フレーム）',
+    'card.start': '{kind}開始の実時刻', 'card.end': '{kind}終了の実時刻',
+    'card.fps': '補正後のフレームレート', 'card.mode': 'モード',
+    'card.drift': 'クロックのずれ', 'card.driftV': '{ppm} ppm（測定精度 約 ±{unc} ppm）',
+    'card.err': '推定誤差', 'card.errV': 'ファイル内のどの位置でも約 ±{ms} ms{seg}', 'card.afterSeg': '（区間分割後）',
+    'card.seg': '区間 {i}', 'card.segV': '{a}～{b} 秒：再生速度 {v} %',
+    'card.mid': '中盤の実測ずれ', 'card.midV': '最大 {ms} ms（線形、区間分割は不要）',
+    'card.fit': 'フィッティング', 'card.fitV': '秒の立ち上がり {n} 個を使用、残差 {ms} ms', 'card.rejected': '、外れ値 {n} 個を除外',
+    'card.chan': '波形コードのチャンネル', 'card.chan1': 'チャンネル {n}', 'card.chan2': '先頭はチャンネル {a}、末尾はチャンネル {b}',
+    'card.offs': 'トラック開始オフセット', 'card.offsA': '音声トラック {a} 秒', 'card.offsV': '、映像トラック {v} 秒',
+    'warn.seg': '非線形ドリフト：中盤が直線から最大 {ms} ms ずれています。上記の区間ごとに速度を合わせてください（チェック箇所が多く、区間が細かいほど正確です）。',
+    'warn.single': '片端しか読み取れませんでした。速度はその短い区間だけのもので全体をカバーしていないため、機材の温度変化でずれる可能性があります。',
+    'warn.amb': '先頭と末尾の間が何分あるか確定できません。結果が妥当か確認してください（「分マーカーを探す」をオンにするか、中盤を実測してください）。',
+    'rep.rate':   '  ▶ 速度比              : {v} %',
+    'rep.len':    '  ▶ 補正後の長さ        : {v} 秒（{kind}の元の長さ {len} 秒{frames}）',
+    'rep.frames': '、{n} フレーム',
+    'rep.start':  '    {kind}開始の実時刻    : {clock}{hint}',
+    'rep.end':    '    {kind}終了の実時刻    : {clock}',
+    'rep.fps':    '  補正後フレームレート  : {a} → {b} fps',
+    'rep.drift':  '  クロックのずれ        : {ppm} ppm（測定精度 約 ±{unc} ppm）',
+    'rep.fit':    '  フィッティング        : 秒の立ち上がり {n} 個、残差 {ms} ms',
+    'rep.offs':   '  トラック開始オフセット: 音声トラック {a} 秒{vid}',
+    'rep.mode':   '  モード                : {mode}',
+    'rep.err':    '  推定誤差              : ファイル内のどの位置でも約 ±{ms} ms{seg}',
+    'rep.seg':    '  区間 {i}                : {a}～{b} 秒、再生速度 {v} %',
+    'rep.mid':    '  中盤の実測ずれ        : 最大 {ms} ms（線形）',
+    'rep.single': '  ⚠ 片端しか読み取れていません：全体をカバーしていないため、機材の温度変化でずれる可能性があります',
+    'rep.relHead': '基準ファイルに揃える：{file}（基準ファイル自身のタイムライン）',
+    'rep.relRow': '  {file}{ref}：開始 {off} 秒、再生速度 {v} %、長さ {len} 秒',
+    'prog.start': '解析中…', 'prog.n': '解析中…{n} ブロック読み込み済み',
+    'live.start': '{n} 個のファイルを解析しています', 'live.done': '解析完了：{n} 個のファイル', 'live.bad': '（うち {n} 個は解析できませんでした）',
+    'alert.webcodecs': 'このブラウザは WebCodecs による音声デコードに対応していないため、MP4／MOV 内の AAC 音声を解析できない場合があります。デスクトップ版の Chrome・Edge・Firefox、または Safari 26 以降をお使いください。',
+    'err.noMoov': 'MP4／MOV のインデックス（moov）が見つかりません。ファイルが不完全な可能性があります',
+    'err.frag': 'フラグメント化された MP4（fragmented MP4）には対応していません',
+    'err.noAudio': 'ファイルに音声トラックがありません',
+    'err.codec': '対応していない音声フォーマットです：{fmt}',
+    'err.asc': 'AAC のデコーダー設定がありません',
+    'err.wav': '有効な WAV ファイルではありません',
+    'err.wavChunks': 'WAV にフォーマットまたはデータのチャンクがありません',
+    'err.wavCodec': '対応していない WAV エンコードです（PCM と浮動小数点のみ対応）',
+    'err.inconsistent': '読み取った秒が互いに一致せず、判読できません',
+    'err.headTail': '先頭と末尾で読み取った時刻のつじつまが合いません',
+    'err.badFit': '読み取り結果が不自然です（速度のずれ {pct}%、フィッティング残差 {ms} ms）。秒を読み違えた可能性があります。信号の品質を確認してください',
+    'err.noCode': 'ファイルのどこからも波形コードを読み取れません',
+  },
+  ko: {
+    'title': '싱크 분석기',
+    'lang.label': '언어', 'lang.auto': '자동',
+    'lede': '파형 코드가 녹음된 영상·오디오 파일을 끌어다 놓으면 각 파일의 실제 시작 시각과 보정 후 길이를 계산합니다. 파일의 시작과 끝만 읽으며, 파일은 이 컴퓨터에만 남고 업로드되지 않습니다.',
+    'pick': '파일 선택',
+    'dropHint': '또는 여기로 파일을 끌어다 놓으세요. MP4, MOV(H.264/H.265, AAC 또는 PCM 오디오), M4A, WAV를 지원합니다.',
+    'opt.only': '코드 녹음 위치', 'opt.auto': '자동 감지', 'opt.head': '시작 부분만', 'opt.tail': '끝 부분만',
+    'opt.full': '전체 구간에 파형 코드 있음 (중간 몇 곳을 확인하고 필요하면 구간 분할)',
+    'opt.minute': '분 마커 찾기 (시:분:초 전체 표시, 느림)',
+    'rel.title': '기준 파일에 맞추기',
+    'rel.note': '모든 시간은 기준 파일 자체의 타임라인(첫 프레임부터 계산)으로 표시합니다. 세부 위치는 화면으로 확인하세요.',
+    'rel.ref': '기준 파일',
+    'rel.note60': '시작 위치는 초 값만으로 판정하므로 파일 간 시작 시각 차이가 ±30초 이내여야 합니다. 차이가 더 크면 화면으로 확인하거나 ‘분 마커 찾기’를 켜세요.',
+    'conv.title': '시간 환산', 'conv.from': '파일', 'conv.of': '의', 'conv.sec': '초 지점', 'conv.aria': '초',
+    'conv.need': '초 단위로 시간을 입력하세요',
+    'th.file': '파일', 'th.start': '기준 파일상 시작 위치(초)', 'th.speed': '재생 속도', 'th.len': '기준 타임라인상 길이(초)',
+    'th.same': '같은 시점(초)', 'refMark': ' (기준)',
+    'txt.title': '텍스트 보고서',
+    'kind.video': '영상', 'kind.audio': '오디오',
+    'mode.full': '전체 구간', 'mode.both': '시작과 끝', 'mode.head': '시작만', 'mode.tail': '끝만',
+    'hint.created': '파일 생성 시각', 'hint.bext': 'BWF 타임 레퍼런스', 'hint.mtime': '파일 수정 시각(부정확할 수 있음)',
+    'hintNote': ' (“시”는 {src} 기준 추정)',
+    'sec': '{v}초',
+    'card.rate': '속도 비율', 'card.rateNote': '이 속도로 재생하면 실제 시간과 맞습니다',
+    'card.len': '보정 후 길이', 'card.orig': '{kind} 원본 길이 {len}초{frames}', 'card.frames': ' ({n}프레임)',
+    'card.start': '{kind} 시작 실제 시각', 'card.end': '{kind} 종료 실제 시각',
+    'card.fps': '보정 후 프레임 레이트', 'card.mode': '모드',
+    'card.drift': '클럭 드리프트', 'card.driftV': '{ppm} ppm (측정 정밀도 약 ±{unc} ppm)',
+    'card.err': '예상 오차', 'card.errV': '파일 어느 위치에서나 약 ±{ms} ms{seg}', 'card.afterSeg': ' (구간 분할 후)',
+    'card.seg': '구간 {i}', 'card.segV': '{a}~{b}초: 재생 속도 {v} %',
+    'card.mid': '중간 실측 편차', 'card.midV': '최대 {ms} ms (선형, 구간 분할 불필요)',
+    'card.fit': '피팅', 'card.fitV': '초 펄스 에지 {n}개 사용, 잔차 {ms} ms', 'card.rejected': ', 이상값 {n}개 제외',
+    'card.chan': '파형 코드 채널', 'card.chan1': '{n}번 채널', 'card.chan2': '시작 {a}번 채널, 끝 {b}번 채널',
+    'card.offs': '트랙 시작 오프셋', 'card.offsA': '오디오 트랙 {a}초', 'card.offsV': ', 영상 트랙 {v}초',
+    'warn.seg': '비선형 드리프트: 중간이 직선에서 최대 {ms} ms 벗어납니다. 위의 구간별 속도로 맞추세요(확인 지점이 많고 구간이 촘촘할수록 정확합니다).',
+    'warn.single': '한쪽 끝만 읽었습니다. 속도는 그 짧은 구간만 반영하고 전체를 포함하지 않으므로 기기 온도 변화로 오차가 생길 수 있습니다.',
+    'warn.amb': '시작과 끝 사이가 몇 분인지 확정할 수 없습니다. 결과가 타당한지 확인하세요(‘분 마커 찾기’를 켜거나 중간을 실측하세요).',
+    'rep.rate':   '  ▶ 속도 비율           : {v} %',
+    'rep.len':    '  ▶ 보정 후 길이        : {v}초 ({kind} 원본 길이 {len}초{frames})',
+    'rep.frames': ', {n}프레임',
+    'rep.start':  '    {kind} 시작 실제 시각 : {clock}{hint}',
+    'rep.end':    '    {kind} 종료 실제 시각 : {clock}',
+    'rep.fps':    '  보정 후 프레임 레이트 : {a} → {b} fps',
+    'rep.drift':  '  클럭 드리프트         : {ppm} ppm (측정 정밀도 약 ±{unc} ppm)',
+    'rep.fit':    '  피팅                  : 초 펄스 에지 {n}개, 잔차 {ms} ms',
+    'rep.offs':   '  트랙 시작 오프셋      : 오디오 트랙 {a}초{vid}',
+    'rep.mode':   '  모드                  : {mode}',
+    'rep.err':    '  예상 오차             : 파일 어느 위치에서나 약 ±{ms} ms{seg}',
+    'rep.seg':    '  구간 {i}                : {a}~{b}초, 재생 속도 {v} %',
+    'rep.mid':    '  중간 실측 편차        : 최대 {ms} ms (선형)',
+    'rep.single': '  ⚠ 한쪽 끝만 읽음: 전체를 포함하지 않으므로 기기 온도 변화로 오차가 생길 수 있습니다',
+    'rep.relHead': '기준 파일에 맞춤: {file} (기준 파일 자체의 타임라인 기준)',
+    'rep.relRow': '  {file}{ref}: 시작 {off}초, 재생 속도 {v} %, 길이 {len}초',
+    'prog.start': '분석 중…', 'prog.n': '분석 중… {n}개 블록 읽음',
+    'live.start': '파일 {n}개 분석 중', 'live.done': '분석 완료: 파일 {n}개', 'live.bad': ', 그중 {n}개는 분석할 수 없음',
+    'alert.webcodecs': '이 브라우저는 WebCodecs 오디오 디코딩을 지원하지 않아 MP4/MOV 안의 AAC 오디오를 분석하지 못할 수 있습니다. 데스크톱용 Chrome, Edge, Firefox 또는 Safari 26 이상을 사용하세요.',
+    'err.noMoov': 'MP4/MOV 인덱스(moov)를 찾을 수 없습니다. 파일이 불완전할 수 있습니다',
+    'err.frag': '조각화된(fragmented) MP4는 지원하지 않습니다',
+    'err.noAudio': '파일에 오디오 트랙이 없습니다',
+    'err.codec': '지원하지 않는 오디오 형식: {fmt}',
+    'err.asc': 'AAC 디코더 설정이 없습니다',
+    'err.wav': '올바른 WAV 파일이 아닙니다',
+    'err.wavChunks': 'WAV 파일에 포맷 또는 데이터 청크가 없습니다',
+    'err.wavCodec': '지원하지 않는 WAV 인코딩입니다(PCM과 부동소수점만 지원)',
+    'err.inconsistent': '읽은 초 값이 서로 맞지 않아 판독할 수 없습니다',
+    'err.headTail': '시작과 끝에서 읽은 시각이 서로 맞지 않습니다',
+    'err.badFit': '읽기 결과가 비정상입니다(속도 편차 {pct}%, 피팅 잔차 {ms} ms). 일부 초를 잘못 읽었을 수 있으니 신호 품질을 확인하세요',
+    'err.noCode': '파일 어디에서도 파형 코드를 읽을 수 없습니다',
+  },
+};
+
+  // ---- i18n: every page uses the same detection; the choice is shared through localStorage ----
+  var LANGS = ['zh-Hant', 'en', 'ja', 'ko'];
+  function pickLang() {
+    try { var s = localStorage.getItem('slate-lang'); if (LANGS.indexOf(s) >= 0) return s; } catch (e) {}
+    var list = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || ''];
+    for (var i = 0; i < list.length; i++) {
+      var l = String(list[i]).toLowerCase();
+      if (l.indexOf('zh') === 0) return 'zh-Hant';
+      if (l.indexOf('ja') === 0) return 'ja';
+      if (l.indexOf('ko') === 0) return 'ko';
+      if (l.indexOf('en') === 0) return 'en';
+    }
+    return 'en';
+  }
+let lang = pickLang();
+// Missing keys fall back to English, then Chinese; {name} is replaced from vars.
+function t(key, vars) {
+  const s = [I18N[lang], I18N.en, I18N['zh-Hant']].map(d => d[key]).find(v => v !== undefined);
+  if (s === undefined) return key;
+  return vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : s;
+}
+function applyI18n() {
+  document.documentElement.lang = lang;
+  document.title = t('title');
+  for (const el of document.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);
+  for (const el of document.querySelectorAll('[data-i18n-html]')) el.innerHTML = t(el.dataset.i18nHtml);   // own strings only
+  for (const el of document.querySelectorAll('[data-i18n-attr]'))
+    for (const pair of el.dataset.i18nAttr.split(';')) { const [attr, key] = pair.split(':'); el.setAttribute(attr.trim(), t(key.trim())); }
+}
+function initLangMenu() {
+  const sel = $('lang');
+  let saved = null;
+  try { saved = localStorage.getItem('slate-lang'); } catch (e) {}
+  sel.value = LANGS.indexOf(saved) >= 0 ? saved : '';
+  sel.addEventListener('change', () => {
+    try { if (sel.value) localStorage.setItem('slate-lang', sel.value); else localStorage.removeItem('slate-lang'); } catch (e) {}
+    lang = sel.value || pickLang();
+    applyI18n();
+    rerender();
+  });
 }
 
 // =========================================================== UI
@@ -859,62 +1201,71 @@ const sgn = (v, d) => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(d);
 let results = [];
 window.__results = results;
 
+const errText = e => e.key ? t(e.key, e.vars) : e.raw;
+const kindOf = r => t('kind.' + r.kind);
+const isSingle = r => r.mode === 'head' || r.mode === 'tail';
+const hintNote = r => r.hintSrc ? t('hintNote', { src: t('hint.' + r.hintSrc) }) : '';
+
 function cardHtml(r) {
-  if (r.error) return `<h2 class="name">${esc(r.file)}</h2><p class="err">✗ ${esc(r.error)}</p>`;
-  const k = r.kind;
+  if (r.error) return `<h2 class="name">${esc(r.file)}</h2><p class="err">✗ ${esc(errText(r.error))}</p>`;
+  const kind = kindOf(r);
   const rows = [
-    [`${k}起點真實時間`, fmtClock(r.startClock, r.clockMod) + (r.hintSrc ? `（「時」依${r.hintSrc}推定）` : '')],
-    ...(r.fps ? [['修正後影格率', `${r.fps.toFixed(6)} → ${(r.fps * r.rate).toFixed(6)} fps`]] : []),
-    ['模式', r.mode],
-    ['時鐘偏差', `${sgn(r.ppm, 3)} ppm（量測精度約 ±${r.uncPpm.toFixed(3)} ppm）`],
-    ['預估誤差', `檔案任何位置約 ±${r.worstMs.toFixed(3)} ms${r.segments ? '（分段後）' : ''}`],
-    ...(r.segments ? r.segments.map((g, i) => [`第 ${i + 1} 段`, `${g.fileFrom.toFixed(3)} ～ ${g.fileTo.toFixed(3)} 秒：播放速度 ${(g.speed * 100).toFixed(6)} %`]) : []),
-    ...(!r.segments && r.midDevMs !== null ? [['中段實測偏差', `最多 ${r.midDevMs.toFixed(3)} ms（線性，不需分段）`]] : []),
-    [`${k}結束真實時間`, fmtClock(r.startClock + r.correctedLength, r.clockMod)],
-    ['擬合', `使用 ${r.edgesUsed} 個秒前緣，殘差 ${r.fitRmsMs.toFixed(3)} ms` + (r.edgesRejected ? `，排除 ${r.edgesRejected} 個異常點` : '')],
-    ['波形碼聲道', r.channel[0] === r.channel[1] ? `第 ${r.channel[0] + 1} 聲道` : `開頭第 ${r.channel[0] + 1} 聲道，結尾第 ${r.channel[1] + 1} 聲道`],
-    ['軌道起點偏移', `音訊軌 ${sgn(r.aOff, 6)} 秒` + (r.vOff !== null ? `，畫面軌 ${sgn(r.vOff, 6)} 秒` : '')],
+    [t('card.start', { kind }), fmtClock(r.startClock, r.clockMod) + hintNote(r)],
+    ...(r.fps ? [[t('card.fps'), `${r.fps.toFixed(6)} → ${(r.fps * r.rate).toFixed(6)} fps`]] : []),
+    [t('card.mode'), t('mode.' + r.mode)],
+    [t('card.drift'), t('card.driftV', { ppm: sgn(r.ppm, 3), unc: r.uncPpm.toFixed(3) })],
+    [t('card.err'), t('card.errV', { ms: r.worstMs.toFixed(3), seg: r.segments ? t('card.afterSeg') : '' })],
+    ...(r.segments ? r.segments.map((g, i) => [t('card.seg', { i: i + 1 }),
+      t('card.segV', { a: g.fileFrom.toFixed(3), b: g.fileTo.toFixed(3), v: (g.speed * 100).toFixed(6) })]) : []),
+    ...(!r.segments && r.midDevMs !== null ? [[t('card.mid'), t('card.midV', { ms: r.midDevMs.toFixed(3) })]] : []),
+    [t('card.end', { kind }), fmtClock(r.startClock + r.correctedLength, r.clockMod)],
+    [t('card.fit'), t('card.fitV', { n: r.edgesUsed, ms: r.fitRmsMs.toFixed(3) }) + (r.edgesRejected ? t('card.rejected', { n: r.edgesRejected }) : '')],
+    [t('card.chan'), r.channel[0] === r.channel[1] ? t('card.chan1', { n: r.channel[0] + 1 }) : t('card.chan2', { a: r.channel[0] + 1, b: r.channel[1] + 1 })],
+    [t('card.offs'), t('card.offsA', { a: sgn(r.aOff, 6) }) + (r.vOff !== null ? t('card.offsV', { v: sgn(r.vOff, 6) }) : '')],
   ];
   const warns = [];
 
-  if (r.segments) warns.push(`非線性漂移：中段偏離直線最多 ${r.midDevMs.toFixed(1)} ms，建議依上列分段調速（抽查越多處、分段越細越準）`);
-  if (r.mode.startsWith('僅')) warns.push('只讀到單端：速率只代表那一小段時間，未涵蓋整段，機身溫度變化可能造成偏差');
-  if (r.ambiguous) warns.push('頭尾之間的整分鐘數無法確定，請確認結果是否合理（可勾選尋找分鐘標記或實測中段）');
+  if (r.segments) warns.push(t('warn.seg', { ms: r.midDevMs.toFixed(1) }));
+  if (isSingle(r)) warns.push(t('warn.single'));
+  if (r.ambiguous) warns.push(t('warn.amb'));
   return `<h2 class="name">${esc(r.file)}</h2>
     <div class="headline">
-      <div><div class="k">速度比例</div><div class="v num">${(r.rate * 100).toFixed(6)} %</div>
-        <div class="meta">以此速度播放即對齊真實時間</div></div>
-      <div><div class="k">校正後長度</div><div class="v num">${r.correctedLength.toFixed(6)} 秒</div>
-        <div class="meta">${k}原長 ${r.length.toFixed(6)} 秒${r.frames ? `（${r.frames} 格）` : ''}</div></div>
+      <div><div class="k">${t('card.rate')}</div><div class="v num">${(r.rate * 100).toFixed(6)} %</div>
+        <div class="meta">${t('card.rateNote')}</div></div>
+      <div><div class="k">${t('card.len')}</div><div class="v num">${t('sec', { v: r.correctedLength.toFixed(6) })}</div>
+        <div class="meta">${t('card.orig', { kind, len: r.length.toFixed(6), frames: r.frames ? t('card.frames', { n: r.frames }) : '' })}</div></div>
     </div>
     <dl>${rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('')}</dl>
     ${warns.map(w => `<p class="warn">⚠ ${w}</p>`).join('')}`;
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+// The rep.* strings are whole lines: each language pads its own labels so the colons line up in a monospace font.
 function textReport() {
   const L = [];
   for (const r of results) {
     L.push('='.repeat(64), r.file);
-    if (r.error) { L.push(`  ✗ ${r.error}`); continue; }
-    L.push(`  ▶ 速度比例        : ${(r.rate * 100).toFixed(6)} %`);
-    L.push(`  ▶ 校正後長度      : ${r.correctedLength.toFixed(6)} 秒（${r.kind}原長 ${r.length.toFixed(6)} 秒${r.frames ? `，${r.frames} 格` : ''}）`);
-    L.push(`    ${r.kind}起點真實時間  : ${fmtClock(r.startClock, r.clockMod)}${r.hintSrc ? `（「時」依${r.hintSrc}推定）` : ''}`);
-    L.push(`    ${r.kind}結束真實時間  : ${fmtClock(r.startClock + r.correctedLength, r.clockMod)}`);
-    if (r.fps) L.push(`  修正後影格率      : ${r.fps.toFixed(6)} → ${(r.fps * r.rate).toFixed(6)} fps`);
-    L.push(`  時鐘偏差          : ${sgn(r.ppm, 3)} ppm（量測精度約 ±${r.uncPpm.toFixed(3)} ppm）`);
-    L.push(`  擬合              : ${r.edgesUsed} 個秒前緣，殘差 ${r.fitRmsMs.toFixed(3)} ms`);
-    L.push(`  軌道起點偏移      : 音訊軌 ${sgn(r.aOff, 6)} 秒${r.vOff !== null ? `，畫面軌 ${sgn(r.vOff, 6)} 秒` : ''}`);
-    L.push(`  模式              : ${r.mode}`);
-    L.push(`  預估誤差          : 檔案任何位置約 ±${r.worstMs.toFixed(3)} ms${r.segments ? '（分段後）' : ''}`);
-    if (r.segments) r.segments.forEach((g, i) => L.push(`  第 ${i + 1} 段            : ${g.fileFrom.toFixed(3)} ～ ${g.fileTo.toFixed(3)} 秒，播放速度 ${(g.speed * 100).toFixed(6)} %`));
-    else if (r.midDevMs !== null) L.push(`  中段實測偏差      : 最多 ${r.midDevMs.toFixed(3)} ms（線性）`);
-    if (r.mode.startsWith('僅')) L.push('  ⚠ 只讀到單端：未涵蓋整段，機身溫度變化可能造成偏差');
+    if (r.error) { L.push(`  ✗ ${errText(r.error)}`); continue; }
+    const kind = kindOf(r);
+    L.push(t('rep.rate', { v: (r.rate * 100).toFixed(6) }));
+    L.push(t('rep.len', { v: r.correctedLength.toFixed(6), kind, len: r.length.toFixed(6), frames: r.frames ? t('rep.frames', { n: r.frames }) : '' }));
+    L.push(t('rep.start', { kind, clock: fmtClock(r.startClock, r.clockMod), hint: hintNote(r) }));
+    L.push(t('rep.end', { kind, clock: fmtClock(r.startClock + r.correctedLength, r.clockMod) }));
+    if (r.fps) L.push(t('rep.fps', { a: r.fps.toFixed(6), b: (r.fps * r.rate).toFixed(6) }));
+    L.push(t('rep.drift', { ppm: sgn(r.ppm, 3), unc: r.uncPpm.toFixed(3) }));
+    L.push(t('rep.fit', { n: r.edgesUsed, ms: r.fitRmsMs.toFixed(3) }));
+    L.push(t('rep.offs', { a: sgn(r.aOff, 6), vid: r.vOff !== null ? t('card.offsV', { v: sgn(r.vOff, 6) }) : '' }));
+    L.push(t('rep.mode', { mode: t('mode.' + r.mode) }));
+    L.push(t('rep.err', { ms: r.worstMs.toFixed(3), seg: r.segments ? t('card.afterSeg') : '' }));
+    if (r.segments) r.segments.forEach((g, i) => L.push(t('rep.seg', { i: i + 1, a: g.fileFrom.toFixed(3), b: g.fileTo.toFixed(3), v: (g.speed * 100).toFixed(6) })));
+    else if (r.midDevMs !== null) L.push(t('rep.mid', { ms: r.midDevMs.toFixed(3) }));
+    if (isSingle(r)) L.push(t('rep.single'));
   }
   const rel = relRows();
   if (rel) {
-    L.push('='.repeat(64), `對齊到基準檔：${rel.ref.file}（以基準檔自己的時間軸計）`);
-    for (const x of rel.rows) L.push(`  ${x.file}${x.r === rel.ref ? '（基準）' : ''}：起點 ${sgn(x.offset, 6)} 秒，播放速度 ${(x.speed * 100).toFixed(6)} %，長度 ${x.length.toFixed(6)} 秒`);
+    L.push('='.repeat(64), t('rep.relHead', { file: rel.ref.file }));
+    for (const x of rel.rows) L.push(t('rep.relRow', { file: x.file, ref: x.r === rel.ref ? t('refMark') : '',
+      off: sgn(x.offset, 6), v: (x.speed * 100).toFixed(6), len: x.length.toFixed(6) }));
   }
   return L.join('\n');
 }
@@ -934,9 +1285,9 @@ function renderRel() {
   const rel = relRows();
   $('relSec').hidden = !rel;
   if (rel) {
-    $('relTable').innerHTML = '<tr><th>檔案</th><th style="text-align:right">起點位於基準檔（秒）</th><th style="text-align:right">播放速度</th><th style="text-align:right">在基準時間軸長度（秒）</th></tr>' +
-      rel.rows.map(x => `<tr><td>${esc(x.file)}${x.r === rel.ref ? '（基準）' : ''}</td><td class="n num">${sgn(x.offset, 6)}</td><td class="n num">${(x.speed * 100).toFixed(6)} %</td><td class="n num">${x.length.toFixed(6)}</td></tr>`).join('');
-    $('relNote').textContent = rel.M === 3600 ? '' : '起點位置以秒數判定，各檔案開始時間相差須在 ±30 秒內；更大的差距請以畫面確認，或勾選「尋找分鐘標記」。';
+    $('relTable').innerHTML = `<tr><th>${t('th.file')}</th><th style="text-align:right">${t('th.start')}</th><th style="text-align:right">${t('th.speed')}</th><th style="text-align:right">${t('th.len')}</th></tr>` +
+      rel.rows.map(x => `<tr><td>${esc(x.file)}${x.r === rel.ref ? t('refMark') : ''}</td><td class="n num">${sgn(x.offset, 6)}</td><td class="n num">${(x.speed * 100).toFixed(6)} %</td><td class="n num">${x.length.toFixed(6)}</td></tr>`).join('');
+    $('relNote').textContent = rel.M === 3600 ? '' : t('rel.note60');
     const cur = $('convSrc').value;
     $('convSrc').innerHTML = rel.ok.map(r => `<option${r.file === cur ? ' selected' : ''}>${esc(r.file)}</option>`).join('');
     renderConv();
@@ -947,10 +1298,10 @@ function renderRel() {
 function renderConv() {
   const rel = relRows();
   if (!rel) return;
-  const src = rel.ok.find(r => r.file === $('convSrc').value) || rel.ok[0], t = parseFloat($('convT').value);
-  if (!isFinite(t)) { $('convTable').innerHTML = '<tr><td class="err">請輸入秒數</td></tr>'; return; }
-  $('convTable').innerHTML = '<tr><th>檔案</th><th style="text-align:right">同一時刻（秒）</th></tr>' +
-    rel.ok.filter(r => r !== src).map(r => `<tr><td>${esc(r.file)}${r === rel.ref ? '（基準）' : ''}</td><td class="n num">${convertT(rel, src, t, r).toFixed(6)}</td></tr>`).join('');
+  const src = rel.ok.find(r => r.file === $('convSrc').value) || rel.ok[0], v = parseFloat($('convT').value);
+  if (!isFinite(v)) { $('convTable').innerHTML = `<tr><td class="err">${t('conv.need')}</td></tr>`; return; }
+  $('convTable').innerHTML = `<tr><th>${t('th.file')}</th><th style="text-align:right">${t('th.same')}</th></tr>` +
+    rel.ok.filter(r => r !== src).map(r => `<tr><td>${esc(r.file)}${r === rel.ref ? t('refMark') : ''}</td><td class="n num">${convertT(rel, src, v, r).toFixed(6)}</td></tr>`).join('');
 }
 $('convSrc').addEventListener('change', renderConv);
 $('convT').addEventListener('input', renderConv);
@@ -961,36 +1312,50 @@ function renderRefSel() {
 }
 $('refSel').addEventListener('change', renderRel);
 
+// Re-render everything built from results in the current language (the aria-live text is left alone so a
+// language switch is not announced as a new analysis).
+function rerender() {
+  for (const card of $('results').children) {
+    if (card.result) card.innerHTML = cardHtml(card.result);
+    else { const p = card.querySelector('.progress'); if (p) p.textContent = progressText(card.steps); }
+  }
+  if (results.length) renderRel();
+}
+const progressText = n => n ? t('prog.n', { n }) : t('prog.start');
+
 let busy = Promise.resolve();
 function addFiles(list) {
   const files = Array.from(list);
   if (!files.length) return;
   if (typeof AudioDecoder === 'undefined' && files.some(f => !/\.wav$/i.test(f.name)))
-    alert('這個瀏覽器不支援 WebCodecs 音訊解碼，MP4／MOV 中的 AAC 音訊可能無法分析。建議使用 Chrome、Edge、Firefox 桌面版或 Safari 26 以上。');
+    alert(t('alert.webcodecs'));
   busy = busy.then(async () => {
     let bad = 0;
-    $('live').textContent = `正在分析 ${files.length} 個檔案`;
+    $('live').textContent = t('live.start', { n: files.length });
     const opts = { only: $('optOnly').value || null, probe: $('optFull').checked ? 3 : 0, minute: $('optMinute').checked };
     for (const f of files) {
       const card = document.createElement('div');
       card.className = 'card';
-      card.innerHTML = `<h2 class="name">${esc(f.name)}</h2><p class="progress">分析中…</p>`;
+      card.steps = 0;
+      card.innerHTML = `<h2 class="name">${esc(f.name)}</h2><p class="progress">${progressText(0)}</p>`;
       $('results').appendChild(card);
-      let steps = 0;
-      const tick = () => { card.querySelector('.progress') && (card.querySelector('.progress').textContent = `分析中…已讀取 ${++steps} 段`); };
+      const tick = () => { card.querySelector('.progress') && (card.querySelector('.progress').textContent = progressText(++card.steps)); };
       let r;
       try { r = await analyze(f, opts, tick); }
-      catch (e) { r = { file: f.name, error: (e && e.message) || String(e) }; }
+      catch (e) { r = { file: f.name, error: (e && e.i18n) || { raw: (e && e.message) || String(e) } }; }
       results.push(r);
       if (r.error) bad++;
+      card.result = r;
       card.innerHTML = cardHtml(r);
       renderRefSel(); renderRel();
     }
-    $('live').textContent = `分析完成：${files.length} 個檔案` + (bad ? `，其中 ${bad} 個無法分析` : '');
+    $('live').textContent = t('live.done', { n: files.length }) + (bad ? t('live.bad', { n: bad }) : '');
     window.__done = (window.__done || 0) + files.length;
   });
 }
 
+initLangMenu();
+applyI18n();
 $('pickBtn').addEventListener('click', () => $('pick').click());
 $('pick').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
 const drop = $('drop');
