@@ -162,6 +162,13 @@
   .ofs-row button { flex: 1; min-width: 48px; padding: 8px 0; border-radius: 12px; font-size: 20px; }
   .ofs-row output { min-width: 80px; text-align: center; font-size: 20px; font-variant-numeric: tabular-nums; }
   .ofs-k { min-width: 40px; flex: none; font-size: 18px; color: var(--dim); }
+  /* Label + four 48px buttons + value need about 342px; a 360px phone has about 296px inside the card, so the
+     label moves above the buttons there and the touch targets keep their size. */
+  @media (max-width: 400px) {
+    .ofs-row { flex-wrap: wrap; row-gap: 4px; }
+    .ofs-k { flex: 0 0 100%; }
+    .ofs-row output { min-width: 72px; }
+  }
   .seg[hidden] { display: none; }
   button.ltc { border-color: var(--mark); color: var(--mark); }
   .scene { display: flex; align-items: center; gap: 12px; border-bottom: 2px solid var(--line); }
