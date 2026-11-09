@@ -1,90 +1,121 @@
 # slate-sync
 
-長時間多機錄影、錄音的對齊與速率校正工具組。
+**English** · [繁體中文](README.zh-TW.md)
 
-每台設備的時鐘都有誤差，錄一小時可能差上數秒。這組工具用一支手機產生帶有時間資訊的同步訊號（閃白、嗶聲、波形碼或 LTC），錄進每台設備；事後讀出每個檔案頭尾的訊號，算出**起點真實時間**與**校正後長度**。只要每個檔案的起點與長度都正確，檔案裡的每一格畫面、每一個聲音取樣就會落在正確的真實時間上。
+**Keep long multi-camera and multi-recorder shoots in sync, down to the frame, with nothing but a phone.**
 
-## 組成
+Every camera and audio recorder runs on its own clock, and those clocks drift. At a typical 833 ppm, two devices are already **3 seconds apart after one hour**. Timecode boxes fix this, but they cost money and need a free input on every device.
 
-| 檔案 | 用途 | 執行環境 |
+slate-sync turns a phone into a sync slate. Record it at the head and tail of each take. The analyzer then reads every file and tells you each file's **true start time** and its **corrected length**. With both right, every frame and every audio sample lands at its true moment.
+
+[![Open the slate](https://img.shields.io/badge/Open%20the%20slate-sinnoken.github.io%2Fslate--sync-ffd400?labelColor=111)](https://sinnoken.github.io/slate-sync/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+![The sync slate on a phone, held upright (clock) and sideways (countdown)](docs/images/slate-en.png)
+
+*The sync slate on a phone. Held upright, the clock shows hours, minutes, seconds and frames on four rows. Held sideways, it shows two rows. Tap the digits to hide the controls.*
+
+![The analyzer in a desktop browser, showing speed ratio, corrected length and alignment to a reference file](docs/images/analyzer-en.png)
+
+*The analyzer in a desktop browser: two recordings, one +833 ppm fast and one −500 ppm slow, aligned to a reference file.*
+
+## Features
+
+- **Phone slate, no install.** Open the page and add it to the home screen. It runs full screen and **works offline** after the first visit.
+  - **Clock, countdown or count-up**, with scheduled starts.
+  - **Full-screen black/white square wave.** Black to white marks the whole second, so a camera that only sees the screen can still be aligned.
+  - **Audio sync signal:** beep, **waveform code** or **LTC**, at 23.976 to 120 fps.
+- **Waveform code you can read by eye.** Each second's number is encoded as pulse counts, so you can read it in any editor's waveform view. It survives clipping, limiters, auto gain and lossy compression, and works through the phone speaker and a camera's built-in mic.
+- **Drag-and-drop analyzer in the browser.** Files never leave your computer. It reads only the head and tail of each file, not the whole recording.
+  - **Per file:** speed ratio, corrected length, true start time and clock drift in ppm.
+  - **Against a reference file:** each file's start offset and playback speed, plus conversion of any moment between files.
+- **English, 繁體中文, 日本語 and 한국어.** The interface follows your device language, and you can switch it from the page.
+- **Command-line version** (Python + ffmpeg) for every format ffmpeg can read, with JSON output for scripts.
+- **Measured accuracy:** on test files, speed-ratio error is 0.01–0.06 ppm and start/length error under 0.01 ms (see [testing](docs/testing.md)).
+
+## How it works
+
+1. **Before the shoot.** Feed one audio channel of each recorder or camera from the phone's headphone output (attenuate it for a MIC input), and set the slate to **waveform code**. A device with no audio input can record the phone speaker through its built-in mic:
+   - within 30 cm it is most reliable;
+   - up to 1 m works in a quiet room;
+   - don't send LTC over the air.
+2. **At the head and the tail.** Record the slate for at least one minute, so it crosses a full minute and the minute marker is captured. You can unplug it in between. A camera that only sees picture just films the phone screen.
+3. **Afterwards.** Drop all files into the analyzer (or run `slate_sync.py`).
+4. **In your editor.** Align cameras by picture and use the analyzer's numbers to check and convert. Correct each file with its speed ratio, adjusted frame rate or corrected length.
+
+## Quick start
+
+| Tool | Where | How |
 |---|---|---|
-| `web/sync-slate.html` | **同步場記板**（可安裝成手機 App，見下方）：手機上的時鐘／倒數／正數，全螢幕黑白方波（黑變白為整秒），音訊可選嗶聲、波形碼或 LTC | 手機瀏覽器 |
-| `web/sync-analyzer.html` | **同步分析器**：拖入檔案，讀取波形碼並計算起點與校正後長度 | 電腦瀏覽器（Chrome、Edge、Firefox 桌面版、Safari 26+） |
-| `python/slate_sync.py` | 分析器的命令列版本，支援 ffmpeg 能讀的所有格式 | Python 3.8+、numpy、ffmpeg |
-| `docs/waveform-code.md` | 波形碼格式規格 | — |
-| `docs/testing.md` | 驗證方式與結果 | — |
-| `tests/make_test_media.py` | 產生已知漂移量的測試檔 | Python 3.8+、numpy、ffmpeg（選用） |
-
-兩個網頁都是單一 HTML 檔，不需要建置或伺服器。分析器要使用 WebCodecs 解碼 AAC，必須在 `https://` 或 `http://localhost` 下開啟；直接用 `file://` 開啟時，只能分析 WAV 與 PCM 音訊的檔案。
-
-## 工作流程
-
-1. **拍攝前**：每台錄音機或攝影機的一個聲道接手機的耳機輸出（MIC 輸入需衰減），場記板切到「波形碼」。沒有音訊輸入的設備，也可以用手機喇叭播放、由內建麥克風收音：手機距麥克風 30 cm 內最穩定，1 m 內在安靜時仍可用（見 `docs/testing.md`）；不要用 LTC 走空氣傳播。
-2. **開頭與結尾**：接上產生器至少 1 分鐘（跨過一次整分鐘，才能讀到分鐘標記），中間可以拔掉。只拍得到畫面的攝影機，拍手機螢幕的黑白切換即可（黑變白為整秒）。
-3. **事後分析**：把所有檔案丟進分析器或 `slate_sync.py`，得到每個檔案的
-   - **速度比例**與**校正後長度**（以畫面軌的格數計算），這是音軌的首要任務
-   - 對齊到指定基準檔：其他檔案的起點位置、播放速度，以及任一時刻的換算
-   - 時鐘偏差（ppm）；超過 1% 視為讀取錯誤（實際設備遠小於此）
-4. **在剪輯軟體中**：跨機對齊以畫面為準，分析器的數字用來換算與確認；以速度比例、修正後影格率或校正後長度修正每個檔案。
-
-## 安裝到手機（PWA）
-
-場記板可以像 App 一樣從主畫面開啟：全螢幕、沒有網址列，第一次開啟後**離線也能使用**。
-
-1. **發布**：把 repo 推到 GitHub，在 Settings → Pages 把 Source 設為「GitHub Actions」。之後每次推到 `main`，`.github/workflows/pages.yml` 會自動把 `web/` 發布到 `https://<帳號>.github.io/<repo>/`（本專案：<https://sinnoken.github.io/slate-sync/>，首頁可選擇場記板或分析器，也可直接安裝 App）。也可以把 `web/` 資料夾放到任何支援 https 的靜態網站空間。
-2. **安裝**：
-   - iPhone：用 Safari 開啟網址 → 分享 → 加入主畫面。
-   - Android：用 Chrome 開啟網址 → 選單 → 安裝應用程式（或加到主畫面）。
-3. **更新**：修改網頁後，把 `web/sw.js` 裡的 `VERSION` 改成新值再發布；手機下次開啟時會在背景更新，再開一次即為新版。
-
-`web/manifest.webmanifest` 是 App 名稱、圖示與全螢幕設定；`web/sw.js` 負責離線快取；`web/icons/` 是圖示。
-
-## 快速開始
+| **Sync slate** | Phone browser | Open <https://sinnoken.github.io/slate-sync/> and tap the slate. To install: on iPhone, Safari → Share → Add to Home Screen; on Android, Chrome → menu → Install app. |
+| **Analyzer** | Desktop browser (Chrome, Edge, desktop Firefox, Safari 26+) | Open the same site and choose the analyzer, then drag in files. |
+| **Command line** | Python 3.8+, numpy, ffmpeg | See below. |
 
 ```bash
-pip install -r python/requirements.txt          # 另需安裝 ffmpeg / ffprobe
+pip install -r python/requirements.txt          # also needs ffmpeg / ffprobe
 python python/slate_sync.py A001.MP4 ZOOM0001.WAV --ref A001.MP4
-python python/slate_sync.py *.MP4 --ref A001.MP4 --at B002.MP4=125.5   # B002 的 125.5 秒對應各檔案的哪一秒
+python python/slate_sync.py *.MP4 --ref A001.MP4 --at B002.MP4=125.5   # where B002 at 125.5 s falls in every other file
 ```
 
-選項：
-
-| 選項 | 說明 |
+| Option | Meaning |
 |---|---|
-| `--ref 檔名` | 對齊的基準檔，預設為第一個檔案 |
-| `--at 檔名=秒` | 把某檔案的某一刻換算到其他檔案的時間，可重複 |
-| `--channel N` | 指定波形碼所在聲道（0 起算），預設自動判斷，頭尾可不同 |
-| `--fps 59.94` | 檔案沒有記錄影格率時指定；29.97、59.94 等自動使用精確分數 |
-| `--only head`／`--only tail` | 只錄了開頭／結尾：略過另一端的搜尋（不加也會自動判斷，只是較慢） |
-| `--full` | 整段都有波形碼：抽查中段 3 處，偏離直線超過 2 ms 時改為分段調速 |
-| `--probe N` | 中段抽查處數（隱含 `--full`），越多分段越細 |
-| `--target 1` | 目標精度：檔案任何位置的預估誤差（ms），達到即停止讀取 |
-| `--search 30`／`--max-read 120` | 每端最多往內找幾分鐘／找到後最多再讀幾秒 |
-| `--minute` | 讀到波形碼後再多讀約 1 分鐘尋找分鐘標記，以顯示完整的時分秒（預設讀到就停） |
-| `--json` | 以 JSON 輸出 |
+| `--ref FILE` | Reference file for alignment (default: the first file) |
+| `--at FILE=SEC` | Convert a moment in one file to every other file; repeatable |
+| `--channel N` | Channel holding the waveform code (0-based); auto-detected by default, may differ between head and tail |
+| `--fps 59.94` | Frame rate when the file doesn't record one; 29.97, 59.94 etc. use exact fractions |
+| `--only head` / `--only tail` | Only the head or tail was recorded: skip searching the other end (auto-detected otherwise, just slower) |
+| `--full` | Code runs through the whole file: spot-check 3 points in the middle and switch to segmented speed if drift is not linear (off by more than 2 ms) |
+| `--probe N` | Number of middle spot checks (implies `--full`) |
+| `--target 1` | Target accuracy in ms anywhere in the file; reading stops once reached |
+| `--search 30` / `--max-read 120` | Minutes to search inward from each end / seconds to keep reading after the code is found |
+| `--minute` | Read about one more minute to find the minute marker and show full hh:mm:ss |
+| `--json` | JSON output |
 
-## 模式
+## Modes
 
-分析器自動判斷，報告中會標示：
+The analyzer picks the mode itself and states it in the report.
 
-| 你錄了 | 模式 | 說明 |
+| You recorded | Mode | Notes |
 |---|---|---|
-| 開頭與結尾 | 頭尾 | 兩端一起擬合，精度最好 |
-| 只有開頭或只有結尾 | 僅開頭／僅結尾 | 用該端的局部速率；未涵蓋整段，機身溫度變化可能造成偏差 |
-| 整段（加 `--full`） | 全段 | 抽查中段；漂移不是直線時輸出分段調速 |
+| Head and tail | Head + tail | Both ends fitted together; best accuracy |
+| Only head or only tail | Head only / tail only | Uses that end's local rate; drift from temperature changes during the take is not covered |
+| The whole take (`--full`) | Full | Spot-checks the middle; outputs segmented speed if drift is not linear |
 
-所有讀到的秒都放進同一個擬合，精度取決於點數與分布跨度；分析器一邊讀一邊估算「檔案任何位置的預估誤差」，達到目標精度就停止。
+Every second that is read goes into one fit. While reading, the analyzer estimates the worst-case error anywhere in the file and stops as soon as it meets the target.
 
-## 精度與限制
+## Accuracy and limits
 
-- 以測試檔驗證，速度比例誤差約 0.01–0.06 ppm，起點與長度誤差在 0.01 毫秒以內；削波 20 dB 時約 1 ppm。詳見 `docs/testing.md`。
-- 只讀頭尾、以直線修正。拍攝中速率若有變化（例如溫度），中段會偏離直線；`--mid` 可實測。
-- 頭尾之間經過幾個整分鐘，由兩端各自量到的局部時鐘比例推算，不需要分鐘標記，錄多長都適用。
-- 跨檔案的起點位置以秒數判定，各檔案開始時間相差須在 ±30 秒內（加 `--minute` 讀到分鐘標記時為 ±30 分鐘）；跨機對齊以畫面為準。
-- 只讀第一條音訊軌。
-- 網頁版不支援 AVCHD（.MTS，多為 AC-3 音訊）、MXF 與分段式 MP4，請改用 Python 版。
-- 所有驗證都以軟體產生的訊號進行；請先用實際設備錄一段確認。
+- **Accuracy on test files:** speed-ratio error is about 0.01–0.06 ppm, and start and length errors are under 0.01 ms. With 20 dB of clipping, the speed error is about 1 ppm. Details are in [docs/testing.md](docs/testing.md).
+- **Straight-line correction.** The analyzer corrects with one straight line between head and tail. If the clock rate changes during the take (for example with temperature), the middle departs from that line; use `--full` to measure it.
+- **Any length.** The number of whole minutes between head and tail is derived from the clock rate measured at each end, so no minute marker is needed.
+- **Start-time window.** Cross-file start positions are matched by second, so files must start within ±30 s of each other (±30 min when `--minute` finds the minute marker). Align cameras by picture.
+- **Audio track.** Only the first audio track is read.
+- **Formats.** The web analyzer does not support AVCHD (.MTS, usually AC-3 audio), MXF or fragmented MP4; use the Python version for those.
+- **Real devices.** All validation used software-generated signals, so test with your own devices before relying on it.
 
-## 授權
+## Self-hosting
 
-尚未指定授權條款。
+Both web tools are single HTML files with no build step and no server code.
+
+- **GitHub Pages.** Fork the repo and set Settings → Pages → Source to **GitHub Actions**. Every push to `main` then publishes `web/` through [`.github/workflows/pages.yml`](.github/workflows/pages.yml). Any static host with HTTPS also works.
+- **Opening the analyzer locally.** It decodes AAC with WebCodecs, which needs `https://` or `http://localhost`. Opened from `file://`, it can only analyze WAV and PCM audio.
+  ```bash
+  python -m http.server 8000      # then open http://localhost:8000/web/sync-analyzer.html
+  ```
+- **Updates and offline use.** Installed copies update in the background and show the new version on the next launch. Bump `VERSION` in [`web/sw.js`](web/sw.js) only when you change the service worker itself or want old caches cleared.
+
+## Repository layout
+
+| Path | What it is |
+|---|---|
+| [`web/sync-slate.html`](web/sync-slate.html) | Sync slate (phone PWA) |
+| [`web/sync-analyzer.html`](web/sync-analyzer.html) | Analyzer (desktop browser) |
+| [`python/slate_sync.py`](python/slate_sync.py) | Command-line analyzer |
+| [`tests/make_test_media.py`](tests/make_test_media.py) | Generates test files with a known drift |
+| [`docs/waveform-code.md`](docs/waveform-code.md) | Waveform code specification (Traditional Chinese) |
+| [`docs/testing.md`](docs/testing.md) | How it was validated, with results (Traditional Chinese) |
+| [`CHANGELOG.md`](CHANGELOG.md) | Release notes (Traditional Chinese) |
+
+## License
+
+[MIT](LICENSE)
