@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>同步場記板</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="場記板">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700&family=Atkinson+Hyperlegible+Mono:wght@700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink:#ffffff; --ground:#000000; --dim:#8a8f98; --line:#2a2d33; --panel:#15171b;
+    --hm:#4fc3ff; --ss:#ffffff; --ff:#ffd400; --mark:#ffd400;
+    color-scheme: dark;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --ink:#ffffff; --ground:#000000; --dim:#8a8f98; --line:#2a2d33; --panel:#15171b; --hm:#4fc3ff; --ss:#ffffff; --ff:#ffd400; --mark:#ffd400; }
+  }
+  :root[data-theme="dark"] { --ink:#ffffff; --ground:#000000; --dim:#8a8f98; --line:#2a2d33; --panel:#15171b; --hm:#4fc3ff; --ss:#ffffff; --ff:#ffd400; --mark:#ffd400; }
+  *, *::before, *::after { box-sizing: inherit; }
+  html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); background: var(--ground); }
+  body {
+    height: 100%; margin: 0; background: var(--ground); color: var(--ink);
+    font-family: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+    display: grid; grid-template-rows: auto 1fr auto; grid-template-columns: minmax(0, 1fr); width: 100%; overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
+  }
+  body.flash { background: var(--ink); }
+
+  header { padding: 12px max(16px, env(safe-area-inset-left, 0px)) 0 max(16px, env(safe-area-inset-left, 0px)); }
+  .tag {
+    width: 100%; min-height: 52px; background: transparent; border: none; border-bottom: 2px solid var(--line);
+    color: var(--ink); font-family: inherit; font-weight: 700; font-size: clamp(28px, 8vw, 52px); line-height: 1;
+    padding: 4px 0; outline: none; -webkit-user-select: text; user-select: text;
+  }
+  .tag:focus-visible { border-bottom-color: var(--mark); }
+  .tag::placeholder { color: var(--dim); }
+
+  main { min-height: 0; container-type: size; display: grid; place-items: center; cursor: pointer; }
+  .clock {
+    font-family: "Atkinson Hyperlegible Mono", "Roboto Mono", Menlo, Consolas, monospace;
+    font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+    line-height: 0.88; white-space: nowrap; text-align: center; display: grid; justify-items: center;
+  }
+  .clock .hm { color: var(--hm); font-size: calc(min(22cqw, 26cqh) * var(--k, 1)); }
+  .clock .sf { font-size: calc(min(37cqw, 54cqh) * var(--k, 1)); }
+  .clock.wide .sf { font-size: calc(min(30cqw, 54cqh) * var(--k, 1)); }
+  .clock .ss { color: var(--ss); }
+  .clock .ff { color: var(--ff); }
+  .clock .sep { opacity: .55; margin: 0 -0.12em; }
+  .status { min-height: 1.3em; color: var(--dim); font-size: min(5.5cqw, 7cqh); line-height: 1.3; text-align: center; margin: .2em auto 0; max-width: 90cqw; }
+  .status.done { color: var(--mark); }
+  body.flash .clock .hm, body.flash .clock .ss, body.flash .clock .ff, body.flash .status { color: var(--ground); }
+  body.flash .clock .sep { opacity: 1; color: var(--ground); }
+
+  footer { padding: 0 max(16px, env(safe-area-inset-left, 0px)) 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .bar { height: 20px; background: var(--line); border-radius: 4px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 100%; background: var(--mark); transform: scaleX(0); transform-origin: left center; will-change: transform; }
+  body.flash .bar { background: transparent; }
+  body.flash .bar i { background: var(--ground); }
+
+  .row { display: flex; gap: 8px; align-items: center; }
+  .chips { display: flex; gap: 8px; overflow-x: auto; flex: 1; min-width: 0; scrollbar-width: none; padding: 2px; }
+  .chips::-webkit-scrollbar { display: none; }
+  button {
+    font-family: inherit; font-size: 22px; font-weight: 500; color: var(--ink);
+    background: transparent; border: 2px solid var(--line); border-radius: 999px;
+    min-height: 52px; min-width: 52px; padding: 8px 18px; cursor: pointer; white-space: nowrap;
+    touch-action: manipulation; transition: background-color .1s;
+  }
+  button:active { background: var(--line); }
+  button:focus-visible { outline: 3px solid var(--mark); outline-offset: 2px; }
+  button[aria-pressed="true"].sel, .chip[aria-pressed="true"] { border-color: var(--mark); color: var(--mark); }
+  button.off { color: var(--dim); }
+  .seg { display: flex; border: 2px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .seg button { border: none; border-radius: 0; }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--ground); }
+  .grow { flex: 1; }
+  .go { border-color: var(--mark); color: var(--mark); font-weight: 700; min-width: 96px; }
+  .go.stop { background: var(--mark); color: var(--ground); }
+  .hint { margin: 0; color: var(--dim); font-size: 17px; line-height: 1.35; }
+  .cd[hidden] { display: none; }
+  .controls { flex-wrap: wrap; }
+  .controls button, .seg button { font-size: 20px; padding: 8px 14px; }
+  .chips.locked .chip { opacity: .35; pointer-events: none; }
+  .chip { flex: none; }
+  .clock { transform-origin: center center; }
+  body.clean .tag::placeholder { color: transparent; }
+
+  body.flash footer button, body.flash footer .seg, body.flash .tag, body.flash .hint { visibility: hidden; }
+  body.clean .controls, body.clean .cd, body.clean .hint { display: none; }
+  body.clean .tag { border-bottom-color: transparent; pointer-events: none; }
+  @media (max-height: 500px) {
+    .hint { display: none; }
+    header { padding-top: 6px; }
+    .tag { font-size: 26px; min-height: 44px; }
+    .clock .hm { font-size: calc(min(20cqw, 30cqh) * var(--k, 1)); }
+    .clock .sf { font-size: calc(min(37cqw, 62cqh) * var(--k, 1)); }
+    .clock.wide .sf { font-size: calc(min(30cqw, 62cqh) * var(--k, 1)); }
+    footer { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 12px; padding-bottom: 8px; }
+    footer .bar { grid-column: 1 / -1; height: 16px; }
+    footer .cd { min-width: 0; }
+  }
+
+  .sheet-wrap { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; }
+  .sheet-wrap[hidden] { display: none; }
+  .sheet {
+    width: 100%; max-width: 560px; background: var(--panel); border-radius: 20px 20px 0 0;
+    padding: 18px 16px calc(16px + env(safe-area-inset-bottom, 0px)); max-height: 100%; overflow-y: auto;
+  }
+  .sheet h2 { margin: 0 0 4px; font-size: 26px; }
+  .sheet p { margin: 0 0 14px; color: var(--dim); font-size: 16px; line-height: 1.35; }
+  .fps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin-bottom: 14px; }
+  .fps-grid button { border-radius: 12px; font-variant-numeric: tabular-nums; }
+  .sheet .close { width: 100%; }
+  header.top { display: flex; align-items: center; gap: 10px; }
+  header.top .scene { flex: 1; min-width: 0; }
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: var(--dim); padding: 8px 13px; font-size: 18px; }
+  .icon-btn .lbl:empty { display: none; }
+  .icon-btn.armed { background: #ff8a80; border-color: #ff8a80; color: #000000; }
+  body.clean .icon-btn { display: none; }
+  body.flash .icon-btn { visibility: hidden; }
+  .icon-btn[hidden] { display: none; }
+  .chips[hidden] { display: none; }
+  .cd .chips[hidden] + .icon-btn { margin-left: auto; }
+  .cd .chips[hidden] ~ .go { margin-left: auto; }
+  .cd .chips[hidden] + .icon-btn:not([hidden]) + .go { margin-left: 0; }
+  button:disabled { opacity: .35; pointer-events: none; }
+  .clock .neg { color: #ff8a80; }
+  body.flash .clock .neg { color: var(--ground); }
+  .time-field { display: flex; align-items: center; gap: 12px; margin: 4px 0 12px; font-size: 20px; flex-wrap: wrap; }
+  .time-field input {
+    font-family: inherit; font-size: 30px; font-weight: 700; min-height: 56px; padding: 4px 12px;
+    color: var(--ink); background: var(--ground); border: 2px solid var(--line); border-radius: 12px;
+    color-scheme: dark; -webkit-user-select: text; user-select: text;
+  }
+  .time-field input.on { border-color: var(--mark); }
+  #schedPreview { color: var(--ink); font-size: 19px; white-space: pre-line; min-height: 2.7em; }
+  #schedPreview.warn { color: var(--mark); }
+  #schedQuick { grid-template-columns: repeat(2, 1fr); }
+  .sheet .sub { margin: 18px 0 4px; font-size: 22px; }
+  .ltc-row { margin-bottom: 14px; flex-wrap: wrap; }
+  /* Flash is a compositor-only overlay: toggling its opacity never restyles or relayouts the page. */
+  .flash-ov { position: fixed; inset: 0; background: #ffffff; opacity: 0; pointer-events: none; z-index: 20; will-change: opacity; }
+  main { position: relative; z-index: 21; }
+  header.top, footer { position: relative; z-index: 21; }
+  footer { background: var(--ground); }
+  header.inv .tag, header.inv .scene-k { color: #000000; }
+  header.inv .scene { border-bottom-color: transparent; }
+  body.sq .bar { display: none; }
+  body.clean footer { background: transparent; }
+  .clock { contain: layout paint; }
+  main.inv .clock .hm, main.inv .clock .ss, main.inv .clock .ff, main.inv .clock .neg, main.inv .status, main.inv .ltc-now { color: #000000; }
+  main.inv .clock .sep { opacity: 1; color: #000000; }
+  .ltc-now { width: 100%; height: 1.3em; line-height: 1.3; font-size: min(5.5cqw, 7cqh); color: var(--dim); text-align: center; font-variant-numeric: tabular-nums; contain: strict; margin-top: .2em; }
+  .ltc-now:empty { display: none; }
+  .status { contain: layout paint; }
+  .ofs-row { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+  .ofs-row button { flex: 1; min-width: 48px; padding: 8px 0; border-radius: 12px; font-size: 20px; }
+  .ofs-row output { min-width: 80px; text-align: center; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .ofs-k { width: 40px; flex: none; font-size: 18px; color: var(--dim); }
+  .seg[hidden] { display: none; }
+  #ltcRate { color: var(--ink); }
+  button.ltc { border-color: var(--mark); color: var(--mark); }
+  .scene { display: flex; align-items: center; gap: 12px; border-bottom: 2px solid var(--line); }
+  .scene .tag { border-bottom: none; flex: 1; min-width: 0; }
+  .scene:focus-within { border-bottom-color: var(--mark); }
+  .scene-k { color: var(--dim); font-weight: 700; font-size: clamp(18px, 4.5vw, 28px); letter-spacing: .04em; }
+  body.clean .scene { border-bottom-color: transparent; }
+  body.flash .scene-k { visibility: hidden; }
+  .sheet .reset, .page .reset { width: 100%; margin-bottom: 10px; color: #ff8a80; border-color: #5a2a2a; }
+  .page .reset.armed { background: #ff8a80; color: #000000; border-color: #ff8a80; }
+  .page { position: fixed; inset: 0; z-index: 30; background: var(--ground); overflow-y: auto; overscroll-behavior: contain;
+    padding: 0 max(16px, env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) max(16px, env(safe-area-inset-left, 0px)); }
+  .page[hidden] { display: none; }
+  .page-bar { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 0 10px; background: var(--ground); border-bottom: 1px solid var(--line); }
+  .page-bar h2 { margin: 0; font-size: 30px; }
+  .page-body { max-width: 560px; margin: 0 auto; padding-bottom: 32px; }
+  .grp { margin-top: 24px; }
+  .grp h3 { margin: 0 0 8px; font-size: 16px; font-weight: 500; color: var(--dim); }
+  .item { background: var(--panel); border-radius: 14px; padding: 14px; margin-bottom: 10px; }
+  .item-k { font-size: 21px; font-weight: 700; }
+  .item-d { margin: 4px 0 12px; font-size: 15px; line-height: 1.45; color: var(--dim); }
+  .item-d.num { font-size: 26px; color: var(--ink); font-variant-numeric: tabular-nums; margin-bottom: 0; }
+  .row-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  #customWrap, #schedWrap { z-index: 35; }
+  .sheet .reset.armed { background: #ff8a80; color: #000000; border-color: #ff8a80; }
+  .dur-inputs { display: flex; gap: 16px; margin-bottom: 14px; }
+  .dur-inputs label { display: flex; align-items: baseline; gap: 6px; font-size: 24px; }
+  .dur-inputs input {
+    width: 120px; min-height: 64px; font-family: inherit; font-size: 44px; font-weight: 700; text-align: center;
+    color: var(--ink); background: var(--ground); border: 2px solid var(--line); border-radius: 12px;
+    -webkit-user-select: text; user-select: text;
+  }
+  .dur-inputs input:focus-visible { outline: 3px solid var(--mark); outline-offset: 2px; }
+  .sheet .err { color: #ff8a80; }
+  .sheet .err[hidden] { display: none; }
+
+  .gate {
+    position: fixed; inset: 0; z-index: 40; background: var(--ground);
+    display: grid; place-items: center; text-align: center; padding: 24px;
+    padding-top: calc(24px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  }
+  .gate h1 { font-size: clamp(40px, 12vw, 80px); margin: 0 0 8px; line-height: 1; }
+  .gate p { color: var(--dim); font-size: 20px; max-width: 30ch; margin: 0 auto 24px; line-height: 1.4; }
+  .gate button { min-height: 64px; min-width: 200px; font-size: 28px; border-color: var(--mark); }
+  .gate[hidden] { display: none; }
+
+  /* ---- Layout rhythm: one spacing scale (8 / 12 / 16 / 24) ---- */
+  /* Wide screens: keep header and controls in one centered column instead of pinning them to the far edges. */
+  header.top, footer {
+    padding-left: max(16px, env(safe-area-inset-left, 0px), calc((100vw - 760px) / 2));
+    padding-right: max(16px, env(safe-area-inset-right, 0px), calc((100vw - 760px) / 2));
+  }
+  footer { gap: 12px; }
+  .row { gap: 12px; }
+  .seg button { min-width: 64px; }
+  /* Settings page: segmented controls fill the card and split it evenly. */
+  .page .seg { display: flex; width: 100%; }
+  .page .seg button { flex: 1 1 0; min-width: 0; }
+  #ltcRate { color: var(--dim); font-weight: 400; }
+  .item { padding: 16px; margin-bottom: 12px; }
+  .item-k { line-height: 1.2; }
+  .item-d { margin: 6px 0 14px; }
+  .item > :last-child { margin-bottom: 0; }
+  .grp > .item-d { margin: 0 0 12px; }
+  .row-item .item-d.num { margin: 6px 0 0; }
+  .ofs-row:last-child { margin-bottom: 0; }
+  /* Control area: a panel with its own top padding and rounded top corners, so the white half-second
+     meets a finished edge instead of cutting straight into the buttons. */
+  footer { background: var(--panel); border-radius: 20px 20px 0 0; padding-top: 16px; }
+  body.clean footer { background: transparent; border-radius: 0; padding-top: 0; }
+  @media (max-height: 500px) { footer { padding-top: 10px; } }
+  /* Countdown row: durations get a full-width line of their own; the edge fades while more chips are off-screen. */
+  .cd { flex-wrap: nowrap; }
+  .cd .chips { flex: 1 1 auto; }
+  .cd .chips[hidden] + .icon-btn { margin-left: auto; }
+  /* Durations: one joined group (like the mode switch); tap = start now, tap again = restart. */
+  .chips { gap: 0; padding: 0; border: 2px solid var(--line); border-radius: 999px; }
+  .chips .chip { border: none; border-radius: 0; flex: none; padding: 8px 14px; }
+  .chips .chip + .chip { box-shadow: inset 1px 0 0 var(--line); }
+  .chips .chip[aria-pressed="true"] { background: var(--mark); color: var(--ground); }
+  .go[hidden] { display: none; }
+  /* The duration group hugs its options (no empty tail inside the border); it may shrink and scroll on narrow
+     screens. Schedule / stop sit at the right edge in every state. (Overrides the earlier flex rules.) */
+  .cd .chips { flex: 0 1 auto; }
+  .cd .icon-btn { margin-left: auto; }
+  .cd .icon-btn:not([hidden]) + .go { margin-left: 0; }
+  .cd .icon-btn[hidden] + .go { margin-left: auto; }
+  .cd .icon-btn, .cd .go { flex: none; }
+  .sched-k { font-size: 18px; margin: 4px 0 8px; }
+  .chips.more { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+  /* Landscape: the countdown row spans the full width on one line (durations scroll, buttons stay put). */
+  @media (max-height: 500px) {
+    footer .cd { grid-column: 1 / -1; flex-wrap: nowrap; }
+    .cd .chips { flex: 1 1 auto; }
+  }
+  /* Title bar lines up with the 560px content column on wide screens. */
+  .page-bar { padding-left: max(0px, calc((100% - 560px) / 2)); padding-right: max(0px, calc((100% - 560px) / 2)); }
+  /* Final overrides: duration group hugs its options in every layout (incl. landscape media rules above). */
+  .cd .chips { flex: 0 1 auto; }
+  /* Schedule sheet durations: buttons size to their label and wrap, so "自訂 2:00:00" never spills over. */
+  #schedDur { display: flex; flex-wrap: wrap; gap: 8px; }
+  #schedDur button { flex: 1 1 auto; min-width: 88px; border-radius: 12px; white-space: nowrap; }
+  #schedDur[hidden] { display: none; }
+</style>
+</head>
+<body>
+  <header class="top">
+    <label class="scene"><span class="scene-k">SCENE</span><input class="tag" id="tag" placeholder="例：12A" maxlength="16" aria-label="Scene 場次" enterkeyhint="done" autocomplete="off"></label>
+    <button class="icon-btn" id="settingsBtn" aria-label="設定" aria-haspopup="dialog"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg></button>
+  </header>
+
+  <main id="stage" aria-label="點一下隱藏或顯示按鈕">
+    <div>
+      <div class="clock" id="clock"><div class="hm"><span class="neg" id="cNeg" hidden>−</span><span id="cH">00</span><span class="sep">:</span><span id="cM">00</span></div><div class="sf"><span class="ss" id="cS">00</span><span class="sep">:</span><span class="ff" id="cF">00</span></div></div>
+      <div class="ltc-now" id="ltcNow"></div>
+      <div class="status" id="status"></div>
+    </div>
+  </main>
+
+  <div class="flash-ov" id="flash" aria-hidden="true"></div>
+
+  <footer>
+    <div class="bar" aria-hidden="true"><i id="wave"></i></div>
+    <div class="row controls">
+      <div class="seg" role="group" aria-label="模式">
+        <button id="mClock" aria-pressed="true">時鐘</button>
+        <button id="mCd" aria-pressed="false">倒數</button>
+        <button id="mUp" aria-pressed="false">正數</button>
+      </div>
+      <span class="grow"></span>
+      <button id="fpsBtn" aria-haspopup="dialog">59.94 fps</button>
+      <div class="seg" id="audSeg" role="group" aria-label="提示音"><button id="aBeep" aria-pressed="true">嗶聲</button><button id="aWave" aria-pressed="false">波形碼</button><button id="aLtc" aria-pressed="false">LTC</button><button id="aOff" aria-pressed="false">關</button></div>
+    </div>
+    <div class="row cd" id="cdRow" hidden>
+      <div class="chips" id="chips" role="group" aria-label="倒數長度"></div>
+      <button class="icon-btn" id="schedBtn" aria-label="排程開始時間"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5"/><path d="M9 2h6"/></svg><span class="lbl">排程</span></button>
+      <button class="go" id="go2">開始倒數</button>
+    </div>
+    <p class="hint" id="hint">畫面黑變白就是整秒，白變黑是半秒。時鐘模式就是 free run 正數。點數字可隱藏按鈕，讓畫面更大。</p>
+  </footer>
+
+  <div class="page" id="sheetWrap" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="page-bar"><h2 id="sheetTitle">設定</h2><button class="go" id="sheetClose">完成</button></div>
+    <div class="page-body">
+      <section class="grp">
+        <h3>拍攝</h3>
+        <div class="item">
+          <div class="item-k">影格率</div>
+          <p class="item-d">和攝影機相同。高於 30 fps 時，60Hz 的手機螢幕會跳過部分影格號碼。</p>
+          <div class="fps-grid" id="fpsGrid"></div>
+        </div>
+        <div class="item">
+          <div class="item-k">畫面同步訊號</div>
+          <p class="item-d">黑白方波：黑變白是整秒，遠處也清楚。短閃白：較省電、不刺眼。</p>
+          <div class="seg" role="group" aria-label="畫面同步訊號"><button id="fsSquare" aria-pressed="true">黑白方波</button><button id="fsFlash" aria-pressed="false">短閃白</button></div>
+        </div>
+      </section>
+      <section class="grp">
+        <h3>倒數</h3>
+        <div class="item row-item">
+          <div><div class="item-k">自訂長度</div><p class="item-d num" id="customVal"></p></div>
+          <button id="customEdit">修改</button>
+        </div>
+      </section>
+      <section class="grp">
+        <h3>音訊輸出</h3>
+        <p class="item-d">在主畫面切換嗶聲、波形碼、LTC 或關，同一時間只輸出一種。接 MIC 輸入時需衰減。</p>
+        <div class="item">
+          <div class="item-k">LTC 格式</div>
+          <p class="item-d" id="ltcRate"></p>
+          <div class="seg" id="dfSeg" role="group" aria-label="Drop frame"><button id="dfBtn" aria-pressed="true">DF</button><button id="ndfBtn" aria-pressed="false">NDF</button></div>
+        </div>
+      </section>
+      <section class="grp">
+        <h3>校準（每支手機做一次）</h3>
+        <p class="item-d">螢幕更新延遲已自動補償。實拍比對後仍有誤差再微調，正值代表提前。</p>
+        <div class="item">
+          <div class="ofs-row"><span class="ofs-k">畫面</span><button data-k="dispOfs" data-d="-10">−10</button><button data-k="dispOfs" data-d="-1">−1</button><output id="dispOfsV">0 ms</output><button data-k="dispOfs" data-d="1">+1</button><button data-k="dispOfs" data-d="10">+10</button></div>
+          <div class="ofs-row"><span class="ofs-k">聲音</span><button data-k="audOfs" data-d="-10">−10</button><button data-k="audOfs" data-d="-1">−1</button><output id="audOfsV">0 ms</output><button data-k="audOfs" data-d="1">+1</button><button data-k="audOfs" data-d="10">+10</button></div>
+        </div>
+      </section>
+      <section class="grp">
+        <h3>重設</h3>
+        <p class="item-d">恢復所有預設值並清除場次。設定平時會自動記住，需按兩下才會執行。</p>
+        <button class="reset" id="resetBtn2">重設所有設定</button>
+      </section>
+    </div>
+  </div>
+
+  <div class="sheet-wrap" id="schedWrap" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="schedTitle">
+      <h2 id="schedTitle">排程開始時間</h2>
+      <p>會在指定時間自動開始，開始前畫面顯示負的時間。倒數請在下方選擇長度；正數從 0 起算。</p>
+      <div class="fps-grid" id="schedQuick"></div>
+      <div class="item-k sched-k" id="schedDurK">倒數長度</div>
+      <div class="fps-grid" id="schedDur"></div>
+      <label class="time-field"><span>或指定時間</span><input id="schedTime" type="time" step="1" aria-label="開始時間"></label>
+      <p id="schedPreview"></p>
+      <p class="err" id="schedErr" hidden></p>
+      <div class="row">
+        <button class="grow" id="schedCancel">取消</button>
+        <button class="grow go" id="schedOk">確定排程</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="sheet-wrap" id="customWrap" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="customTitle">
+      <h2 id="customTitle">自訂倒數</h2>
+      <p>儲存後會記住。之後點「自訂」就能使用；已選取時再點一次可修改。</p>
+      <div class="dur-inputs">
+        <label><input id="cMin" type="number" inputmode="numeric" min="0" max="599" aria-label="分鐘"><span>分</span></label>
+        <label><input id="cSec" type="number" inputmode="numeric" min="0" max="59" aria-label="秒"><span>秒</span></label>
+      </div>
+      <p class="err" id="cErr" hidden>請輸入 1 秒以上的時間。</p>
+      <div class="row">
+        <button class="grow" id="cCancel">取消</button>
+        <button class="grow go" id="cSave">儲存並使用</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="gate" id="gate">
+    <div>
+      <h1>同步場記板</h1>
+      <p>對準每台攝影機拍 3～5 秒，開頭和結尾各一次。錄音機請靠近收嗶聲。</p>
+      <button id="go">開始使用</button>
+    </div>
+  </div>
+
+<script>
+(function () {
+  // Monotonic wall clock: anchored to Date.now() once, then driven by performance.now() so OS clock steps can't jump the display.
+  var WALL0 = Date.now() - performance.now();
+  function wallNow() { return WALL0 + performance.now(); }
+  var $ = function (id) { return document.getElementById(id); };
+  var clockEl = $('clock'), statusEl = $('status'), wave = $('wave'), tag = $('tag');
+  var FLASH_MS = 120;
+  var FPS_LIST = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60, 100, 119.88, 120];
+  var DURS = [10, 30, 60, 180, 300, 600];
+  var SEP = '<span class="sep">:</span>';
+
+  var state = { fps: 59.94, beep: true, mode: 'clock', dur: 60, custom: 7200, ltc: false, df: true, dispOfs: 0, audOfs: 0, wave: false, flashStyle: 'square' };
+  var running = false, endMs = 0, finished = false, waiting = false, startMs = 0, stoppedEl = 0;
+  var ctx = null, lastKey = '', planSched = false;
+
+  try {
+    var saved = JSON.parse(localStorage.getItem('slate-state') || '{}');
+    if (FPS_LIST.indexOf(saved.fps) >= 0) state.fps = saved.fps;
+    if (typeof saved.beep === 'boolean') state.beep = saved.beep;
+    if (saved.mode === 'clock' || saved.mode === 'cd' || saved.mode === 'up') state.mode = saved.mode;
+    if (saved.custom >= 1 && saved.custom <= 35999) state.custom = Math.floor(saved.custom);
+    if (typeof saved.ltc === 'boolean') state.ltc = saved.ltc;
+    if (typeof saved.df === 'boolean') state.df = saved.df;
+    if (typeof saved.wave === 'boolean') state.wave = saved.wave;
+    if (saved.flashStyle === 'square' || saved.flashStyle === 'flash') state.flashStyle = saved.flashStyle;
+    if (typeof saved.dispOfs === 'number' && Math.abs(saved.dispOfs) <= 500) state.dispOfs = saved.dispOfs;
+    if (typeof saved.audOfs === 'number' && Math.abs(saved.audOfs) <= 500) state.audOfs = saved.audOfs;
+    if (DURS.indexOf(saved.dur) >= 0 || (state.custom && saved.dur === state.custom)) state.dur = saved.dur;
+    tag.value = localStorage.getItem('slate-tag') || '';
+  } catch (e) {}
+  // Restore a running or scheduled countdown after a reload.
+  try {
+    var plan = JSON.parse(localStorage.getItem('slate-cd') || 'null'), nowR = wallNow();
+    if (plan && plan.mode === 'up' && plan.start > nowR - 7 * 86400000) {
+      startMs = plan.start; endMs = 0; state.mode = 'up';
+      if (nowR < startMs) { waiting = true; planSched = true; } else running = true;
+    } else if (plan && plan.end > nowR && plan.end - plan.start >= 1000 && plan.end - plan.start <= 35999000) {
+      startMs = plan.start; endMs = plan.end; state.dur = Math.round((plan.end - plan.start) / 1000); state.mode = 'cd';
+      if (nowR < startMs) { waiting = true; planSched = true; } else running = true;
+    } else localStorage.removeItem('slate-cd');
+  } catch (e) {}
+  function save() { try { localStorage.setItem('slate-state', JSON.stringify(state)); } catch (e) {} }
+  tag.addEventListener('input', function () { try { localStorage.setItem('slate-tag', tag.value); } catch (e) {} });
+  tag.addEventListener('keydown', function (e) { if (e.key === 'Enter') tag.blur(); });
+
+  function pad(n, w) { n = String(n); while (n.length < (w || 2)) n = '0' + n; return n; }
+  function durLabel(s) {
+    var h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), r = s % 60, out = [];
+    if (h) out.push(h + ' 時'); if (m) out.push(m + ' 分'); if (r || !out.length) out.push(r + ' 秒');
+    return out.join(' ');
+  }
+  function shortDur(s) {
+    var h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), r = s % 60;
+    return h ? h + ':' + pad(m) + ':' + pad(r) : m + ':' + pad(r);
+  }
+
+  // ---- Controls ----
+  function renderControls() {
+    $('mClock').setAttribute('aria-pressed', state.mode === 'clock');
+    $('mCd').setAttribute('aria-pressed', state.mode === 'cd');
+    $('mUp').setAttribute('aria-pressed', state.mode === 'up');
+    $('cdRow').hidden = state.mode === 'clock';
+    $('chips').hidden = state.mode !== 'cd';
+    if (typeof chipsFade === 'function') requestAnimationFrame(chipsFade);
+    $('fpsBtn').textContent = state.fps + 'p';
+    $('aBeep').setAttribute('aria-pressed', !state.ltc && !state.wave && state.beep);
+    $('aWave').setAttribute('aria-pressed', !state.ltc && state.wave);
+    $('aLtc').setAttribute('aria-pressed', state.ltc);
+    $('aOff').setAttribute('aria-pressed', !state.ltc && !state.wave && !state.beep);
+    var chips = $('chips').children;
+    for (var i = 0; i < chips.length; i++) if (chips[i].dataset.dur) chips[i].setAttribute('aria-pressed', +chips[i].dataset.dur === state.dur);
+    customChip.textContent = state.custom ? '自訂 ' + shortDur(state.custom) : '＋ 自訂';
+    $('customVal').textContent = shortDur(state.custom || 7200);
+    customChip.setAttribute('aria-pressed', !!state.custom && state.dur === state.custom);
+    var g = $('go2'); g.textContent = running ? '停止' : waiting ? '取消排程' : (state.mode === 'up' ? '開始正數' : '開始倒數');
+    var busy = running || waiting;
+    $('mCd').disabled = busy && state.mode !== 'cd'; $('mUp').disabled = busy && state.mode !== 'up';
+    g.classList.toggle('stop', busy);
+    g.hidden = state.mode === 'cd' && !busy;
+    $('schedBtn').hidden = busy; $('mClock').disabled = busy;
+    lastKey = '';
+  }
+  DURS.forEach(function (s) {
+    var c = document.createElement('button');
+    c.className = 'chip'; c.textContent = durLabel(s); c.dataset.dur = s;
+    c.addEventListener('click', function () { state.dur = s; save(); startNow(); });
+    $('chips').appendChild(c);
+  });
+
+  // Custom countdown: tap to use it, tap again (while selected) to edit.
+  var customChip = document.createElement('button');
+  customChip.className = 'chip';
+  customChip.addEventListener('click', function () {
+    if (!state.custom) { openCustom(); return; }
+    state.dur = state.custom; save(); startNow();
+  });
+  // Start on the next whole second so the flashes stay valid sync points; restarts if already running.
+  function startNow() { startPlan(Math.ceil(wallNow() / 1000) * 1000, false); }
+  $('chips').insertBefore(customChip, $('chips').firstChild);   // most-used, so first
+  function chipsFade() { var c = $('chips'); c.classList.toggle('more', c.scrollLeft + c.clientWidth < c.scrollWidth - 2); }
+  $('chips').addEventListener('scroll', chipsFade, { passive: true });
+  window.addEventListener('resize', chipsFade);
+  function openCustom() {
+    var s = state.custom || 7200;
+    $('cMin').value = Math.floor(s / 60); $('cSec').value = s % 60;
+    $('cErr').hidden = true; $('customWrap').hidden = false;
+  }
+  $('cSave').addEventListener('click', function () {
+    var m = parseInt($('cMin').value, 10) || 0, s = parseInt($('cSec').value, 10) || 0;
+    var t = Math.min(35999, Math.max(0, m * 60 + s));
+    if (t < 1) { $('cErr').hidden = false; return; }
+    state.custom = t; state.dur = t; finished = false; save(); renderControls();
+    $('customWrap').hidden = true;
+  });
+  $('cCancel').addEventListener('click', function () { $('customWrap').hidden = true; });
+  $('customWrap').addEventListener('click', function (e) { if (e.target === this) this.hidden = true; });
+  ['cMin', 'cSec'].forEach(function (id) {
+    $(id).addEventListener('focus', function () { this.select(); });
+    $(id).addEventListener('keydown', function (e) { if (e.key === 'Enter') $('cSave').click(); });
+  });
+  FPS_LIST.forEach(function (f) {
+    var b = document.createElement('button');
+    b.textContent = f; b.className = 'sel';
+    b.addEventListener('click', function () { state.fps = f; save(); renderControls(); renderFpsGrid(); renderLtc(); if (state.ltc && ctx) ltcStart(); });
+    $('fpsGrid').appendChild(b);
+  });
+  function renderFpsGrid() {
+    var bs = $('fpsGrid').children;
+    for (var i = 0; i < bs.length; i++) bs[i].setAttribute('aria-pressed', FPS_LIST[i] === state.fps);
+  }
+  var resetTimer2 = null;
+  $('resetBtn2').addEventListener('click', function () {
+    var b = this;
+    clearTimeout(resetTimer2);
+    if (!b.classList.contains('armed')) {
+      b.classList.add('armed'); b.textContent = '再按一次重設';
+      resetTimer2 = setTimeout(function () { b.classList.remove('armed'); b.textContent = '重設所有設定'; }, 3000);
+      return;
+    }
+    doReset();
+    b.classList.remove('armed'); b.textContent = '已重設';
+    resetTimer2 = setTimeout(function () { b.textContent = '重設所有設定'; }, 1500);
+  });
+  function doReset() {
+    try { ['slate-state', 'slate-tag', 'slate-fps', 'slate-beep', 'slate-cd'].forEach(function (k) { localStorage.removeItem(k); }); } catch (e) {}
+    state.fps = 59.94; state.beep = true; state.mode = 'clock'; state.dur = 60; state.custom = 7200; state.ltc = false; state.df = true; state.dispOfs = 0; state.audOfs = 0;
+    state.wave = false; renderWave();
+    state.flashStyle = 'square'; renderFlashStyle();
+    renderOfs();
+    ltcStop(); renderLtc();
+    running = false; waiting = false; finished = false; tag.value = '';
+    renderControls(); renderFpsGrid(); resetAudio();
+  }
+  function openSettings() { renderFpsGrid(); renderLtc(); renderOfs(); renderFlashStyle(); renderControls(); $('sheetWrap').hidden = false; $('sheetWrap').scrollTop = 0; }
+  $('fpsBtn').addEventListener('click', openSettings);
+  $('settingsBtn').addEventListener('click', openSettings);
+  $('customEdit').addEventListener('click', openCustom);
+  $('sheetClose').addEventListener('click', function () { $('sheetWrap').hidden = true; });
+
+  $('mClock').addEventListener('click', function () { running = false; finished = false; state.mode = 'clock'; save(); renderControls(); resetAudio(); });
+  $('mCd').addEventListener('click', function () { state.mode = 'cd'; finished = false; save(); renderControls(); resetAudio(); });
+  $('mUp').addEventListener('click', function () { state.mode = 'up'; finished = false; save(); renderControls(); resetAudio(); });
+  // Audio output: beep / waveform code / LTC / off. Only one signal at a time.
+  function setAudio(kind) {
+    state.beep = kind === 'beep'; state.wave = kind === 'wave';
+    var wantLtc = kind === 'ltc';
+    if (kind !== 'off' && ctx && ctx.state === 'suspended') ctx.resume();
+    if (wantLtc && !state.ltc) { state.ltc = true; if (ctx) ltcStart(); }
+    else if (!wantLtc && state.ltc) { state.ltc = false; ltcStop(); }
+    save(); renderControls(); renderLtc(); renderWave(); resetAudio();
+  }
+  $('aBeep').addEventListener('click', function () { setAudio('beep'); });
+  $('aWave').addEventListener('click', function () { setAudio('wave'); });
+  $('aLtc').addEventListener('click', function () { setAudio('ltc'); });
+  $('aOff').addEventListener('click', function () { setAudio('off'); });
+  function startPlan(start, scheduled) {
+    startMs = start; endMs = state.mode === 'up' ? 0 : start + state.dur * 1000; finished = false;
+    waiting = !!scheduled; running = !scheduled; planSched = !!scheduled;
+    savePlan(); renderControls(); resetAudio();
+  }
+  function cancelPlan() {
+    // Stopping a running count-up freezes the elapsed time on screen.
+    if (running && state.mode === 'up') { stoppedEl = wallNow() - startMs; running = false; waiting = false; finished = true; savePlan(); renderControls(); resetAudio(); return; }
+    running = false; waiting = false; finished = false; savePlan(); renderControls(); resetAudio();
+  }
+  function savePlan() {
+    try {
+      if (running || waiting) localStorage.setItem('slate-cd', JSON.stringify({ start: startMs, end: endMs, mode: state.mode }));
+      else localStorage.removeItem('slate-cd');
+    } catch (e) {}
+  }
+  $('go2').addEventListener('click', function () {
+    if (running || waiting) cancelPlan();
+    // Align the countdown to real whole seconds so flashes stay valid sync points.
+    else startPlan(Math.ceil(wallNow() / 1000) * 1000, false);
+  });
+
+  // ---- Scheduled start ----
+  function clockText(ms) { var d = new Date(ms); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+  function whenLabel(ms) { return (new Date(ms).toDateString() === new Date().toDateString() ? '' : '明天 ') + clockText(ms); }
+  var QUICK = [1, 5, 10, 30], schedSel = { type: 'rel', min: 5 }, schedTimer = null;
+  QUICK.forEach(function (n) {
+    var q = document.createElement('button');
+    q.className = 'sel'; q.textContent = n + ' 分鐘後';
+    q.addEventListener('click', function () { schedSel = { type: 'rel', min: n }; renderSched(); });
+    $('schedQuick').appendChild(q);
+  });
+  function schedTarget() {
+    var now = wallNow();
+    if (schedSel.type === 'rel') return { t: Math.ceil(now / 1000) * 1000 + schedSel.min * 60000 };
+    var v = $('schedTime').value;
+    if (!v) return { err: '請輸入開始時間。' };
+    var p = v.split(':').map(Number), d = new Date(now);
+    if (p.length < 2 || p.some(isNaN)) return { err: '時間格式不正確。' };
+    d.setHours(p[0], p[1], p[2] || 0, 0);
+    var t = d.getTime(), tomorrow = false;
+    if (t <= now) { d.setDate(d.getDate() + 1); t = d.getTime(); tomorrow = true; }
+    if (t - now < 10000) return { err: '時間太接近現在，請選 10 秒以後的時間，或直接點選倒數長度。' };
+    return { t: t, tomorrow: tomorrow };
+  }
+  function renderSchedDur() {
+    var box = $('schedDur'), list = DURS.slice();
+    if (state.custom && list.indexOf(state.custom) < 0) list.unshift(state.custom);
+    box.hidden = $('schedDurK').hidden = state.mode !== 'cd';
+    box.innerHTML = '';
+    list.forEach(function (d) {
+      var b = document.createElement('button');
+      b.className = 'sel'; b.textContent = d === state.custom ? '自訂 ' + shortDur(d) : durLabel(d);
+      b.setAttribute('aria-pressed', d === state.dur);
+      b.addEventListener('click', function () { state.dur = d; save(); renderSchedDur(); renderSched(); renderControls(); });
+      box.appendChild(b);
+    });
+  }
+  function renderSched() {
+    var qs = $('schedQuick').children;
+    for (var i = 0; i < qs.length; i++) qs[i].setAttribute('aria-pressed', schedSel.type === 'rel' && schedSel.min === QUICK[i]);
+    $('schedTime').classList.toggle('on', schedSel.type === 'abs');
+    var r = schedTarget(), pv = $('schedPreview'), er = $('schedErr');
+    $('schedOk').disabled = !!r.err;
+    er.hidden = !r.err; er.textContent = r.err || '';
+    if (r.err) { pv.textContent = ''; return; }
+    var left = Math.ceil((r.t - wallNow()) / 1000);
+    pv.textContent = '將於' + (r.tomorrow ? '明天 ' : '今天 ') + clockText(r.t) + ' 開始（還有 ' + durLabel(left) + '）' + (state.mode === 'up' ? '\n從 0 開始正數' : '\n結束於 ' + whenLabel(r.t + state.dur * 1000) + '，倒數長度 ' + durLabel(state.dur));
+    pv.classList.toggle('warn', !!r.tomorrow);
+  }
+  $('schedBtn').addEventListener('click', function () {
+    var d = new Date(wallNow() + 5 * 60000); d.setSeconds(0, 0); d.setMinutes(d.getMinutes() + 1);
+    $('schedTime').value = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':00';
+    schedSel = { type: 'rel', min: 5 };
+    renderSchedDur(); renderSched(); $('schedWrap').hidden = false;
+    clearInterval(schedTimer); schedTimer = setInterval(renderSched, 250);
+  });
+  function closeSched() { $('schedWrap').hidden = true; clearInterval(schedTimer); }
+  $('schedCancel').addEventListener('click', closeSched);
+  $('schedWrap').addEventListener('click', function (e) { if (e.target === this) closeSched(); });
+  $('schedTime').addEventListener('input', function () { schedSel = { type: 'abs' }; renderSched(); });
+  $('schedTime').addEventListener('focus', function () { schedSel = { type: 'abs' }; renderSched(); });
+  $('schedOk').addEventListener('click', function () {
+    var r = schedTarget();
+    if (r.err) { renderSched(); return; }
+    startPlan(r.t, true); closeSched();
+  });
+
+  $('stage').addEventListener('click', function () {
+    if (document.activeElement === tag) { tag.blur(); return; }
+    document.body.classList.toggle('clean');
+  });
+
+  // ---- Audio ----
+  var TONES = { tick: [1000, 0.08], minute: [2000, 0.4], warn: [1500, 0.12], end: [2000, 0.7] };
+  // ---- Audio scheduler: runs on its own timer (not the render loop), so a stalled or throttled frame
+  // can't drop a second; sounds are queued up to 0.7 s ahead on the audio clock and can be cancelled.
+  var schedUntil = 0, pendingNodes = [];
+  function audioTick() {
+    if (!ctx) return;
+    var rn = wallNow();
+    var S = Math.max(schedUntil + 1000, Math.ceil((rn + 60) / 1000) * 1000);
+    for (; S - rn <= 700; S += 1000) {
+      scheduleWave(S);
+      var k = beepKind(S);
+      if (k) scheduleBeep(S, k);
+      schedUntil = S;
+    }
+    if (pendingNodes.length > 64) pendingNodes = pendingNodes.filter(function (n) { return n.end > ctx.currentTime; });
+  }
+  // What (if anything) to beep at whole second S, from the plan's fixed times rather than live flags.
+  function beepKind(S) {
+    if (state.mode === 'clock') return new Date(S).getSeconds() === 0 ? 'minute' : 'tick';
+    if (!(running || waiting)) return null;
+    if (S < startMs) { var r2 = startMs - S; return r2 <= 5000 ? 'warn' : 'tick'; }
+    if (S === startMs && planSched) return 'minute';
+    if (state.mode === 'up') return ((S - startMs) / 1000) % 60 === 0 ? 'minute' : 'tick';
+    var r = endMs - S;
+    if (r === 0) return 'end';
+    return r > 0 ? (r <= 5000 ? 'warn' : 'tick') : null;
+  }
+  // Drop everything queued for the future (state changed) and queue again from now.
+  function resetAudio() {
+    if (ctx) {
+      var t = ctx.currentTime;
+      pendingNodes.forEach(function (n) { if (n.start > t) { try { n.node.stop(); } catch (e) {} } });
+    }
+    pendingNodes = []; schedUntil = 0;
+    audioTick();
+  }
+  function track(node, start, end) { pendingNodes.push({ node: node, start: start, end: end }); }
+
+  function scheduleBeep(targetMs, kind) {
+    if (!ctx || !state.beep || state.ltc || state.wave) return;
+    var when = ctxTimeForWall(targetMs) - state.audOfs / 1000;
+    if (when < ctx.currentTime) return;
+    var t = TONES[kind], osc = ctx.createOscillator(), g = ctx.createGain();
+    osc.type = 'square'; osc.frequency.value = t[0];
+    g.gain.setValueAtTime(0.0001, when - 0.001);
+    g.gain.setValueAtTime(0.5, when);
+    g.gain.setValueAtTime(0.5, when + t[1]);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + t[1] + 0.01);
+    osc.connect(g).connect(ctx.destination);
+    osc.start(when - 0.002); osc.stop(when + t[1] + 0.03);
+    track(osc, when - 0.002, when + t[1] + 0.03);
+  }
+
+  // ---- LTC timecode output (SMPTE 12M biphase-mark, 80 bits per frame) ----
+  var LTC_AMP = 0.5;
+  var ltc = { on: false, p: null, T0: 0, sr: 48000, startCount: 0, frame: 0, sample: 0, level: 1, timer: null, sources: [] };
+  function ltcParams() {
+    var f = state.fps;
+    if (f === 23.976) return { rate: 24000 / 1001, nominal: 24, df: false, label: '23.976（24 格時間碼）' };
+    if (f === 24 || f === 48) return { rate: 24, nominal: 24, df: false, label: '24' };
+    if (f === 25 || f === 50 || f === 100) return { rate: 25, nominal: 25, df: false, label: '25' };
+    if (f === 29.97 || f === 59.94 || f === 119.88) return { rate: 30000 / 1001, nominal: 30, df: state.df, label: state.df ? '29.97 DF' : '29.97 NDF' };
+    return { rate: 30, nominal: 30, df: false, label: '30' };
+  }
+  function countToTC(n, p) {
+    var day = p.df ? 2589408 : p.nominal * 86400;
+    n = ((n % day) + day) % day;
+    if (p.df) { var D = Math.floor(n / 17982), M = n % 17982; n += 18 * D + (M > 1 ? 2 * Math.floor((M - 2) / 1798) : 0); }
+    var nb = p.nominal;
+    return { h: Math.floor(n / (nb * 3600)) % 24, m: Math.floor(n / (nb * 60)) % 60, s: Math.floor(n / nb) % 60, f: n % nb };
+  }
+  var LTC_SYNC = [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1];
+  function ltcBits(n, p) {
+    var t = countToTC(n, p), bits = [], i;
+    for (i = 0; i < 80; i++) bits.push(0);
+    function put(v, at, len) { for (var j = 0; j < len; j++) bits[at + j] = (v >> j) & 1; }
+    put(t.f % 10, 0, 4); put(Math.floor(t.f / 10), 8, 2); bits[10] = p.df ? 1 : 0;
+    put(t.s % 10, 16, 4); put(Math.floor(t.s / 10), 24, 3);
+    put(t.m % 10, 32, 4); put(Math.floor(t.m / 10), 40, 3);
+    put(t.h % 10, 48, 4); put(Math.floor(t.h / 10), 56, 2);
+    for (i = 0; i < 16; i++) bits[64 + i] = LTC_SYNC[i];
+    var ones = 0; for (i = 0; i < 80; i++) ones += bits[i];
+    bits[p.nominal === 25 ? 59 : 27] = ones % 2; // polarity bit: keep an even count of ones
+    return bits;
+  }
+  function audioLat() { return ctx ? (ctx.outputLatency || 0) + (ctx.baseLatency || 0) : 0; }
+  // Map a wall-clock time to the AudioContext time whose sample leaves the jack at that moment.
+  function ctxTimeForWall(wallMs) {
+    var ts = ctx.getOutputTimestamp ? ctx.getOutputTimestamp() : null;
+    if (ts && ts.performanceTime > 0) return ts.contextTime + (wallMs - (WALL0 + ts.performanceTime)) / 1000;
+    return ctx.currentTime + (wallMs - wallNow()) / 1000 - audioLat();
+  }
+  function ltcStopSources() { ltc.sources.forEach(function (s) { try { s.stop(); } catch (e) {} }); ltc.sources = []; }
+  function ltcStop() { ltc.on = false; clearInterval(ltc.timer); ltcStopSources(); }
+  function ltcStart() {
+    if (!ctx) return;
+    ltcStopSources();
+    var p = ltcParams(), sr = ctx.sampleRate, lat = audioLat();
+    var nowWall = wallNow();
+    var d = new Date(nowWall), midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    // First frame boundary at least 400 ms ahead, aligned to the wall clock when it leaves the jack.
+    var F0 = Math.ceil((nowWall + 400 + lat * 1000 + Math.max(0, state.audOfs) - midnight) * p.rate / 1000);
+    var bWall = midnight + F0 * 1000 / p.rate;
+    var T0 = ctxTimeForWall(bWall) - state.audOfs / 1000;
+    ltc.p = p; ltc.sr = sr; ltc.T0 = Math.round(T0 * sr) / sr; ltc.bWall = bWall; ltc.adj = 0; ltc.err = 0;
+    ltc.startCount = (p.df || p.rate === p.nominal) ? F0 : Math.round(F0 / p.rate * p.nominal);
+    ltc.frame = 0; ltc.sample = 0; ltc.level = 1; ltc.on = true;
+    ltcPump();
+    clearInterval(ltc.timer); ltc.timer = setInterval(ltcPump, 200);
+  }
+  function ltcPump() {
+    if (!ltc.on || !ctx) return;
+    if (ltc.T0 + ltc.sample / ltc.sr < ctx.currentTime + 0.05) { ltcStart(); return; } // fell behind: re-anchor
+    while (ltc.T0 + ltc.sample / ltc.sr < ctx.currentTime + 1.2) ltcChunk(8);
+  }
+  function ltcChunk(nFrames) {
+    var p = ltc.p, sr = ltc.sr, spb = sr / (p.rate * 80);
+    var g0 = ltc.frame * 80, s0 = ltc.sample;
+    // Drift lock: the audio clock and the wall clock run on different crystals. Measure the error each chunk
+    // (smoothed) and nudge the waveform by one sample when it exceeds 2 ms, so LTC never wanders from the display.
+    var ots = ctx.getOutputTimestamp ? ctx.getOutputTimestamp() : null;
+    if (ots && ots.performanceTime > 0) {
+      var want = ctxTimeForWall(ltc.bWall + g0 * 1000 / (p.rate * 80)) - state.audOfs / 1000;
+      ltc.err += ((ltc.T0 + s0 / sr - want) * 1000 - ltc.err) * 0.05;
+      if (ltc.err > 2) { ltc.adj -= 1; ltc.err -= 1000 / sr; }
+      else if (ltc.err < -2) { ltc.adj += 1; ltc.err += 1000 / sr; }
+    }
+    var adj = ltc.adj;
+    function pos(x) { return Math.round(x * spb) + adj - s0; }
+    var s1 = pos(g0 + nFrames * 80) + s0;
+    var buf = ctx.createBuffer(1, s1 - s0, sr), dat = buf.getChannelData(0), lvl = ltc.level;
+    for (var fi = 0; fi < nFrames; fi++) {
+      var bits = ltcBits(ltc.startCount + ltc.frame + fi, p);
+      for (var b = 0; b < 80; b++) {
+        var g = g0 + fi * 80 + b, i;
+        var a = (fi === 0 && b === 0) ? 0 : pos(g), mid = pos(g + 0.5), e = pos(g + 1);
+        lvl = -lvl;
+        for (i = a; i < mid; i++) dat[i] = lvl * LTC_AMP;
+        if (bits[b]) lvl = -lvl;
+        for (i = mid; i < e; i++) dat[i] = lvl * LTC_AMP;
+      }
+    }
+    ltc.level = lvl;
+    var src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
+    src.onended = function () { var k = ltc.sources.indexOf(src); if (k >= 0) ltc.sources.splice(k, 1); };
+    src.start(ltc.T0 + s0 / sr);
+    ltc.sources.push(src);
+    ltc.frame += nFrames; ltc.sample = s1;
+  }
+  function ltcNowText(W) {
+    if (!ltc.on || !ctx) return '';
+    var k = Math.floor((W - ltc.bWall) * ltc.p.rate / 1000);
+    if (k < 0) return 'LTC 準備中';
+    var t = countToTC(ltc.startCount + k, ltc.p);
+    return 'LTC ' + pad(t.h) + ':' + pad(t.m) + ':' + pad(t.s) + (ltc.p.df ? ';' : ':') + pad(t.f);
+  }
+  function renderLtc() {
+    var p = ltcParams();
+    $('ltcRate').textContent = '依目前影格率輸出：' + p.label;
+    $('dfSeg').hidden = !(state.fps === 29.97 || state.fps === 59.94 || state.fps === 119.88);
+    $('dfBtn').setAttribute('aria-pressed', state.df); $('ndfBtn').setAttribute('aria-pressed', !state.df);
+  }
+  function setDf(v) { state.df = v; save(); renderLtc(); if (state.ltc && ctx) ltcStart(); }
+  $('dfBtn').addEventListener('click', function () { setDf(true); });
+  $('ndfBtn').addEventListener('click', function () { setDf(false); });
+  // ---- Waveform code: readable by eye in an editor's waveform view ----
+  // Each second: tall sync burst whose leading edge is the whole second, then two groups of short
+  // pulses counting the tens and units of the second. At :00 the sync burst is long and the pulses
+  // give the minute instead. Each second also uses its own carrier pitch (600–2040 Hz, never the same
+  // twice in a row): invisible in a waveform view, but it stops audio auto-sync from locking one second off.
+  var WAVE_HZ = 1000, WAVE_HI = 0.9, WAVE_LO = 0.45;
+  function waveHz(minute, sec) { return 600 + (((minute * 60 + sec) * 7919) % 19) * 80; }
+  // Burst list for one second: [start s, end s, amplitude]. See docs/waveform-code.md.
+  function waveBursts(val, isMin) {
+    var out = [[0, isMin ? 0.25 : 0.04, WAVE_HI]];
+    function digit(t, v) { // returns the end time of the group
+      if (v === 0) { out.push([t, t + 0.1, WAVE_LO]); return t + 0.1; }
+      for (var k = 0; k < v; k++) out.push([t + k * 0.04, t + k * 0.04 + 0.02, WAVE_LO]);
+      return t + v * 0.04 - 0.02;
+    }
+    var end = digit(isMin ? 0.3 : 0.1, Math.floor(val / 10));
+    digit(end + 0.1, val % 10);
+    return out;
+  }
+  // One oscillator gated by sample-accurate gain steps. The oscillator starts at phase 0 exactly when the
+  // sync burst begins, so the leading edge is identical to a computed buffer; digit pulses are read by length only.
+  function wavePlay(ac, dest, when, val, isMin, hz) {
+    var osc = ac.createOscillator(), g = ac.createGain();
+    osc.frequency.value = hz;
+    g.gain.setValueAtTime(0, Math.max(0, when - 0.005));
+    waveBursts(val, isMin).forEach(function (b) { g.gain.setValueAtTime(b[2], when + b[0]); g.gain.setValueAtTime(0, when + b[1]); });
+    osc.connect(g).connect(dest);
+    osc.start(when); osc.stop(when + 0.96);
+    return osc;
+  }
+  function scheduleWave(targetMs) {
+    if (!ctx || !state.wave) return;
+    var when = ctxTimeForWall(targetMs) - state.audOfs / 1000;
+    if (when < ctx.currentTime) return;
+    var d = new Date(targetMs), sec = d.getSeconds(), isMin = sec === 0;
+    track(wavePlay(ctx, ctx.destination, when, isMin ? d.getMinutes() : sec, isMin, waveHz(d.getMinutes(), sec)), when, when + 0.96);
+  }
+  function renderWave() { /* output selection lives in the main screen's four-way switch */ }
+  function renderFlashStyle() {
+    var sq = state.flashStyle === 'square';
+    $('fsSquare').setAttribute('aria-pressed', sq); $('fsFlash').setAttribute('aria-pressed', !sq);
+    document.body.classList.toggle('sq', sq);
+  }
+  $('fsSquare').addEventListener('click', function () { state.flashStyle = 'square'; save(); renderFlashStyle(); });
+  $('fsFlash').addEventListener('click', function () { state.flashStyle = 'flash'; save(); renderFlashStyle(); });
+  function renderOfs() {
+    function fmt(v) { return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v) + ' ms'; }
+    $('dispOfsV').textContent = fmt(state.dispOfs); $('audOfsV').textContent = fmt(state.audOfs);
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.ofs-row button'), function (btn) {
+    btn.addEventListener('click', function () {
+      var k = btn.getAttribute('data-k');
+      state[k] = Math.max(-500, Math.min(500, state[k] + Number(btn.getAttribute('data-d'))));
+      save(); renderOfs();
+      if (k === 'audOfs' && state.ltc && ctx) ltcStart();
+      if (k === 'audOfs') resetAudio();
+    });
+  });
+
+  // ---- Fit digits to width whatever font actually loads ----
+  var lastFw = 0, lastNeg = false;
+  function fit() {
+    clockEl.style.setProperty('--k', '1');
+    var avail = $('stage').clientWidth * 0.94, w = 0;
+    var rows = clockEl.children;
+    for (var i = 0; i < rows.length; i++) w = Math.max(w, rows[i].getBoundingClientRect().width);
+    clockEl.style.setProperty('--k', w > avail ? (avail / w).toFixed(3) : '1');
+  }
+  window.addEventListener('resize', fit);
+  if (window.ResizeObserver) new ResizeObserver(function () { fit(); }).observe($('stage'));
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+
+  // ---- Main loop ----
+  // Each frame is drawn for the instant it reaches the screen: vsync time + one refresh interval + user offset.
+  // DOM is written only where a value actually changed; flash and square wave are compositor-only.
+  var ltcShownAt = -1e9;
+  var frameInt = 1000 / 60, lastTs = 0, cache = {}, flashOn = null, waveOn = null, statusKey = '';
+  var elH = $('cH'), elM = $('cM'), elS = $('cS'), elF = $('cF'), elNeg = $('cNeg'), elLtc = $('ltcNow');
+  var flashEl = $('flash'), stageEl = $('stage'), headerEl = document.querySelector('header.top');
+  function setText(el, k, v) { if (cache[k] !== v) { cache[k] = v; el.textContent = v; } }
+  function statusFor() {
+    if (state.mode === 'clock') return ['', false];
+    if (state.mode === 'up') {
+      if (waiting) return ['將於 ' + whenLabel(startMs) + ' 開始正數', false];
+      if (running) return ['正數中，' + clockText(startMs) + ' 起算', false];
+      if (finished) return ['已停止', false];
+      return ['按「開始正數」從 0 起算', false];
+    }
+    if (waiting) return ['將於 ' + whenLabel(startMs) + ' 開始，長度 ' + durLabel(state.dur), false];
+    if (running) return ['倒數中', false];
+    if (finished) return ['時間到', true];
+    return ['點選長度即開始倒數，再點一次重新開始', false];
+  }
+  function frame(ts) {
+    if (lastTs) { var dt = ts - lastTs; if (dt > 4 && dt < 50) frameInt += (dt - frameInt) * 0.05; }
+    lastTs = ts;
+    var now = WALL0 + ts + frameInt + state.dispOfs;
+    var fps = state.fps, fw = fps >= 100 ? 3 : 2, maxF = Math.ceil(fps) - 1;
+    var h, m, s, f, active, neg = false, ms;
+
+    if (state.mode === 'clock') {
+      var sec = Math.floor(now / 1000), d = new Date(sec * 1000);
+      h = d.getHours(); m = d.getMinutes(); s = d.getSeconds(); ms = now - sec * 1000;
+      active = true;
+    } else {
+      if (waiting && now >= startMs) { waiting = false; running = true; setTimeout(renderControls, 0); }
+      var t;
+      if (state.mode === 'up') {
+        if (waiting) t = startMs - now;
+        else if (running) t = Math.max(0, now - startMs);
+        else t = finished ? stoppedEl : 0;
+        active = running || waiting;
+      } else {
+        if (waiting) t = startMs - now;
+        else if (running) {
+          t = endMs - now;
+          if (t <= 0) { running = false; finished = true; t = 0; setTimeout(function () { savePlan(); renderControls(); }, 0); }
+        } else t = finished ? 0 : state.dur * 1000;
+        if (!waiting) t = Math.min(t, state.dur * 1000);
+        active = running || waiting || (finished && now - endMs < 1000);
+      }
+      neg = waiting;
+      var tsec = Math.floor(t / 1000);
+      h = Math.floor(tsec / 3600); m = Math.floor(tsec % 3600 / 60); s = tsec % 60; ms = t - tsec * 1000;
+    }
+    f = Math.min(maxF, Math.floor(ms * fps / 1000));
+
+    setText(elH, 'h', pad(h)); setText(elM, 'm', pad(m)); setText(elS, 's', pad(s)); setText(elF, 'f', pad(f, fw));
+    if (fw !== lastFw || neg !== lastNeg) {
+      lastFw = fw; lastNeg = neg;
+      clockEl.classList.toggle('wide', fw === 3); elNeg.hidden = !neg; fit();
+    }
+    var sk = [state.mode, running, waiting, finished, startMs, state.dur].join('|');
+    if (sk !== statusKey) { statusKey = sk; var st = statusFor(); statusEl.textContent = st[0]; statusEl.classList.toggle('done', st[1]); }
+    if (ltc.on ? ts - ltcShownAt >= 100 : cache.ltc) { ltcShownAt = ts; setText(elLtc, 'ltc', ltcNowText(now)); }
+
+    var realPart = ((now % 1000) + 1000) % 1000;
+    var wOn = active && realPart < 500;
+    var fOn = state.flashStyle === 'square' ? wOn : active && realPart < FLASH_MS;
+    if (fOn !== flashOn) {
+      flashOn = fOn; flashEl.style.opacity = fOn ? '1' : '0';
+      stageEl.classList.toggle('inv', fOn); headerEl.classList.toggle('inv', fOn);
+    }
+    if (wOn !== waveOn) { waveOn = wOn; wave.style.transform = wOn ? 'scaleX(1)' : 'scaleX(0)'; }
+
+    requestAnimationFrame(frame);
+  }
+
+  // ---- Start / keep awake ----
+  function keepAwake() {
+    if (!('wakeLock' in navigator)) { $('hint').textContent = '提醒：請在手機設定中暫時關閉自動鎖定，避免螢幕變暗。'; return; }
+    navigator.wakeLock.request('screen').catch(function () {
+      $('hint').textContent = '提醒：無法自動保持螢幕常亮，請在手機設定中暫時關閉自動鎖定。';
+    });
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') WALL0 = Date.now() - performance.now(); // re-anchor after sleep
+    if (document.visibilityState === 'visible' && ctx) {
+      keepAwake();
+      if (state.ltc) { if (ctx.state !== 'running') ctx.resume(); ltcStart(); }
+      resetAudio();
+    }
+  });
+  $('go').addEventListener('click', function () {
+    try {
+      var el = document.documentElement, rf = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (rf) { var p = rf.call(el); if (p && p.catch) p.catch(function () {}); }
+    } catch (e) {}
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      ctx = new AC({ latencyHint: 'interactive' });
+      var resumed = ctx.state === 'suspended' ? ctx.resume() : null;
+      Promise.resolve(resumed).then(function () { if (state.ltc) ltcStart(); resetAudio(); });
+      setInterval(audioTick, 100);
+    } catch (e) { ctx = null; }
+    keepAwake();
+    $('gate').hidden = true;
+  });
+
+  renderControls(); renderLtc(); renderOfs(); renderWave(); renderFlashStyle();
+  // Installable app: offline cache (only where a service worker can run: https or localhost).
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

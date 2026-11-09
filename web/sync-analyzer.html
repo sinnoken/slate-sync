@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>同步分析器</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ground:#f3f1ec; --surface:#ffffff; --ink:#16181c; --dim:#5d6470; --line:#d9d6cf;
+    --mark:#b8860b; --mark-ink:#16181c; --bad:#b3261e; --good:#2e7d32;
+    color-scheme: light;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --ground:#0d0e10; --surface:#17191d; --ink:#eef0f3; --dim:#9aa1ab; --line:#2c3036;
+      --mark:#ffd400; --mark-ink:#0d0e10; --bad:#ff8a80; --good:#8fd694; color-scheme: dark; }
+  }
+  :root[data-theme="dark"] { --ground:#0d0e10; --surface:#17191d; --ink:#eef0f3; --dim:#9aa1ab; --line:#2c3036;
+    --mark:#ffd400; --mark-ink:#0d0e10; --bad:#ff8a80; --good:#8fd694; color-scheme: dark; }
+  *, *::before, *::after { box-sizing: inherit; }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); background: var(--ground); }
+  body { margin: 0; background: var(--ground); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans TC", "PingFang TC", sans-serif; line-height: 1.55; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px max(20px, env(safe-area-inset-left, 0px)) 64px; }
+  h1, h2, .num { font-family: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif; }
+  h1 { font-size: 44px; line-height: 1; margin: 0 0 10px; letter-spacing: .01em; }
+  h2 { font-size: 26px; margin: 36px 0 12px; }
+  .lede { color: var(--dim); max-width: 62ch; margin: 0 0 24px; }
+  .drop { border: 2px dashed var(--line); border-radius: 14px; padding: 28px; text-align: center; background: var(--surface);
+    transition: border-color .15s; }
+  .drop.over { border-color: var(--mark); }
+  .drop p { margin: 8px 0 0; color: var(--dim); font-size: 14px; }
+  button, select { font: inherit; color: var(--ink); background: var(--surface); border: 2px solid var(--line);
+    border-radius: 10px; padding: 8px 16px; min-height: 44px; cursor: pointer; }
+  button.primary { background: var(--mark); color: var(--mark-ink); border-color: var(--mark); font-weight: 600; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--mark); outline-offset: 2px; }
+  .opts { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 16px 0 0; color: var(--dim); font-size: 15px; }
+  .opts label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; min-height: 44px; }
+  .opts input { width: 18px; height: 18px; accent-color: var(--mark); }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; margin: 14px 0; }
+  .card .name { font-weight: 600; word-break: break-all; }
+  .card .meta { color: var(--dim); font-size: 13px; }
+  .headline { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px 20px; margin: 14px 0 10px; }
+  .headline .k { color: var(--dim); font-size: 13px; }
+  .headline .v { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 8px 0 0; font-size: 14px; }
+  dt { color: var(--dim); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .warn { color: var(--bad); font-size: 14px; margin: 8px 0 0; }
+  .err { color: var(--bad); }
+  .progress { color: var(--dim); font-size: 14px; }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td.n { font-variant-numeric: tabular-nums; text-align: right; }
+  th { color: var(--dim); font-weight: 500; }
+  textarea { width: 100%; min-height: 240px; font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; color: var(--ink);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .note { color: var(--dim); font-size: 13px; }
+  .conv input { font: inherit; color: var(--ink); background: var(--surface); border: 2px solid var(--line);
+    border-radius: 10px; padding: 8px 12px; min-height: 44px; width: 10em; font-variant-numeric: tabular-nums; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>同步分析器</h1>
+  <p class="lede">把錄到波形碼的影片或錄音檔拖進來，算出每個檔案的起點真實時間與校正後長度。只讀檔案頭尾，檔案留在這台電腦上，不會上傳。</p>
+
+  <div class="drop" id="drop">
+    <input type="file" id="pick" multiple hidden accept=".mp4,.mov,.m4a,.wav,.MP4,.MOV,.M4A,.WAV,video/*,audio/*">
+    <button class="primary" id="pickBtn">選擇檔案</button>
+    <p>或把檔案拖到這裡。支援 MP4、MOV（H.264／H.265，AAC 或 PCM 音訊）、M4A 與 WAV。</p>
+  </div>
+  <div class="opts">
+    <label>只錄了 <select id="optOnly"><option value="">自動判斷</option><option value="head">開頭</option><option value="tail">結尾</option></select></label>
+    <label><input type="checkbox" id="optFull">整段都有波形碼（抽查中段，必要時分段）</label>
+    <label><input type="checkbox" id="optMinute">尋找分鐘標記（顯示完整時分秒，較慢）</label>
+  </div>
+
+  <div id="results"></div>
+
+  <section id="relSec" hidden>
+    <h2>對齊到基準檔</h2>
+    <p class="note">以指定的基準檔為準，時間都以基準檔自己的時間軸計（從它的第一格起算）。細部仍以畫面確認。</p>
+    <label class="opts">基準檔 <select id="refSel"></select></label>
+    <div class="tablewrap"><table id="relTable"></table></div>
+    <p class="note" id="relNote"></p>
+    <h2>時間換算</h2>
+    <div class="opts conv">
+      <label>從 <select id="convSrc"></select></label>
+      <label>的 <input id="convT" type="number" step="any" value="0" inputmode="decimal" aria-label="秒數"> 秒</label>
+    </div>
+    <div class="tablewrap"><table id="convTable"></table></div>
+  </section>
+
+  <section id="txtSec" hidden>
+    <h2>文字報告</h2>
+    <textarea id="report" readonly></textarea>
+  </section>
+</div>
+
+<script>
+(function () {
+'use strict';
+const $ = id => document.getElementById(id);
+
+// =========================================================== container parsing
+const fourcc = (dv, o) => String.fromCharCode(dv.getUint8(o), dv.getUint8(o + 1), dv.getUint8(o + 2), dv.getUint8(o + 3));
+const u64 = (dv, o) => dv.getUint32(o) * 4294967296 + dv.getUint32(o + 4);
+const sliceDV = async (file, a, b) => new DataView(await file.slice(a, b).arrayBuffer());
+
+function eachBox(dv, start, end, cb) {
+  let o = start;
+  while (o + 8 <= end) {
+    let size = dv.getUint32(o), hdr = 8;
+    const type = fourcc(dv, o + 4);
+    if (size === 1) { size = u64(dv, o + 8); hdr = 16; } else if (size === 0) size = end - o;
+    if (size < hdr || o + size > end) break;
+    cb(type, o + hdr, o + size);
+    o += size;
+  }
+}
+
+async function topBoxes(file) {
+  const out = [];
+  let off = 0;
+  while (off + 8 <= file.size) {
+    const dv = await sliceDV(file, off, Math.min(off + 16, file.size));
+    let size = dv.getUint32(0), hdr = 8;
+    const type = fourcc(dv, 4);
+    if (size === 1) { size = u64(dv, 8); hdr = 16; } else if (size === 0) size = file.size - off;
+    if (size < hdr) break;
+    out.push({ type, off, size });
+    off += size;
+  }
+  return out;
+}
+
+function parseEsds(dv, p, q) {
+  let o = p + 4;
+  const len = () => { let n = 0, b; do { b = dv.getUint8(o++); n = (n << 7) | (b & 0x7f); } while (b & 0x80); return n; };
+  while (o < q) {
+    const tag = dv.getUint8(o++), n = len();
+    if (tag === 0x03) { o += 2; const f = dv.getUint8(o++); if (f & 0x80) o += 2; if (f & 0x40) o += 1 + dv.getUint8(o); if (f & 0x20) o += 2; continue; }
+    if (tag === 0x04) { o += 13; continue; }
+    if (tag === 0x05) return new Uint8Array(dv.buffer, dv.byteOffset + o, n).slice();
+    o += n;
+  }
+  return null;
+}
+
+function parseStsd(dv, a) {
+  const size = dv.getUint32(a + 8), fmt = fourcc(dv, a + 12), s = a + 16, e = a + 8 + size;
+  const en = { fmt, ver: dv.getUint16(s + 8), channels: dv.getUint16(s + 16), bits: dv.getUint16(s + 18), sr: dv.getUint32(s + 24) / 65536 };
+  let child = s + 28;
+  if (en.ver === 1) { en.bytesPerFrame = dv.getUint32(s + 36); en.bytesPerSample = dv.getUint32(s + 40); child += 16; }
+  else if (en.ver === 2) {
+    en.sr = dv.getFloat64(s + 32); en.channels = dv.getUint32(s + 40); en.bits = dv.getUint32(s + 48);
+    en.lpcmFlags = dv.getUint32(s + 52); en.bytesPerFrame = dv.getUint32(s + 56); child += 36;
+  }
+  const scan = (x, y) => eachBox(dv, x, y, (t, p, q) => {
+    if (t === 'esds') en.asc = parseEsds(dv, p, q);
+    else if (t === 'wave') scan(p, q);
+    else if (t === 'enda') en.littleEndian = dv.getUint16(p) !== 0;
+    else if (t === 'pcmC') { en.pcmLE = (dv.getUint8(p + 4) & 1) === 1; en.pcmBits = dv.getUint8(p + 5); }
+  });
+  if (child < e) scan(child, e);
+  return en;
+}
+
+function parseTrak(dv, s, e) {
+  const tr = { elst: [] };
+  const walk = (x, y) => eachBox(dv, x, y, (t, a, b) => {
+    switch (t) {
+      case 'mdia': case 'minf': case 'stbl': case 'edts': walk(a, b); break;
+      case 'elst': {
+        const v = dv.getUint8(a), n = dv.getUint32(a + 4);
+        let o = a + 8;
+        for (let i = 0; i < n; i++) {
+          let dur, mt;
+          if (v === 1) { dur = u64(dv, o); mt = Number(dv.getBigInt64(o + 8)); o += 16; }
+          else { dur = dv.getUint32(o); mt = dv.getInt32(o + 4); o += 8; }
+          o += 4;
+          tr.elst.push({ dur, mt });
+        }
+        break;
+      }
+      case 'mdhd': {
+        const v = dv.getUint8(a);
+        if (v === 1) { tr.ts = dv.getUint32(a + 20); tr.mdur = u64(dv, a + 24); }
+        else { tr.ts = dv.getUint32(a + 12); tr.mdur = dv.getUint32(a + 16); }
+        break;
+      }
+      case 'hdlr': if (!tr.handler) tr.handler = fourcc(dv, a + 8); break;   // MOV: minf has a data-handler hdlr too
+      case 'stsd': tr.entry = parseStsd(dv, a); break;
+      case 'stts': {
+        const n = dv.getUint32(a + 4); tr.stts = new Float64Array(n * 2);
+        for (let i = 0; i < n; i++) { tr.stts[2 * i] = dv.getUint32(a + 8 + 8 * i); tr.stts[2 * i + 1] = dv.getUint32(a + 12 + 8 * i); }
+        break;
+      }
+      case 'ctts': {
+        const v = dv.getUint8(a), n = Math.min(dv.getUint32(a + 4), 64); tr.ctts = [];
+        for (let i = 0; i < n; i++) tr.ctts.push([dv.getUint32(a + 8 + 8 * i), v === 1 ? dv.getInt32(a + 12 + 8 * i) : dv.getUint32(a + 12 + 8 * i)]);
+        break;
+      }
+      case 'stsc': {
+        const n = dv.getUint32(a + 4); tr.stsc = new Float64Array(n * 3);
+        for (let i = 0; i < n * 3; i++) tr.stsc[i] = dv.getUint32(a + 8 + 4 * i);
+        break;
+      }
+      case 'stsz': {
+        tr.sampleSize = dv.getUint32(a + 4); tr.sampleCount = dv.getUint32(a + 8);
+        if (tr.sampleSize === 0 && tr.handler === 'soun') {
+          tr.sizes = new Uint32Array(tr.sampleCount);
+          for (let i = 0; i < tr.sampleCount; i++) tr.sizes[i] = dv.getUint32(a + 12 + 4 * i);
+        }
+        break;
+      }
+      case 'stco': { const n = dv.getUint32(a + 4); tr.co = new Float64Array(n); for (let i = 0; i < n; i++) tr.co[i] = dv.getUint32(a + 8 + 4 * i); break; }
+      case 'co64': { const n = dv.getUint32(a + 4); tr.co = new Float64Array(n); for (let i = 0; i < n; i++) tr.co[i] = u64(dv, a + 8 + 8 * i); break; }
+    }
+  });
+  walk(s, e);
+  return tr;
+}
+
+function parseMoov(dv) {
+  const m = { tracks: [], movieTs: 1000, created: null };
+  eachBox(dv, 0, dv.byteLength, (t, s, e) => {
+    if (t !== 'moov') return;
+    eachBox(dv, s, e, (t2, a, b) => {
+      if (t2 === 'mvhd') {
+        if (dv.getUint8(a) === 1) { m.created = u64(dv, a + 4); m.movieTs = dv.getUint32(a + 20); }
+        else { m.created = dv.getUint32(a + 4); m.movieTs = dv.getUint32(a + 12); }
+      } else if (t2 === 'trak') m.tracks.push(parseTrak(dv, a, b));
+    });
+  });
+  return m;
+}
+
+// Track presentation start in seconds, following the edit list the way ffmpeg does.
+function editStart(tr, movieTs) {
+  let empty = 0, mt = 0;
+  for (const e of tr.elst) { if (e.mt === -1) empty += e.dur / movieTs; else { mt = e.mt; break; } }
+  return { empty, mt };
+}
+
+function pcmSpec(en) {
+  const f = en.fmt;
+  const s = { float: false, le: false, bytes: 2 };
+  if (f === 'sowt') { s.le = true; s.bytes = en.bits === 8 ? 1 : 2; }
+  else if (f === 'twos') { s.bytes = en.bits === 8 ? 1 : 2; }
+  else if (f === 'in24') { s.bytes = 3; s.le = !!en.littleEndian; }
+  else if (f === 'in32') { s.bytes = 4; s.le = !!en.littleEndian; }
+  else if (f === 'fl32') { s.bytes = 4; s.float = true; s.le = !!en.littleEndian; }
+  else if (f === 'fl64') { s.bytes = 8; s.float = true; s.le = !!en.littleEndian; }
+  else if (f === 'lpcm') { s.bytes = en.bits / 8; s.float = !!(en.lpcmFlags & 1); s.le = !(en.lpcmFlags & 2); }
+  else if (f === 'ipcm' || f === 'fpcm') { s.bytes = (en.pcmBits || en.bits) / 8; s.float = f === 'fpcm'; s.le = !!en.pcmLE; }
+  else return null;
+  s.frame = en.bytesPerFrame && en.ver !== 0 ? en.bytesPerFrame : s.bytes * en.channels;
+  return s;
+}
+
+async function openMp4(file) {
+  const boxes = await topBoxes(file);
+  const mv = boxes.find(b => b.type === 'moov');
+  if (!mv) throw new Error('找不到 MP4／MOV 的索引（moov），檔案可能不完整');
+  if (boxes.some(b => b.type === 'moof')) throw new Error('不支援分段式（fragmented）MP4');
+  const m = parseMoov(new DataView(await file.slice(mv.off, mv.off + mv.size).arrayBuffer()));
+  const aud = m.tracks.find(t => t.handler === 'soun');
+  const vid = m.tracks.find(t => t.handler === 'vide');
+  if (!aud || !aud.entry) throw new Error('檔案沒有音訊軌');
+
+  // ---- audio sample/time tables
+  const en = aud.entry, ed = editStart(aud, m.movieTs);
+  const isAac = en.fmt === 'mp4a';
+  const pcm = isAac ? null : pcmSpec(en);
+  if (!isAac && !pcm) throw new Error('不支援的音訊格式：' + en.fmt);
+  let sr = aud.ts, channels = en.channels, codec = null;
+  if (isAac) {
+    if (!en.asc) throw new Error('AAC 缺少解碼設定');
+    const b0 = en.asc[0], b1 = en.asc[1];
+    const aot = b0 >> 3, sfi = ((b0 & 7) << 1) | (b1 >> 7), cc = (b1 >> 3) & 15;
+    const SR = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+    if (sfi < 13) sr = SR[sfi];
+    if (cc > 0 && cc < 8) channels = [0, 1, 2, 3, 4, 5, 6, 8][cc];
+    codec = 'mp4a.40.' + aot;
+  }
+  // chunk table -> per-sample file offsets (AAC) or per-chunk frame runs (PCM)
+  const nChunks = aud.co.length, stsc = aud.stsc;
+  const chunkSamples = new Float64Array(nChunks);
+  for (let i = 0; i < stsc.length / 3; i++) {
+    const first = stsc[3 * i] - 1, next = i + 1 < stsc.length / 3 ? stsc[3 * (i + 1)] - 1 : nChunks;
+    for (let c = first; c < next && c < nChunks; c++) chunkSamples[c] = stsc[3 * i + 1];
+  }
+  const media = { kind: 'mp4', file, isAac, codec, pcm, sr, channels, asc: en.asc, created: m.created };
+  // media time (track timescale) of each sample start; for PCM one "sample" may hold several frames
+  const tsOf = []; // [count, delta] runs
+  for (let i = 0; i < aud.stts.length / 2; i++) tsOf.push([aud.stts[2 * i], aud.stts[2 * i + 1]]);
+  const toSec = mtick => ed.empty + (mtick - ed.mt) / aud.ts;
+
+  if (isAac) {
+    const n = aud.sampleCount, off = new Float64Array(n), size = new Uint32Array(n), mtime = new Float64Array(n + 1);
+    let si = 0;
+    for (let c = 0; c < nChunks; c++) {
+      let o = aud.co[c];
+      for (let k = 0; k < chunkSamples[c] && si < n; k++, si++) {
+        const z = aud.sizes ? aud.sizes[si] : aud.sampleSize;
+        off[si] = o; size[si] = z; o += z;
+      }
+    }
+    let t = 0, j = 0;
+    for (const [cnt, d] of tsOf) for (let k = 0; k < cnt && j < n; k++, j++) { mtime[j] = t; t += d; }
+    mtime[n] = t;
+    Object.assign(media, { n, off, size, timeOf: i => toSec(mtime[i]), endTime: toSec(mtime[n]), mtime, tsc: aud.ts });
+  } else {
+    const fps = aud.sampleSize > 1 ? aud.sampleSize / pcm.frame : 1;   // PCM frames per container sample
+    const framesPerSample = Math.max(1, Math.round(fps));
+    const delta = tsOf.length ? tsOf[0][1] : framesPerSample;
+    const tickPerFrame = delta / framesPerSample;
+    const cFirst = new Float64Array(nChunks + 1);
+    for (let c = 0; c < nChunks; c++) cFirst[c + 1] = cFirst[c] + chunkSamples[c] * framesPerSample;
+    const total = cFirst[nChunks];
+    Object.assign(media, { cFirst, co: aud.co, total, tickPerFrame,
+      frameTime: f => toSec(f * tickPerFrame), endTime: toSec(total * tickPerFrame), sr: aud.ts / tickPerFrame });
+  }
+  const aStart = isAac ? media.timeOf(0) : media.frameTime(0);
+  media.aStartAbs = Math.max(aStart, ed.empty);   // samples before the edit's media_time are not presented
+
+  // ---- video track: frame count, rate, presentation start
+  let vStart = null, vEnd = null;
+  if (vid && vid.stts) {
+    const ve = editStart(vid, m.movieTs);
+    let best = [0, 0];
+    for (let i = 0; i < vid.stts.length / 2; i++) if (vid.stts[2 * i] > best[0]) best = [vid.stts[2 * i], vid.stts[2 * i + 1]];
+    media.vFrames = vid.sampleCount;
+    media.fps = best[1] ? vid.ts / best[1] : null;
+    let minPts = Infinity, dts = 0, j = 0, ci = 0, cLeft = vid.ctts ? vid.ctts[0][0] : 0;
+    for (let i = 0; i < vid.stts.length / 2 && j < 64; i++) {
+      for (let k = 0; k < vid.stts[2 * i] && j < 64; k++, j++) {
+        let c = 0;
+        if (vid.ctts && ci < vid.ctts.length) { c = vid.ctts[ci][1]; if (--cLeft === 0 && ++ci < vid.ctts.length) cLeft = vid.ctts[ci][0]; }
+        minPts = Math.min(minPts, dts + c); dts += vid.stts[2 * i + 1];
+      }
+    }
+    vStart = ve.empty + (minPts - ve.mt) / vid.ts;
+    vEnd = ve.empty + (vid.mdur - ve.mt) / vid.ts;
+  }
+  const fStart = vStart === null ? media.aStartAbs : Math.min(vStart, media.aStartAbs);
+  media.fStart = fStart;
+  media.aOff = media.aStartAbs - fStart;
+  media.vOff = vStart === null ? null : vStart - fStart;
+  media.duration = Math.max(media.endTime, vEnd || 0) - fStart;
+  media.vDur = vStart === null ? null : vEnd - vStart;
+  return media;
+}
+
+async function openWav(file) {
+  let off = 12, fmt = null, dataOff = null, dataSize = null, ds64Data = null, bext = null;
+  const head = await sliceDV(file, 0, 12);
+  const riff = fourcc(head, 0);
+  if ((riff !== 'RIFF' && riff !== 'RF64' && riff !== 'BW64') || fourcc(head, 8) !== 'WAVE') throw new Error('不是有效的 WAV 檔');
+  while (off + 8 <= file.size) {
+    const h = await sliceDV(file, off, off + 8);
+    const id = fourcc(h, 0);
+    let size = h.getUint32(4, true);
+    if (id === 'ds64') { const d = await sliceDV(file, off + 8, off + 8 + 28); ds64Data = d.getUint32(8, true) + d.getUint32(12, true) * 4294967296; }
+    else if (id === 'fmt ') {
+      const d = await sliceDV(file, off + 8, off + 8 + Math.min(size, 40));
+      let tag = d.getUint16(0, true);
+      if (tag === 0xFFFE && size >= 26) tag = d.getUint16(24, true);
+      fmt = { tag, channels: d.getUint16(2, true), sr: d.getUint32(4, true), block: d.getUint16(12, true), bits: d.getUint16(14, true) };
+    } else if (id === 'bext' && size >= 346) {
+      const d = await sliceDV(file, off + 8, off + 8 + 346);
+      bext = { timeRef: d.getUint32(338, true) + d.getUint32(342, true) * 4294967296 };
+    } else if (id === 'data') {
+      dataOff = off + 8;
+      dataSize = (size === 0xFFFFFFFF && ds64Data !== null) ? ds64Data : size;
+      if (riff !== 'RIFF' && ds64Data !== null) dataSize = ds64Data;
+      break;
+    }
+    off += 8 + size + (size & 1);
+  }
+  if (!fmt || dataOff === null) throw new Error('WAV 缺少格式或資料區塊');
+  if (fmt.tag !== 1 && fmt.tag !== 3) throw new Error('不支援的 WAV 編碼（只支援 PCM 與浮點）');
+  const bytes = fmt.bits / 8;
+  const pcm = { float: fmt.tag === 3, le: true, bytes, frame: fmt.block };
+  dataSize = Math.min(dataSize, file.size - dataOff);
+  const total = Math.floor(dataSize / fmt.block);
+  return { kind: 'wav', file, isAac: false, pcm, sr: fmt.sr, channels: fmt.channels, total,
+    cFirst: new Float64Array([0, total]), co: [dataOff], frameTime: f => f / fmt.sr,
+    aOff: 0, vOff: null, fStart: 0, duration: total / fmt.sr, bext };
+}
+
+async function openMedia(file) {
+  return /\.wav$/i.test(file.name) ? openWav(file) : openMp4(file);
+}
+
+// ----------------------------------------------------------- audio reading
+function convertPcm(buf, spec, channels, chans, at) {
+  const dv = new DataView(buf), n = Math.floor(buf.byteLength / spec.frame), le = spec.le;
+  for (let f = 0; f < n; f++) {
+    const base = f * spec.frame;
+    for (let c = 0; c < channels; c++) {
+      const o = base + c * spec.bytes;
+      let v;
+      if (spec.float) v = spec.bytes === 4 ? dv.getFloat32(o, le) : dv.getFloat64(o, le);
+      else if (spec.bytes === 2) v = dv.getInt16(o, le) / 32768;
+      else if (spec.bytes === 3) {
+        const b0 = dv.getUint8(o), b1 = dv.getUint8(o + 1), b2 = dv.getUint8(o + 2);
+        let x = le ? (b0 | (b1 << 8) | (b2 << 16)) : (b2 | (b1 << 8) | (b0 << 16));
+        if (x & 0x800000) x -= 0x1000000;
+        v = x / 8388608;
+      } else if (spec.bytes === 4) v = dv.getInt32(o, le) / 2147483648;
+      else v = dv.getInt8(o) / 128;
+      chans[c][at + f] = v;
+    }
+  }
+  return n;
+}
+
+// Read [a, b) seconds of the file timeline. Returns { chans: Float32Array[], t0: file time of chans[*][0], sr }.
+async function readWindow(m, a, b) {
+  a = Math.max(0, a);
+  if (m.isAac) return readAac(m, a, b);
+  const sr = m.sr, f0abs = m.fStart + a, f1abs = m.fStart + b;
+  // frame index range via the linear frame clock
+  const t0frame = m.frameTime(0);
+  let f0 = Math.max(0, Math.ceil((f0abs - t0frame) * sr - 1e-9)), f1 = Math.min(m.total, Math.ceil((f1abs - t0frame) * sr));
+  if (f1 <= f0) return { chans: [], t0: a, sr };
+  const chans = Array.from({ length: m.channels }, () => new Float32Array(f1 - f0));
+  const parts = [];
+  // chunks overlapping [f0, f1)
+  let lo = 0, hi = m.cFirst.length - 1;
+  while (lo + 1 < hi) { const mid = (lo + hi) >> 1; if (m.cFirst[mid] <= f0) lo = mid; else hi = mid; }
+  for (let c = lo; c < m.cFirst.length - 1 && m.cFirst[c] < f1; c++) {
+    const s = Math.max(f0, m.cFirst[c]), e = Math.min(f1, m.cFirst[c + 1]);
+    if (e <= s) continue;
+    const byte = m.co[c] + (s - m.cFirst[c]) * m.pcm.frame;
+    parts.push({ at: s - f0, p: m.file.slice(byte, byte + (e - s) * m.pcm.frame).arrayBuffer() });
+  }
+  for (const part of parts) convertPcm(await part.p, m.pcm, m.channels, chans, part.at);
+  return { chans, t0: m.frameTime(f0) - m.fStart, sr };
+}
+
+function findSample(m, tAbs) { // last sample whose start <= tAbs
+  let lo = 0, hi = m.n;
+  while (lo + 1 < hi) { const mid = (lo + hi) >> 1; if (m.timeOf(mid) <= tAbs) lo = mid; else hi = mid; }
+  return lo;
+}
+
+async function readAac(m, a, b) {
+  const sr = m.sr;
+  const tA = m.fStart + a, tB = m.fStart + b;
+  let i0 = findSample(m, tA);
+  if (m.timeOf(i0) < tA - 1e-9) i0 += 1;                 // first frame starting at or after a
+  let i1 = Math.min(m.n, findSample(m, tB) + 1);
+  if (i1 <= i0) return { chans: [], t0: a, sr };
+  const st = Math.max(0, i0 - 2);                        // warm-up frames for the decoder's overlap
+  const bufs = await Promise.all(Array.from({ length: i1 - st }, (_, k) =>
+    m.file.slice(m.off[st + k], m.off[st + k] + m.size[st + k]).arrayBuffer()));
+  const BIAS = 1000;                                     // s; keeps priming frames' timestamps positive
+  const usec = i => Math.round((m.timeOf(i) + BIAS) * 1e6);
+  const outs = await new Promise((res, rej) => {
+    const got = [];
+    const dec = new AudioDecoder({ output: d => got.push(d), error: e => rej(e) });
+    dec.configure({ codec: m.codec, sampleRate: sr, numberOfChannels: m.channels, description: m.asc });
+    bufs.forEach((buf, k) => dec.decode(new EncodedAudioChunk({ type: 'key', timestamp: usec(st + k), data: buf })));
+    dec.flush().then(() => { dec.close(); res(got); }, rej);
+  });
+  // place each decoded frame by its own timestamp (robust to dropped/extra outputs)
+  const startTick = m.mtime[i0], len = Math.round((m.mtime[i1] - startTick) * sr / m.tsc);
+  const chans = Array.from({ length: m.channels }, () => new Float32Array(len));
+  for (const d of outs) {
+    const tSec = d.timestamp / 1e6 - BIAS;
+    const idx = findSample(m, tSec + 0.5 / sr);
+    if (idx >= i0 && idx < i1) {
+      const at = Math.round((m.mtime[idx] - startTick) * sr / m.tsc), nf = Math.min(d.numberOfFrames, len - at);
+      for (let c = 0; c < Math.min(m.channels, d.numberOfChannels); c++) {
+        const tmp = new Float32Array(d.numberOfFrames);
+        d.copyTo(tmp, { planeIndex: c, format: 'f32-planar' });
+        chans[c].set(tmp.subarray(0, nf), at);
+      }
+    }
+    d.close();
+  }
+  return { chans, t0: m.timeOf(i0) - m.fStart, sr };
+}
+
+// =========================================================== waveform-code decoding (mirrors slate_sync.py)
+function runs(mask, sr) {
+  const minLen = Math.round(0.006 * sr), maxGap = Math.round(0.006 * sr), out = [];
+  let s = -1;
+  for (let i = 0; i <= mask.length; i++) {
+    const v = i < mask.length && mask[i];
+    if (v && s < 0) s = i;
+    else if (!v && s >= 0) {
+      if (out.length && s - out[out.length - 1][1] < maxGap) out[out.length - 1][1] = i; else out.push([s, i]);
+      s = -1;
+    }
+  }
+  return out.filter(([a, b]) => b - a >= minLen);
+}
+
+function percentile(arr, q) {
+  const s = Float64Array.from(arr).sort();
+  const pos = (s.length - 1) * q / 100, lo = Math.floor(pos), hi = Math.ceil(pos);
+  return s[lo] + (s[hi] - s[lo]) * (pos - lo);
+}
+
+function decode(x, t0, sr) {
+  const N = x.length;
+  if (N < sr) return [];
+  const a = new Float64Array(N);
+  for (let i = 0; i < N; i++) a[i] = Math.abs(x[i]);
+  const k = Math.round(0.004 * sr);
+  const env = new Float64Array(N);
+  let acc = 0;
+  for (let i = 0; i < N; i++) { acc += a[i]; if (i >= k) acc -= a[i - k]; env[i] = acc / k; }
+  for (let i = 0; i < k - 1; i++) env[i] = env[k - 1];
+  const blk = Math.round(0.01 * sr), nb = Math.floor(N / blk);
+  if (nb < 3) return [];
+  const bm = new Float64Array(nb);
+  for (let j = 0; j < nb; j++) { let mx = 0; for (let i = j * blk; i < (j + 1) * blk; i++) if (env[i] > mx) mx = env[i]; bm[j] = mx; }
+  const w = 60, roll = new Float64Array(nb);
+  let gmax = 0;
+  for (let j = 0; j < nb; j++) { let mx = 0; for (let q = Math.max(0, j - w); q <= Math.min(nb - 1, j + w); q++) if (bm[q] > mx) mx = bm[q]; roll[j] = mx; if (mx > gmax) gmax = mx; }
+  if (gmax < 1e-4) return [];
+  const floor = gmax * 1e-3, mask = new Uint8Array(N);
+  for (let i = 0; i < N; i++) { const r = Math.max(roll[Math.min(nb - 1, Math.floor(i / blk))], floor); mask[i] = env[i] > 0.25 * r ? 1 : 0; }
+  const on = runs(mask, sr), bursts = on.map(([s, e]) => [s / sr, e / sr]), out = [];
+  for (let i = 0; i < on.length; i++) {
+    const [s, e] = on[i], dur = (e - s) / sr;
+    let isMin;
+    if (dur >= 0.025 && dur <= 0.07) isMin = false; else if (dur >= 0.2 && dur <= 0.3) isMin = true; else continue;
+    const amp = percentile(a.subarray(s, e), 99), b = Math.max(0, s - Math.round(0.0041667 * sr)), th = 0.4 * amp;
+    let i1 = b; while (i1 < e && !(a[i1] > th)) i1++;
+    const i0 = Math.max(i1 - 1, 0);
+    const frac = i1 > i0 ? (th - a[i0]) / Math.max(a[i1] - a[i0], 1e-12) : 0;
+    const segEnd = Math.min(e, s + Math.round(0.03 * sr));
+    let zc = 0; for (let q = s + 1; q < segEnd; q++) if ((x[q] < 0) !== (x[q - 1] < 0)) zc++;
+    const hz = Math.max(zc / 2 / ((segEnd - s) / sr), 300);
+    const onset = (i0 + frac) / sr - Math.asin(0.4) / (2 * Math.PI * hz);
+    if (onset + 0.95 > N / sr) continue;
+    const pulses = bursts.slice(i + 1).filter(q => q[0] < onset + 0.97);
+    const groups = []; let cur = [];
+    for (const p of pulses) { if (cur.length && p[0] - cur[cur.length - 1][1] > 0.06) { groups.push(cur); cur = []; } cur.push(p); }
+    if (cur.length) groups.push(cur);
+    if (groups.length !== 2) continue;
+    let digits = [], expect = onset + (isMin ? 0.3 : 0.1);
+    for (const g of groups) {
+      if (Math.abs(g[0][0] - expect) > 0.02) { digits = null; break; }
+      const lens = g.map(q => q[1] - q[0]);
+      let gend;
+      if (g.length === 1 && lens[0] >= 0.08 && lens[0] <= 0.125) { digits.push(0); gend = expect + 0.1; }
+      else if (lens.every(L => L >= 0.01 && L <= 0.035) && g.every((q, j) => j === 0 || (q[0] - g[j - 1][0] >= 0.034 && q[0] - g[j - 1][0] <= 0.046))) {
+        digits.push(g.length); gend = expect + g.length * 0.04 - 0.02;
+      } else { digits = null; break; }
+      expect = gend + 0.1;
+    }
+    if (!digits || digits[0] > 5 || digits[1] > 9) continue;
+    const val = digits[0] * 10 + digits[1];
+    if (!isMin && val === 0) continue;
+    out.push({ t: t0 + onset, val, isMin });
+  }
+  return out;
+}
+
+const mod = (v, m) => ((v % m) + m) % m;
+const wrap = (v, m) => mod(v + m / 2, m) - m / 2;
+
+function label(seconds) {
+  if (!seconds.length) return null;
+  seconds = seconds.slice().sort((p, q) => p.t - q.t);
+  const ref = seconds[0], rRef = ref.isMin ? 0 : ref.val;
+  const good = seconds.filter(s => {
+    const dt = s.t - ref.t, k = Math.round(dt);
+    return mod(rRef + k, 60) === (s.isMin ? 0 : s.val) && Math.abs(dt - k) <= 0.01 * Math.abs(k) + 0.005;
+  });
+  if (good.length < Math.max(1, Math.floor(seconds.length / 2))) return null;
+  const marker = good.find(s => s.isMin);
+  if (marker) return { lab: good.map(s => [s.t, mod(marker.val * 60 + Math.round(s.t - marker.t), 3600)]), mod: 3600 };
+  return { lab: good.map(s => [s.t, mod(rRef + Math.round(s.t - ref.t), 60)]), mod: 60 };
+}
+
+const CHUNK = 8, STEP = 7;
+// Reads chunks from one end toward the other: locating until the code is found (or the search limit),
+// then one more chunk per call while the code continues, up to maxRead seconds.
+class End {
+  constructor(m, start, dir, limit, maxRead, tick) {
+    Object.assign(this, { m, pos: start, origin: start, dir, limit, maxRead, tick,
+      found: [], used: null, started: false, done: false, idle: 0, readSince: 0 });
+  }
+  async step() {
+    if (this.done) return;
+    const D = this.m.duration;
+    const [a, b] = this.dir > 0 ? [this.pos, Math.min(this.pos + CHUNK, D)] : [Math.max(this.pos - CHUNK, 0), this.pos];
+    if (b - a < 1) { this.done = true; return; }
+    const w = await readWindow(this.m, a, b);
+    if (!w.chans.length || !w.chans[0].length) { this.done = true; return; }
+    let best = [null, []];
+    w.chans.forEach((ch, c) => { const d = decode(ch, w.t0, w.sr); if (d.length > best[1].length) best = [c, d]; });
+    const fresh = best[1].filter(d => this.found.every(f => Math.abs(d.t - f.t) > 0.5));
+    if (fresh.length) { this.found.push(...fresh); this.used = best[0]; this.started = true; this.idle = 0; }
+    else if (this.started && ++this.idle >= 2) this.done = true;          // the code region has ended
+    if (this.started) { this.readSince += STEP; if (this.readSince >= this.maxRead) this.done = true; }
+    else if (Math.abs(this.pos - this.origin) >= this.limit) this.done = true;   // this end was not recorded
+    this.pos += STEP * this.dir;
+    if (this.tick) this.tick();
+  }
+  hasMinute() { return this.found.some(d => d.isMin); }
+}
+
+function polyfit1(X, Y) {
+  const n = X.length; let mx = 0, my = 0;
+  for (let i = 0; i < n; i++) { mx += X[i]; my += Y[i]; }
+  mx /= n; my /= n;
+  let sxy = 0, sxx = 0;
+  for (let i = 0; i < n; i++) { sxy += (X[i] - mx) * (Y[i] - my); sxx += (X[i] - mx) ** 2; }
+  const slope = sxy / sxx;
+  return [slope, my - slope * mx, sxx];
+}
+
+const NTSC = [24000 / 1001, 30000 / 1001, 60000 / 1001, 120000 / 1001];
+
+// Fit file_t = c + rate * R over every labelled second (R: real seconds since the first head second, or the
+// first second read in single-end mode). Middle probes are placed with the current line, then added.
+function solve(head, tail, probes) {
+  const LH = head.length ? label(head) : null, LT = tail.length ? label(tail) : null;
+  if (!LH && !LT) return { error: '讀到的秒數彼此不一致，無法判讀' };
+  let pts, base, M, ambiguous = false, clusters, tailCluster = null;
+  if (LH && LT) {
+    const lh = LH.lab, lt = LT.lab, [tH, rH] = lh[0], [tT, rT] = lt[lt.length - 1], fileDiff = tT - tH;
+    const localRatio = lab => {
+      if (lab.length < 2) return null;
+      const R0 = lab.map(([t]) => Math.round(t - lab[0][0])), span = R0[R0.length - 1] - R0[0];
+      if (span < 2) return null;
+      const k = polyfit1(R0, lab.map(([t]) => t))[0];
+      return Math.abs(k - 1) <= 0.01 ? [k, span] : null;
+    };
+    const locs = [localRatio(lh), localRatio(lt)].filter(Boolean);
+    const rho = locs.length ? locs.reduce((a, [k, w]) => a + k * w, 0) / locs.reduce((a, [, w]) => a + w, 0) : 1;
+    const span = locs.length ? Math.max(...locs.map(([, w]) => w)) : 0;
+    const pred = fileDiff / rho, rd = mod(rT - rH, 60), realDiff = rd + 60 * Math.round((pred - rd) / 60);
+    if (realDiff <= 0) return { error: '頭尾讀到的時間不合理' };
+    ambiguous = (span ? 0.003 / span : 0.01) * pred > 15 || Math.abs(pred - realDiff) > 15;
+    let mh = LH.mod, mt = LT.mod;
+    if (mh === 3600 && mt === 3600 && mod(rT - rH - realDiff, 3600) !== 0) mh = mt = 60;
+    if (mh === 3600) { base = mod(rH, 3600); M = 3600; }
+    else if (mt === 3600) { base = mod(rT - realDiff, 3600); M = 3600; }
+    else { base = mod(rH, 60); M = 60; }
+    pts = lh.map(([t]) => [t, Math.round(t - tH)]).concat(lt.map(([t]) => [t, realDiff - Math.round(tT - t)]));
+    clusters = [lh.map(([t]) => t)]; tailCluster = lt.map(([t]) => t);
+  } else {
+    const L = LH || LT, [t0, r0] = L.lab[0];
+    M = L.mod; base = mod(r0, M);
+    pts = L.lab.map(([t]) => [t, Math.round(t - t0)]);
+    clusters = [L.lab.map(([t]) => t)];
+  }
+  const fitKeep = (P, tol, iters) => {
+    let keep = P.map(() => true), rate, c;
+    for (let it = 0; it < iters; it++) {
+      const Q = P.filter((_, i) => keep[i]);
+      [rate, c] = polyfit1(Q.map(p => p[1]), Q.map(p => p[0]));
+      const nk = P.map(p => Math.abs(p[0] - (c + rate * p[1])) < tol);
+      if (nk.filter(Boolean).length < 2 || nk.every((v, i) => v === keep[i])) break;
+      keep = nk;
+    }
+    const Q = P.filter((_, i) => keep[i]);
+    [rate, c] = polyfit1(Q.map(p => p[1]), Q.map(p => p[0]));
+    return { keep, rate, c };
+  };
+  let { keep, rate, c } = fitKeep(pts, 0.002, 4);
+  const probeClusters = [];
+  for (const secs of probes) {
+    const L = label(secs);
+    if (!L) continue;
+    const [tp0, rp0] = L.lab[0], rPred = (tp0 - c) / rate, rd = mod(rp0 - base, 60);
+    const R0 = rd + 60 * Math.round((rPred - rd) / 60);
+    const add = L.lab.map(([t]) => [t, R0 + Math.round(t - tp0)]);
+    pts = pts.concat(add); probeClusters.push(add.map(([t]) => t));
+  }
+  if (probeClusters.length) ({ keep, rate, c } = fitKeep(pts, 0.05, 1));
+  const P = pts.filter((_, i) => keep[i]), n = P.length;
+  const res = P.map(p => p[0] - (c + rate * p[1]));
+  const rms = Math.sqrt(res.reduce((a, v) => a + v * v, 0) / n);
+  if (Math.abs(rate - 1) > 0.01 || (!probeClusters.length && rms > 0.005))
+    return { error: `讀取結果不合理（速率偏差 ${((rate - 1) * 100).toFixed(3)}%，擬合殘差 ${(rms * 1000).toFixed(1)} ms），可能有秒數讀錯，請檢查訊號品質` };
+  const Rk = P.map(p => p[1]), Rm = Rk.reduce((a, v) => a + v, 0) / n;
+  const sxx = Rk.reduce((a, v) => a + (v - Rm) ** 2, 0);
+  const sigma = Math.max(n > 2 ? Math.sqrt(res.reduce((a, v) => a + v * v, 0) / (n - 2)) : 0.0003, 1e-5);
+  const uncPpm = sxx > 0 ? sigma / Math.sqrt(sxx) * 1e6 : NaN;
+  const predSe = Rx => sxx > 0 ? sigma * Math.sqrt(1 / n + (Rx - Rm) ** 2 / sxx) : Infinity;
+  // Piecewise model when the middle sits off the line (full-recording mode only).
+  let segs = null, maxDev = null;
+  const cl = clusters.concat(probeClusters.sort((x, y) => x[0] - y[0]), tailCluster ? [tailCluster] : []);
+  if (probeClusters.length && cl.length >= 3) {
+    const centers = cl.map(ts => { const Q = pts.filter(p => ts.includes(p[0]));
+      return [Q.reduce((a, p) => a + p[0], 0) / Q.length, Q.reduce((a, p) => a + p[1], 0) / Q.length]; });
+    const devs = centers.map(([tc, rc]) => tc - (c + rate * rc));
+    maxDev = Math.max(...devs.map(Math.abs)) * 1000;
+    if (maxDev > 2) segs = centers.slice(1).map(([t2, r2], i) => { const [t1, r1] = centers[i]; return { from: t1, to: t2, rate: (t2 - t1) / (r2 - r1) }; });
+  }
+  return { rate, c, base, M, ambiguous, n, rejected: pts.length - n, rms, uncPpm, predSe, segs, maxDev,
+    both: !!(LH && LT), which: LH && LT ? '頭尾' : (LH ? '開頭' : '結尾') };
+}
+
+async function analyze(file, opts, tick) {
+  const m = await openMedia(file);
+  const D = m.duration, limit = 30 * 60, maxRead = 120, target = 1.0;
+  const head = new End(m, 0, +1, limit, maxRead, tick), tail = new End(m, D, -1, limit, maxRead, tick);
+  if (opts.only === 'head') tail.done = true;
+  if (opts.only === 'tail') head.done = true;
+  // 1) Locate: search inward from both ends at once.
+  while (!((head.started || head.done) && (tail.started || tail.done))) {
+    if (!(head.started || head.done)) await head.step();
+    if (!(tail.started || tail.done)) await tail.step();
+    if (head.pos >= tail.pos) { if (!head.started) head.done = true; if (!tail.started) tail.done = true; break; }
+  }
+  if (!head.found.length && !tail.found.length) return { file: file.name, error: '整個檔案都讀不到波形碼' };
+  let singleFrom = null;
+  if (head.found.length && tail.found.length &&
+      Math.min(...tail.found.map(d => d.t)) - Math.max(...head.found.map(d => d.t)) < 60) {
+    for (const d of tail.found) if (head.found.every(f => Math.abs(d.t - f.t) > 0.5)) head.found.push(d);
+    head.found.sort((x, y) => x.t - y.t);
+    if (head.used === null) head.used = tail.used;
+    tail.found = []; tail.done = true;
+    if (head.found[0].t > D / 2) singleFrom = '結尾';
+  }
+  // 2) Refine to the target precision.
+  let fit;
+  for (;;) {
+    fit = solve(head.found, tail.found, []);
+    if (fit.error) break;
+    const worst = Math.max(fit.predSe((0 - fit.c) / fit.rate), fit.predSe((D - fit.c) / fit.rate)) * 1000;
+    const needMin = opts.minute && ![head, tail].filter(e => e.found.length).every(e => e.hasMinute());
+    if (worst <= target && !needMin) break;
+    let progressed = false;
+    for (const e of [head, tail]) if (e.found.length && !e.done) { await e.step(); progressed = true; }
+    if (!progressed) break;
+  }
+  if (fit.error) return { file: file.name, error: fit.error };
+  // 3) Full-recording mode: probe the middle.
+  const probes = [];
+  if (opts.probe) {
+    const lo = (head.found.length ? Math.max(...head.found.map(d => d.t)) : 0) + 30;
+    const hi = (tail.found.length ? Math.min(...tail.found.map(d => d.t)) : D) - 30;
+    for (let k = 0; k < opts.probe && hi - lo >= 60; k++) {
+      const p0 = lo + (hi - lo) * (k + 1) / (opts.probe + 1);
+      const w = await readWindow(m, p0, p0 + 3 * CHUNK);
+      if (!w.chans.length || !w.chans[0].length) continue;
+      let best = [];
+      w.chans.forEach(ch => { const d = decode(ch, w.t0, w.sr); if (d.length > best.length) best = d; });
+      if (best.length) probes.push(best);
+      if (tick) tick();
+    }
+    if (probes.length) { fit = solve(head.found, tail.found, probes); if (fit.error) return { file: file.name, error: fit.error }; }
+  }
+  const { rate, c, base, M } = fit;
+  const realAt = t => mod(base + (t - c) / rate, M);
+  let fps = m.fps || null;
+  for (const e of NTSC) if (fps && Math.abs(fps - e) < 0.005) fps = e;
+  const hasV = m.vOff !== null && m.vOff !== undefined;
+  let mOff, mLen, kind;
+  if (hasV) { mOff = m.vOff; mLen = fps && m.vFrames ? m.vFrames / fps : m.vDur; kind = '畫面'; }
+  else { mOff = m.aOff; mLen = (m.kind === 'wav' ? m.duration : (m.endTime - m.aStartAbs)); kind = '音訊'; }
+  let corrected = mLen / rate, segments = null;
+  let worstMs = Math.max(fit.predSe((0 - c) / rate), fit.predSe((D - c) / rate)) * 1000;
+  if (fit.segs) {
+    const bounds = [mOff, ...fit.segs.slice(0, -1).map(g => g.to), mOff + mLen], rates = fit.segs.map(g => g.rate);
+    segments = rates.map((r, i) => ({ fileFrom: bounds[i] - mOff, fileTo: bounds[i + 1] - mOff, speed: r }));
+    corrected = segments.reduce((a, g) => a + (g.fileTo - g.fileFrom) / g.speed, 0);
+    worstMs = 0;
+    segments.forEach((g, i) => {
+      const dr = Math.max(...[i - 1, i + 1].filter(j => j >= 0 && j < segments.length).map(j => Math.abs(g.speed - segments[j].speed)));
+      worstMs = Math.max(worstMs, 1.3 * dr * (g.fileTo - g.fileFrom) / 8 * 1000);
+    });
+  }
+  const startLabel = realAt(mOff);
+  let startClock = startLabel, clockMod = M, hintSrc = null, hint = null;
+  if (m.kind === 'mp4' && m.created) { const d = new Date((m.created - 2082844800) * 1000); hint = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds(); hintSrc = '檔案建立時間'; }
+  else if (m.kind === 'wav' && m.bext && m.bext.timeRef) { hint = m.bext.timeRef / m.sr; hintSrc = 'BWF 時間參考'; }
+  else { const d = new Date(file.lastModified); hint = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds(); hintSrc = '檔案修改時間（可能不準）'; }
+  if (M === 3600 && hint !== null) { startClock = Math.round((hint - startLabel) / 3600) * 3600 + startLabel; clockMod = 86400; }
+  else hintSrc = null;
+  const used = [head, tail].filter(e => e.found.length).map(e => e.used);
+  const mode = probes.length ? '全段' : (fit.both ? '頭尾' : '僅' + (singleFrom || fit.which));
+  return { file: file.name, kind, mode, channel: [used[0], used[used.length - 1]], startLabel, mod: M, startClock, clockMod, hintSrc,
+    length: mLen, correctedLength: corrected, frames: hasV ? m.vFrames : null, fps: hasV ? fps : null,
+    rate, ppm: (rate - 1) * 1e6, uncPpm: fit.uncPpm, worstMs, edgesUsed: fit.n, edgesRejected: fit.rejected,
+    fitRmsMs: fit.rms * 1000, segments, midDevMs: fit.maxDev, aOff: m.aOff, vOff: hasV ? m.vOff : null, ambiguous: fit.ambiguous };
+}
+
+// =========================================================== UI
+const fmtClock = (sec, m) => {
+  sec = mod(sec, m);
+  const h = Math.floor(sec / 3600), mi = Math.floor(sec % 3600 / 60), s = sec % 60;
+  const p2 = v => String(v).padStart(2, '0'), ss = s.toFixed(3).padStart(6, '0');
+  if (m === 60) return `??:??:${ss}`;
+  if (m === 3600) return `??:${p2(mi)}:${ss}`;
+  return `${p2(h)}:${p2(mi)}:${ss}`;
+};
+const sgn = (v, d) => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(d);
+let results = [];
+window.__results = results;
+
+function cardHtml(r) {
+  if (r.error) return `<div class="name">${esc(r.file)}</div><p class="err">✗ ${esc(r.error)}</p>`;
+  const k = r.kind;
+  const rows = [
+    [`${k}起點真實時間`, fmtClock(r.startClock, r.clockMod) + (r.hintSrc ? `（「時」依${r.hintSrc}推定）` : '')],
+    ...(r.fps ? [['修正後影格率', `${r.fps.toFixed(6)} → ${(r.fps * r.rate).toFixed(6)} fps`]] : []),
+    ['模式', r.mode],
+    ['時鐘偏差', `${sgn(r.ppm, 3)} ppm（量測精度約 ±${r.uncPpm.toFixed(3)} ppm）`],
+    ['預估誤差', `檔案任何位置約 ±${r.worstMs.toFixed(3)} ms${r.segments ? '（分段後）' : ''}`],
+    ...(r.segments ? r.segments.map((g, i) => [`第 ${i + 1} 段`, `${g.fileFrom.toFixed(3)} ～ ${g.fileTo.toFixed(3)} 秒：播放速度 ${(g.speed * 100).toFixed(6)} %`]) : []),
+    ...(!r.segments && r.midDevMs !== null ? [['中段實測偏差', `最多 ${r.midDevMs.toFixed(3)} ms（線性，不需分段）`]] : []),
+    [`${k}結束真實時間`, fmtClock(r.startClock + r.correctedLength, r.clockMod)],
+    ['擬合', `使用 ${r.edgesUsed} 個秒前緣，殘差 ${r.fitRmsMs.toFixed(3)} ms` + (r.edgesRejected ? `，排除 ${r.edgesRejected} 個異常點` : '')],
+    ['波形碼聲道', r.channel[0] === r.channel[1] ? `第 ${r.channel[0] + 1} 聲道` : `開頭第 ${r.channel[0] + 1} 聲道，結尾第 ${r.channel[1] + 1} 聲道`],
+    ['軌道起點偏移', `音訊軌 ${sgn(r.aOff, 6)} 秒` + (r.vOff !== null ? `，畫面軌 ${sgn(r.vOff, 6)} 秒` : '')],
+  ];
+  const warns = [];
+
+  if (r.segments) warns.push(`非線性漂移：中段偏離直線最多 ${r.midDevMs.toFixed(1)} ms，建議依上列分段調速（抽查越多處、分段越細越準）`);
+  if (r.mode.startsWith('僅')) warns.push('只讀到單端：速率只代表那一小段時間，未涵蓋整段，機身溫度變化可能造成偏差');
+  if (r.ambiguous) warns.push('頭尾之間的整分鐘數無法確定，請確認結果是否合理（可勾選尋找分鐘標記或實測中段）');
+  return `<div class="name">${esc(r.file)}</div>
+    <div class="headline">
+      <div><div class="k">速度比例</div><div class="v num">${(r.rate * 100).toFixed(6)} %</div>
+        <div class="meta">以此速度播放即對齊真實時間</div></div>
+      <div><div class="k">校正後長度</div><div class="v num">${r.correctedLength.toFixed(6)} 秒</div>
+        <div class="meta">${k}原長 ${r.length.toFixed(6)} 秒${r.frames ? `（${r.frames} 格）` : ''}</div></div>
+    </div>
+    <dl>${rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('')}</dl>
+    ${warns.map(w => `<p class="warn">⚠ ${w}</p>`).join('')}`;
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function textReport() {
+  const L = [];
+  for (const r of results) {
+    L.push('='.repeat(64), r.file);
+    if (r.error) { L.push(`  ✗ ${r.error}`); continue; }
+    L.push(`  ▶ 速度比例        : ${(r.rate * 100).toFixed(6)} %`);
+    L.push(`  ▶ 校正後長度      : ${r.correctedLength.toFixed(6)} 秒（${r.kind}原長 ${r.length.toFixed(6)} 秒${r.frames ? `，${r.frames} 格` : ''}）`);
+    L.push(`    ${r.kind}起點真實時間  : ${fmtClock(r.startClock, r.clockMod)}${r.hintSrc ? `（「時」依${r.hintSrc}推定）` : ''}`);
+    L.push(`    ${r.kind}結束真實時間  : ${fmtClock(r.startClock + r.correctedLength, r.clockMod)}`);
+    if (r.fps) L.push(`  修正後影格率      : ${r.fps.toFixed(6)} → ${(r.fps * r.rate).toFixed(6)} fps`);
+    L.push(`  時鐘偏差          : ${sgn(r.ppm, 3)} ppm（量測精度約 ±${r.uncPpm.toFixed(3)} ppm）`);
+    L.push(`  擬合              : ${r.edgesUsed} 個秒前緣，殘差 ${r.fitRmsMs.toFixed(3)} ms`);
+    L.push(`  軌道起點偏移      : 音訊軌 ${sgn(r.aOff, 6)} 秒${r.vOff !== null ? `，畫面軌 ${sgn(r.vOff, 6)} 秒` : ''}`);
+    L.push(`  模式              : ${r.mode}`);
+    L.push(`  預估誤差          : 檔案任何位置約 ±${r.worstMs.toFixed(3)} ms${r.segments ? '（分段後）' : ''}`);
+    if (r.segments) r.segments.forEach((g, i) => L.push(`  第 ${i + 1} 段            : ${g.fileFrom.toFixed(3)} ～ ${g.fileTo.toFixed(3)} 秒，播放速度 ${(g.speed * 100).toFixed(6)} %`));
+    else if (r.midDevMs !== null) L.push(`  中段實測偏差      : 最多 ${r.midDevMs.toFixed(3)} ms（線性）`);
+    if (r.mode.startsWith('僅')) L.push('  ⚠ 只讀到單端：未涵蓋整段，機身溫度變化可能造成偏差');
+  }
+  const rel = relRows();
+  if (rel) {
+    L.push('='.repeat(64), `對齊到基準檔：${rel.ref.file}（以基準檔自己的時間軸計）`);
+    for (const x of rel.rows) L.push(`  ${x.file}${x.r === rel.ref ? '（基準）' : ''}：起點 ${sgn(x.offset, 6)} 秒，播放速度 ${(x.speed * 100).toFixed(6)} %，長度 ${x.length.toFixed(6)} 秒`);
+  }
+  return L.join('\n');
+}
+
+// Every file on the reference file's own timeline: real(t) = start + t / rate;  t_ref = (real - start_ref) * rate_ref.
+function relRows() {
+  const ok = results.filter(r => !r.error);
+  if (ok.length < 2) return null;
+  const ref = ok.find(r => r.file === $('refSel').value) || ok[0];
+  const M = ok.every(r => r.mod === 3600) ? 3600 : 60;
+  return { ref, M, ok, rows: ok.map(r => ({ file: r.file, r,
+    offset: wrap(r.startLabel - ref.startLabel, M) * ref.rate, speed: r.rate / ref.rate, length: r.length * ref.rate / r.rate })) };
+}
+function convertT(rel, src, t, dst) { return (wrap(src.startLabel - dst.startLabel, rel.M) + t / src.rate) * dst.rate; }
+
+function renderRel() {
+  const rel = relRows();
+  $('relSec').hidden = !rel;
+  if (rel) {
+    $('relTable').innerHTML = '<tr><th>檔案</th><th style="text-align:right">起點位於基準檔（秒）</th><th style="text-align:right">播放速度</th><th style="text-align:right">在基準時間軸長度（秒）</th></tr>' +
+      rel.rows.map(x => `<tr><td>${esc(x.file)}${x.r === rel.ref ? '（基準）' : ''}</td><td class="n num">${sgn(x.offset, 6)}</td><td class="n num">${(x.speed * 100).toFixed(6)} %</td><td class="n num">${x.length.toFixed(6)}</td></tr>`).join('');
+    $('relNote').textContent = rel.M === 3600 ? '' : '起點位置以秒數判定，各檔案開始時間相差須在 ±30 秒內；更大的差距請以畫面確認，或勾選「尋找分鐘標記」。';
+    const cur = $('convSrc').value;
+    $('convSrc').innerHTML = rel.ok.map(r => `<option${r.file === cur ? ' selected' : ''}>${esc(r.file)}</option>`).join('');
+    renderConv();
+  }
+  $('txtSec').hidden = !results.length;
+  $('report').value = textReport();
+}
+function renderConv() {
+  const rel = relRows();
+  if (!rel) return;
+  const src = rel.ok.find(r => r.file === $('convSrc').value) || rel.ok[0], t = parseFloat($('convT').value);
+  if (!isFinite(t)) { $('convTable').innerHTML = '<tr><td class="err">請輸入秒數</td></tr>'; return; }
+  $('convTable').innerHTML = '<tr><th>檔案</th><th style="text-align:right">同一時刻（秒）</th></tr>' +
+    rel.ok.filter(r => r !== src).map(r => `<tr><td>${esc(r.file)}${r === rel.ref ? '（基準）' : ''}</td><td class="n num">${convertT(rel, src, t, r).toFixed(6)}</td></tr>`).join('');
+}
+$('convSrc').addEventListener('change', renderConv);
+$('convT').addEventListener('input', renderConv);
+
+function renderRefSel() {
+  const ok = results.filter(r => !r.error), cur = $('refSel').value;
+  $('refSel').innerHTML = ok.map(r => `<option${r.file === cur ? ' selected' : ''}>${esc(r.file)}</option>`).join('');
+}
+$('refSel').addEventListener('change', renderRel);
+
+let busy = Promise.resolve();
+function addFiles(list) {
+  const files = Array.from(list);
+  if (!files.length) return;
+  if (typeof AudioDecoder === 'undefined' && files.some(f => !/\.wav$/i.test(f.name)))
+    alert('這個瀏覽器不支援 WebCodecs 音訊解碼，MP4／MOV 中的 AAC 音訊可能無法分析。建議使用 Chrome、Edge、Firefox 桌面版或 Safari 26 以上。');
+  busy = busy.then(async () => {
+    const opts = { only: $('optOnly').value || null, probe: $('optFull').checked ? 3 : 0, minute: $('optMinute').checked };
+    for (const f of files) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `<div class="name">${esc(f.name)}</div><p class="progress">分析中…</p>`;
+      $('results').appendChild(card);
+      let steps = 0;
+      const tick = () => { card.querySelector('.progress') && (card.querySelector('.progress').textContent = `分析中…已讀取 ${++steps} 段`); };
+      let r;
+      try { r = await analyze(f, opts, tick); }
+      catch (e) { r = { file: f.name, error: (e && e.message) || String(e) }; }
+      results.push(r);
+      card.innerHTML = cardHtml(r);
+      renderRefSel(); renderRel();
+    }
+    window.__done = (window.__done || 0) + files.length;
+  });
+}
+
+$('pickBtn').addEventListener('click', () => $('pick').click());
+$('pick').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
+const drop = $('drop');
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => addFiles(e.dataTransfer.files));
+})();
+</script>
+</body>
+</html>
