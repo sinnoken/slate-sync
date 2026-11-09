@@ -2,8 +2,50 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="refresh" content="0; url=sync-slate.html">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>同步場記板</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#000000">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="場記板">
+<style>
+  :root { color-scheme: light dark; --ground: #f6f6f4; --panel: #ffffff; --ink: #141414; --dim: #5d5d5d; --line: #d9d9d4; --mark: #9a7400; }
+  @media (prefers-color-scheme: dark) { :root { --ground: #0d0e10; --panel: #18191c; --ink: #f2f2f0; --dim: #a6a6a2; --line: #34363b; --mark: #ffd400; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--ground); color: var(--ink);
+    font: 17px/1.5 system-ui, -apple-system, "Noto Sans TC", "PingFang TC", sans-serif;
+    padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); }
+  main { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 30px; margin: 8px 0 4px; }
+  .sub { color: var(--dim); margin: 0 0 24px; }
+  a.card { display: block; background: var(--panel); border: 2px solid var(--line); border-radius: 18px; padding: 18px 20px;
+    margin-bottom: 14px; color: inherit; text-decoration: none; }
+  a.card:hover { border-color: var(--mark); }
+  a.card:focus-visible { border-color: var(--mark); outline: 3px solid var(--mark); outline-offset: 3px; }
+  a.card b { display: block; font-size: 22px; margin-bottom: 2px; }
+  a.card span { color: var(--dim); }
+  h2 { font-size: 18px; margin: 28px 0 6px; }
+  ol { margin: 0; padding-left: 1.3em; color: var(--dim); }
+</style>
 </head>
-<body><p><a href="sync-slate.html">開啟同步場記板</a>　<a href="sync-analyzer.html">同步分析器</a></p></body>
+<body>
+<main>
+  <h1>同步場記板</h1>
+  <p class="sub">多機長時間錄影的同步與速率校正工具。</p>
+  <a class="card" href="sync-slate.html"><b>場記板</b><span>手機用：時鐘、倒數、黑白方波、嗶聲、波形碼、LTC。</span></a>
+  <a class="card" href="sync-analyzer.html"><b>同步分析器</b><span>電腦用：讀取素材，算出速度比例、校正後長度，對齊到基準檔。檔案不會上傳。</span></a>
+  <h2>把場記板裝到手機</h2>
+  <ol>
+    <li>用 Safari（iPhone）或 Chrome（Android）開啟本頁；從 LINE 等 App 內開啟時，請先改用瀏覽器開啟。</li>
+    <li>iPhone：分享 → 加入主畫面。Android：右上角選單 → 安裝應用程式。</li>
+    <li>裝好後開一次，再切成飛航模式確認可以離線使用。</li>
+  </ol>
+</main>
+<script>
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost'))
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+</script>
+</body>
 </html>

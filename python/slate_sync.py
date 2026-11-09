@@ -114,6 +114,25 @@ def runs(mask, min_len=int(0.006 * SR), max_gap=int(0.006 * SR)):
     return [(s, e) for s, e in out if e - s >= min_len]
 
 
+WAVE_HZ = 600.0 + 80.0 * np.arange(19)          # the 19 legal carrier pitches
+
+
+def edge_time(x, a, s, e, hz, phase):
+    """Leading edge of a burst whose carrier is at `phase` (rad) when the gate opens. Finds the first sample
+    above 40 % of the burst amplitude (high enough to ignore AAC/MP3 pre-echo), interpolates between samples,
+    then steps back by the time the sine needs from `phase` to first reach |sin| = 0.4."""
+    amp = np.percentile(a[s:e], 99)
+    b = max(0, s - 200)
+    th = 0.4 * amp
+    i1 = b + int(np.argmax(a[b:e] > th))
+    i0 = max(i1 - 1, 0)
+    frac = (th - a[i0]) / max(a[i1] - a[i0], 1e-12) if i1 > i0 else 0.0
+    ph = phase % np.pi                                   # |sin| repeats every pi
+    lo, hi = np.arcsin(0.4), np.pi - np.arcsin(0.4)
+    wait = 0.0 if lo <= ph <= hi else ((lo - ph) % np.pi)  # already loud enough, or wait for the next rise
+    return (i0 + frac) / SR - wait / (2 * np.pi * hz)
+
+
 def decode(x, t0):
     """Find every complete second in mono signal x (x[0] is at file time t0).
     Returns a list of {t: leading-edge file time, val, is_min}.
@@ -153,19 +172,15 @@ def decode(x, t0):
             is_min = True
         else:
             continue
-        # Leading edge: the sine starts at phase 0. Find where it first crosses 40 % of the burst amplitude
-        # (high enough to ignore AAC/MP3 pre-echo), interpolate between samples, then step back by the
-        # time a sine takes to rise from 0 to 40 % at this burst's carrier pitch.
-        amp = np.percentile(a[s:e], 99)
-        b = max(0, s - 200)
-        th = 0.4 * amp
-        i1 = b + int(np.argmax(a[b:e] > th))
-        i0 = max(i1 - 1, 0)
-        frac = (th - a[i0]) / max(a[i1] - a[i0], 1e-12) if i1 > i0 else 0.0
-        seg = x[s:min(e, s + int(0.03 * SR))]
-        zc = np.count_nonzero(np.diff(np.signbit(seg)))
-        hz = max(zc / 2 / (len(seg) / SR), 300.0)
-        onset = (i0 + frac) / SR - np.arcsin(0.4) / (2 * np.pi * hz)
+        # Carrier pitch from the sync burst, snapped to the nearest legal pitch (they are 80 Hz apart; a
+        # recorder's clock error moves them by under 1 %). The oscillator starts at phase 0 with the sync.
+        # Which of the 19 legal pitches the sync burst carries (matched directly, so noise does not bias it;
+        # a recorder's clock moves pitch by under 1 %, far less than the 80 Hz spacing). The exact pitch
+        # then drives the edge corrections.
+        seg = x[s:e] * np.hanning(e - s)
+        tt = np.arange(e - s) / SR
+        hz = float(WAVE_HZ[np.argmax([abs(np.dot(seg, np.exp(-2j * np.pi * f * tt))) for f in WAVE_HZ])])
+        onset = edge_time(x, a, s, e, hz, 0.0)
         if onset + 0.95 > len(x) / SR:
             continue  # second not complete inside this chunk
         # Everything between this sync burst and the next second belongs to the two digit groups.
@@ -180,8 +195,9 @@ def decode(x, t0):
             groups.append(cur)
         if len(groups) != 2:
             continue
-        digits = []
+        digits, timed = [], [(onset, 0.0)]
         expect = onset + (0.3 if is_min else 0.1)          # where the tens group must begin
+        nominal = 0.3 if is_min else 0.1                   # same, on the phone's own time line
         for g in groups:
             if abs(g[0][0] - expect) > 0.02:
                 digits = None
@@ -190,20 +206,31 @@ def decode(x, t0):
             if len(g) == 1 and 0.08 <= lens[0] <= 0.125:
                 digits.append(0)
                 gend = expect + 0.1
+                offs = [nominal]
+                nend = nominal + 0.1
             elif all(0.01 <= L <= 0.035 for L in lens) and all(
                     0.034 <= g[j + 1][0] - g[j][0] <= 0.046 for j in range(len(g) - 1)):
                 digits.append(len(g))
                 gend = expect + len(g) * 0.04 - 0.02
+                offs = [nominal + j * 0.04 for j in range(len(g))]
+                nend = nominal + len(g) * 0.04 - 0.02
             else:
                 digits = None
                 break
+            # Every digit pulse is another timing point: its offset from the second's start is fixed by the
+            # format, and the carrier phase at its gate is 2*pi*pitch*offset (one oscillator per second).
+            for q, off in zip(g, offs):
+                qs, qe = int(round(q[0] * SR)), int(round(q[1] * SR))
+                timed.append((edge_time(x, a, qs, qe, hz, 2 * np.pi * hz * off), off))
             expect = gend + 0.1                              # units group starts 0.1 s after tens group
+            nominal = nend + 0.1
         if not digits or digits[0] > 5 or digits[1] > 9:
             continue
         val = digits[0] * 10 + digits[1]
         if not is_min and val == 0:
             continue
-        out.append({"t": t0 + onset, "val": val, "is_min": is_min})
+        out.append({"t": t0 + onset, "val": val, "is_min": is_min,
+                    "pulses": [(t0 + tp, off) for tp, off in timed]})
     return out
 
 
@@ -367,6 +394,45 @@ def solve(head, tail, probes):
         keep = new
     rate, c = np.polyfit(R[keep], T[keep], 1)
 
+    # Refine each second's start from ALL its pulses (sync + digits): pulse k at nominal offset o_k (phone
+    # seconds) sits at t_k = start + o_k * rate in the file. Median-reject pulses > 1 ms off, average the rest.
+    # One refined time per second keeps the statistics honest (pulses in a second share any per-second jitter).
+    pulses = {round(d["t"], 6): d.get("pulses") for d in list(head) + list(tail) + [d for p in probes for d in p]}
+
+    def refine(t, rate):
+        pl = pulses.get(round(t, 6))
+        if not pl or len(pl) < 2:
+            return t
+        est = np.array([tp - off * rate for tp, off in pl])
+        good = est[np.abs(est - np.median(est)) < 0.001]
+        return float(good.mean()) if len(good) else t
+    def rms_of(T_, keep_, rate_, c_):
+        r_ = (T_ - (c_ + rate_ * R))[keep_]
+        return float(np.sqrt((r_ ** 2).mean())) if len(r_) else float("inf")
+    sync_fit = (T.copy(), keep.copy(), rate, c)
+    rms_sync = rms_of(T, keep, rate, c)
+    T = np.array([refine(t, rate) for t in T])
+    keep = np.ones(len(T), bool)
+    for _ in range(3):
+        rate, c = np.polyfit(R[keep], T[keep], 1)
+        new = np.abs(T - (c + rate * R)) < 0.002
+        if new.sum() < 2 or (new == keep).all():
+            break
+        keep = new
+    rate, c = np.polyfit(R[keep], T[keep], 1)
+    # Keep whichever timing scatters less from second to second: on clean signals the sync edge alone is
+    # already near-perfect; under noise, averaging every pulse of the second wins.
+    used_pulses = rms_of(T, keep, rate, c) < 0.9 * rms_sync
+    if not used_pulses:
+        T, keep, rate, c = sync_fit
+    pts = [(float(t), r) for t, (_, r) in zip(T, pts)]
+    if tail_cluster:                                   # rebuild the groups with the refined times
+        nh = len(clusters[0][1])
+        clusters = [("開頭", [p[0] for p in pts[:nh]])]
+        tail_cluster = ("結尾", [p[0] for p in pts[nh:]])
+    else:
+        clusters = [(clusters[0][0], [p[0] for p in pts])]
+
     # Middle probes (full-recording mode): place each window's seconds with the current line, then add them.
     probe_clusters = []
     for secs in probes:
@@ -378,7 +444,7 @@ def solve(head, tail, probes):
         r_pred = (tp0 - c) / rate                       # real seconds since R = 0, from the fit so far
         rd = (rp0 - base) % 60
         R0 = rd + 60 * round((r_pred - rd) / 60)
-        add = [(t, R0 + float(round(t - tp0))) for t, _ in lp]
+        add = [(refine(t, rate) if used_pulses else t, R0 + float(round(t - tp0))) for t, _ in lp]
         pts += add
         probe_clusters.append(("中段", [t for t, _ in add]))
     if probe_clusters:
@@ -418,7 +484,7 @@ def solve(head, tail, probes):
                 segs.append({"from": t1, "to": t2, "rate": (t2 - t1) / (r2 - r1)})
     return {"rate": float(rate), "c": float(c), "base": base, "mod": mod, "ambiguous": bool(ambiguous),
             "n": n, "rejected": len(pts) - n, "rms": rms, "unc_ppm": unc_ppm, "pred_se": pred_se,
-            "segs": segs, "max_dev_ms": max_dev, "both": bool(lab_h and lab_t),
+            "segs": segs, "max_dev_ms": max_dev, "both": bool(lab_h and lab_t), "used_pulses": bool(used_pulses),
             "which": "頭尾" if (lab_h and lab_t) else ("開頭" if lab_h else "結尾")}
 
 

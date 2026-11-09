@@ -28,14 +28,17 @@ def wave_hz(minute, sec):
     return 600 + (((minute * 60 + sec) * 7919) % 19) * 80
 
 
-def second(val, is_min, hz):
-    """One second of waveform code (float array, 0.95 s long)."""
-    n = int(SR * 0.95)
+def second(val, is_min, hz, rate=1.0):
+    """One second of waveform code (float array, 0.95 s long): one oscillator gated on and off, like the slate."""
+    # A recorder whose clock runs `rate` times fast stretches the WHOLE second (pitch and pulse spacing),
+    # so build it on the phone's time line and sample it at file time: phone time = file time / rate.
+    n = int(SR * 0.95 * rate)
     d = np.zeros(n)
+    carrier = np.sin(2 * np.pi * hz * np.arange(n) / SR / rate)   # one oscillator, phase 0 at the sync start
 
-    def burst(t0, t1, amp):
-        a, z = int(round(t0 * SR)), min(n, int(round(t1 * SR)))
-        d[a:z] = amp * np.sin(2 * np.pi * hz * np.arange(z - a) / SR)
+    def burst(t0, t1, amp):                                   # gain steps on that oscillator (as the slate does)
+        a, z = int(round(t0 * rate * SR)), min(n, int(round(t1 * rate * SR)))
+        d[a:z] = amp * carrier[a:z]
 
     def digit(t, v):
         if v == 0:
@@ -85,7 +88,8 @@ def main():
             break
         if not args.plug or ft < args.plug - 1 or ft > dur - args.plug:
             m, s = (R % 3600) // 60, R % 60
-            b = second(m if s == 0 else s, s == 0, wave_hz(m, s))
+            local = 1 + p0 + (p1 - p0) * (R - r0) / real_span     # the recorder's clock ratio at this moment
+            b = second(m if s == 0 else s, s == 0, wave_hz(m, s), local)
             i = int(round(ft * SR))
             code[i:i + len(b)] += b
         R += 1

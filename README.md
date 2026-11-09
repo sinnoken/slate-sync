@@ -31,7 +31,7 @@
 
 場記板可以像 App 一樣從主畫面開啟：全螢幕、沒有網址列，第一次開啟後**離線也能使用**。
 
-1. **發布**：把 repo 推到 GitHub，在 Settings → Pages 把 Source 設為「GitHub Actions」。之後每次推到 `main`，`.github/workflows/pages.yml` 會自動把 `web/` 發布到 `https://<帳號>.github.io/<repo>/`。也可以把 `web/` 資料夾放到任何支援 https 的靜態網站空間。
+1. **發布**：把 repo 推到 GitHub，在 Settings → Pages 把 Source 設為「GitHub Actions」。之後每次推到 `main`，`.github/workflows/pages.yml` 會自動把 `web/` 發布到 `https://<帳號>.github.io/<repo>/`（本專案：<https://sinnoken.github.io/slate-sync/>，首頁可選擇場記板或分析器，也可直接安裝 App）。也可以把 `web/` 資料夾放到任何支援 https 的靜態網站空間。
 2. **安裝**：
    - iPhone：用 Safari 開啟網址 → 分享 → 加入主畫面。
    - Android：用 Chrome 開啟網址 → 選單 → 安裝應用程式（或加到主畫面）。

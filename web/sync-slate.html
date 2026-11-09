@@ -278,19 +278,32 @@
   #schedDur { display: flex; flex-wrap: wrap; gap: 8px; }
   #schedDur button { flex: 1 1 auto; min-width: 88px; border-radius: 12px; white-space: nowrap; }
   #schedDur[hidden] { display: none; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .gate .warn-flash { font-size: 16px; opacity: .85; }
+  .linkbtn { display: flex; align-items: center; justify-content: center; min-height: 48px; padding: 8px 14px;
+    border: 2px solid var(--line); border-radius: 999px; color: var(--ink); text-decoration: none; font-size: 18px; }
+  /* Small phones held sideways (e.g. 667 x 375): keep the top controls on one line so the digits keep their
+     room. Only text size and side padding shrink; button height (touch target) stays the same. */
+  @media (max-height: 500px) and (max-width: 760px) {
+    .controls { flex-wrap: nowrap; gap: 8px; }
+    .controls button, .seg button, .chips .chip, .cd .go, .cd .icon-btn { font-size: 17px; padding-left: 10px; padding-right: 10px; }
+    .seg button { min-width: 48px; }
+    .cd .go { min-width: 80px; }
+  }
 </style>
 </head>
 <body>
   <header class="top">
+    <h1 class="sr-only">同步場記板</h1>
     <label class="scene"><span class="scene-k">SCENE</span><input class="tag" id="tag" placeholder="例：12A" maxlength="16" aria-label="Scene 場次" enterkeyhint="done" autocomplete="off"></label>
     <button class="icon-btn" id="settingsBtn" aria-label="設定" aria-haspopup="dialog"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg></button>
   </header>
 
   <main id="stage" aria-label="點一下隱藏或顯示按鈕">
     <div>
-      <div class="clock" id="clock"><div class="hm"><span class="neg" id="cNeg" hidden>−</span><span id="cH">00</span><span class="sep">:</span><span id="cM">00</span></div><div class="sf"><span class="ss" id="cS">00</span><span class="sep">:</span><span class="ff" id="cF">00</span></div></div>
+      <div class="clock" id="clock" role="timer" aria-label="時間"><div class="hm"><span class="neg" id="cNeg" hidden>−</span><span id="cH">00</span><span class="sep">:</span><span id="cM">00</span></div><div class="sf"><span class="ss" id="cS">00</span><span class="sep">:</span><span class="ff" id="cF">00</span></div></div>
       <div class="ltc-now" id="ltcNow"></div>
-      <div class="status" id="status"></div>
+      <div class="status" id="status" role="status" aria-live="polite"></div>
     </div>
   </main>
 
@@ -357,6 +370,11 @@
         </div>
       </section>
       <section class="grp">
+        <h3>其他工具</h3>
+        <p class="item-d">拍完後在電腦上分析素材：速度比例、校正後長度、對齊到基準檔。檔案不會上傳。</p>
+        <a class="linkbtn" href="sync-analyzer.html" target="_blank" rel="noopener">開啟同步分析器（電腦用）</a>
+      </section>
+      <section class="grp">
         <h3>重設</h3>
         <p class="item-d">恢復所有預設值並清除場次。設定平時會自動記住，需按兩下才會執行。</p>
         <button class="reset" id="resetBtn2">重設所有設定</button>
@@ -373,7 +391,7 @@
       <div class="fps-grid" id="schedDur"></div>
       <label class="time-field"><span>或指定時間</span><input id="schedTime" type="time" step="1" aria-label="開始時間"></label>
       <p id="schedPreview"></p>
-      <p class="err" id="schedErr" hidden></p>
+      <p class="err" id="schedErr" role="alert" hidden></p>
       <div class="row">
         <button class="grow" id="schedCancel">取消</button>
         <button class="grow go" id="schedOk">確定排程</button>
@@ -384,12 +402,12 @@
   <div class="sheet-wrap" id="customWrap" hidden>
     <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="customTitle">
       <h2 id="customTitle">自訂倒數</h2>
-      <p>儲存後會記住。之後點「自訂」就能使用；已選取時再點一次可修改。</p>
+      <p>儲存後會記住。之後點「自訂」即開始倒數；要修改請到設定頁。</p>
       <div class="dur-inputs">
         <label><input id="cMin" type="number" inputmode="numeric" min="0" max="599" aria-label="分鐘"><span>分</span></label>
         <label><input id="cSec" type="number" inputmode="numeric" min="0" max="59" aria-label="秒"><span>秒</span></label>
       </div>
-      <p class="err" id="cErr" hidden>請輸入 1 秒以上的時間。</p>
+      <p class="err" id="cErr" role="alert" hidden>請輸入 1 秒以上的時間。</p>
       <div class="row">
         <button class="grow" id="cCancel">取消</button>
         <button class="grow go" id="cSave">儲存並使用</button>
@@ -397,10 +415,11 @@
     </div>
   </div>
 
-  <div class="gate" id="gate">
+  <div class="gate" id="gate" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
     <div>
-      <h1>同步場記板</h1>
+      <h1 id="gateTitle">同步場記板</h1>
       <p>對準每台攝影機拍 3～5 秒，開頭和結尾各一次。錄音機請靠近收嗶聲。</p>
+      <p class="warn-flash">注意：本工具會全螢幕黑白閃爍（每秒一次）。</p>
       <button id="go">開始使用</button>
     </div>
   </div>
@@ -471,6 +490,7 @@
     $('chips').hidden = state.mode !== 'cd';
     if (typeof chipsFade === 'function') requestAnimationFrame(chipsFade);
     $('fpsBtn').textContent = state.fps + 'p';
+    $('fpsBtn').setAttribute('aria-label', '影格率 ' + state.fps + 'p，開啟設定');
     $('aBeep').setAttribute('aria-pressed', !state.ltc && !state.wave && state.beep);
     $('aWave').setAttribute('aria-pressed', !state.ltc && state.wave);
     $('aLtc').setAttribute('aria-pressed', state.ltc);
@@ -987,6 +1007,42 @@
 
     requestAnimationFrame(frame);
   }
+
+  // ---- Overlays (start screen and dialogs): focus moves in, the rest of the page is inert, Esc closes,
+  // and focus returns to the control that opened it. Watches each overlay's "hidden" attribute, so every
+  // existing open/close path is covered without touching it. Overlays can stack (custom over settings).
+  var layers = [];
+  var CLOSERS = { gate: null, sheetWrap: 'sheetClose', schedWrap: 'schedCancel', customWrap: 'cCancel' };
+  function applyInert() {
+    var top = layers.length ? layers[layers.length - 1].el : null;
+    Array.prototype.forEach.call(document.body.children, function (c) {
+      if (c.tagName !== 'SCRIPT') c.inert = !!top && c !== top;
+    });
+  }
+  Object.keys(CLOSERS).forEach(function (id) {
+    var el = $(id);
+    function sync() {
+      var idx = -1;
+      for (var i = 0; i < layers.length; i++) if (layers[i].el === el) idx = i;
+      if (!el.hidden && idx < 0) {
+        layers.push({ el: el, opener: document.activeElement });
+        applyInert();
+        var f = id === 'gate' ? $('go') : el.querySelector('button:not([hidden]), input, select, textarea, a[href]');
+        if (f) f.focus();
+      } else if (el.hidden && idx >= 0) {
+        var l = layers.splice(idx, 1)[0];
+        applyInert();
+        if (l.opener && l.opener !== document.body && document.contains(l.opener) && l.opener.focus) l.opener.focus();
+      }
+    }
+    new MutationObserver(sync).observe(el, { attributes: true, attributeFilter: ['hidden'] });
+    sync();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape' || !layers.length) return;
+    var btn = CLOSERS[layers[layers.length - 1].el.id];
+    if (btn) { e.preventDefault(); $(btn).click(); }
+  });
 
   // ---- Start / keep awake ----
   function keepAwake() {
