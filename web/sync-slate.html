@@ -290,6 +290,19 @@
     .seg button { min-width: 48px; }
     .cd .go { min-width: 80px; }
   }
+  /* Phones held upright: width, not height, limits two-row digits, so stack hours / minutes / seconds / frames
+     on four rows. Hours and minutes stay about half size so seconds and frames get the room. The minus sign
+     sits left of the hours in its own column, keeping the digits centred. */
+  @media (orientation: portrait) and (min-height: 501px) {
+    .clock .sep { display: none; }
+    .clock .hm, .clock .sf { display: grid; justify-items: center; }
+    .clock .hm { grid-template-columns: 1fr auto 1fr; font-size: calc(min(40cqw, 14cqh) * var(--k, 1)); }
+    .clock .hm #cNeg { grid-area: 1 / 1; justify-self: end; }
+    .clock .hm #cH { grid-area: 1 / 2; }
+    .clock .hm #cM { grid-area: 2 / 2; }
+    .clock .sf { font-size: calc(min(76cqw, 29cqh) * var(--k, 1)); }
+    .clock.wide .sf { font-size: calc(min(52cqw, 29cqh) * var(--k, 1)); }
+  }
 </style>
 </head>
 <body>
