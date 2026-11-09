@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --ground:#f3f1ec; --surface:#ffffff; --ink:#16181c; --dim:#5d6470; --line:#d9d6cf;
+    --ground:#f3f1ec; --panel:#ffffff; --ink:#16181c; --dim:#5d6470; --line:#d9d6cf;
     --mark:#b8860b; --mark-ink:#16181c; --focus:#6b4e00; --bad:#b3261e; --good:#2e7d32;
     color-scheme: light;
     box-sizing: border-box;
@@ -17,11 +17,9 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) { --ground:#0d0e10; --surface:#17191d; --ink:#eef0f3; --dim:#9aa1ab; --line:#2c3036;
+    :root { --ground:#0d0e10; --panel:#17191d; --ink:#eef0f3; --dim:#9aa1ab; --line:#2c3036;
       --mark:#ffd400; --mark-ink:#0d0e10; --focus:#ffd400; --bad:#ff8a80; --good:#8fd694; color-scheme: dark; }
   }
-  :root[data-theme="dark"] { --ground:#0d0e10; --surface:#17191d; --ink:#eef0f3; --dim:#9aa1ab; --line:#2c3036;
-    --mark:#ffd400; --mark-ink:#0d0e10; --focus:#ffd400; --bad:#ff8a80; --good:#8fd694; color-scheme: dark; }
   *, *::before, *::after { box-sizing: inherit; }
   html { scroll-padding-top: env(safe-area-inset-top, 0px); background: var(--ground); }
   body { margin: 0; background: var(--ground); color: var(--ink);
@@ -31,11 +29,11 @@
   h1 { font-size: 44px; line-height: 1; margin: 0 0 10px; letter-spacing: .01em; }
   h2 { font-size: 26px; margin: 36px 0 12px; }
   .lede { color: var(--dim); max-width: 62ch; margin: 0 0 24px; }
-  .drop { border: 2px dashed var(--line); border-radius: 14px; padding: 28px; text-align: center; background: var(--surface);
+  .drop { border: 2px dashed var(--line); border-radius: 14px; padding: 28px; text-align: center; background: var(--panel);
     transition: border-color .15s; }
   .drop.over { border-color: var(--mark); }
   .drop p { margin: 8px 0 0; color: var(--dim); font-size: 14px; }
-  button, select { font: inherit; color: var(--ink); background: var(--surface); border: 2px solid var(--line);
+  button, select { font: inherit; color: var(--ink); background: var(--panel); border: 2px solid var(--line);
     border-radius: 10px; padding: 8px 16px; min-height: 44px; cursor: pointer; }
   button.primary { background: var(--mark); color: var(--mark-ink); border-color: var(--mark); font-weight: 600; }
   button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
@@ -44,7 +42,7 @@
   .opts { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 16px 0 0; color: var(--dim); font-size: 15px; }
   .opts label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; min-height: 44px; }
   .opts input { width: 18px; height: 18px; accent-color: var(--mark); }
-  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; margin: 14px 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; margin: 14px 0; }
   .card .name { font-weight: 600; word-break: break-all; }
   .card .meta { color: var(--dim); font-size: 13px; }
   .headline { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px 20px; margin: 14px 0 10px; }
@@ -62,9 +60,9 @@
   td.n { font-variant-numeric: tabular-nums; text-align: right; }
   th { color: var(--dim); font-weight: 500; }
   textarea { width: 100%; min-height: 240px; font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; color: var(--ink);
-    background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
   .note { color: var(--dim); font-size: 13px; }
-  .conv input { font: inherit; color: var(--ink); background: var(--surface); border: 2px solid var(--line);
+  .conv input { font: inherit; color: var(--ink); background: var(--panel); border: 2px solid var(--line);
     border-radius: 10px; padding: 8px 12px; min-height: 44px; width: 10em; font-variant-numeric: tabular-nums; }
   [hidden] { display: none !important; }
 </style>

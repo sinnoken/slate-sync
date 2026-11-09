@@ -11,8 +11,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="場記板">
 <style>
-  :root { color-scheme: light dark; --ground: #f6f6f4; --panel: #ffffff; --ink: #141414; --dim: #5d5d5d; --line: #d9d9d4; --mark: #9a7400; }
-  @media (prefers-color-scheme: dark) { :root { --ground: #0d0e10; --panel: #18191c; --ink: #f2f2f0; --dim: #a6a6a2; --line: #34363b; --mark: #ffd400; } }
+  :root { color-scheme: light dark; --ground:#f3f1ec; --panel:#ffffff; --ink:#16181c; --dim:#5d6470; --line:#d9d6cf; --mark:#b8860b; --focus:#6b4e00; }
+  @media (prefers-color-scheme: dark) { :root { --ground:#0d0e10; --panel:#17191d; --ink:#eef0f3; --dim:#9aa1ab; --line:#2c3036; --mark:#ffd400; --focus:#ffd400; } }
   * { box-sizing: border-box; }
   body { margin: 0; min-height: 100vh; background: var(--ground); color: var(--ink);
     font: 17px/1.5 system-ui, -apple-system, "Noto Sans TC", "PingFang TC", sans-serif;
@@ -23,7 +23,7 @@
   a.card { display: block; background: var(--panel); border: 2px solid var(--line); border-radius: 18px; padding: 18px 20px;
     margin-bottom: 14px; color: inherit; text-decoration: none; }
   a.card:hover { border-color: var(--mark); }
-  a.card:focus-visible { border-color: var(--mark); outline: 3px solid var(--mark); outline-offset: 3px; }
+  a.card:focus-visible { border-color: var(--focus); outline: 3px solid var(--focus); outline-offset: 3px; }
   a.card b { display: block; font-size: 22px; margin-bottom: 2px; }
   a.card span { color: var(--dim); }
   h2 { font-size: 18px; margin: 28px 0 6px; }
