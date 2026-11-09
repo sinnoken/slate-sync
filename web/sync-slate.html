@@ -11,7 +11,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="場記板" id="appShort">
+<meta name="apple-mobile-web-app-title" content="Sync Slate">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700&family=Atkinson+Hyperlegible+Mono:wght@700&display=swap" rel="stylesheet">
@@ -468,7 +468,7 @@
   // 所有語言的 key 必須相同；字串裡的 {name} 由 t() 代入。
   var I18N = {
     'zh-Hant': {
-      appTitle: '同步場記板', appShort: '場記板', scenePh: '例：12A', sceneAria: '場次', settings: '設定', done: '完成',
+      appTitle: '同步場記板', scenePh: '例：12A', sceneAria: '場次', settings: '設定', done: '完成',
       stageAria: '點一下隱藏或顯示按鈕', clockAria: '時間', modeAria: '模式', modeClock: '時鐘', modeCd: '倒數', modeUp: '正數',
       audAria: '音訊輸出', aBeep: '嗶聲', aWave: '波形碼', aOff: '關', cdLen: '倒數長度', schedTitle: '排程開始時間', schedLbl: '排程',
       goCd: '開始倒數', goUp: '開始正數', goStop: '停止', goCancelSched: '取消排程', fpsAria: '影格率 {fps}p，開啟設定',
@@ -500,7 +500,7 @@
       pvToday: '將於今天 {t} 開始（還有 {left}）', pvTomorrow: '將於明天 {t} 開始（還有 {left}）', pvUp: '從 0 開始正數', pvCd: '結束於 {when}，倒數長度 {dur}'
     },
     en: {
-      appTitle: 'Sync Slate', appShort: 'Slate', scenePh: 'e.g. 12A', sceneAria: 'Scene', settings: 'Settings', done: 'Done',
+      appTitle: 'Sync Slate', scenePh: 'e.g. 12A', sceneAria: 'Scene', settings: 'Settings', done: 'Done',
       stageAria: 'Tap to hide or show the controls', clockAria: 'Time', modeAria: 'Mode', modeClock: 'Clock', modeCd: 'Countdown', modeUp: 'Count up',
       audAria: 'Audio output', aBeep: 'Beep', aWave: 'Wave', aOff: 'Off', cdLen: 'Countdown length', schedTitle: 'Schedule start', schedLbl: 'Schedule',
       goCd: 'Start countdown', goUp: 'Start count-up', goStop: 'Stop', goCancelSched: 'Cancel schedule', fpsAria: 'Frame rate {fps}p, open settings',
@@ -532,7 +532,7 @@
       pvToday: 'Starts today at {t} (in {left})', pvTomorrow: 'Starts tomorrow at {t} (in {left})', pvUp: 'Counts up from 0', pvCd: 'Ends {when}, countdown length {dur}'
     },
     ja: {
-      appTitle: '同期カチンコ', appShort: 'カチンコ', scenePh: '例：12A', sceneAria: 'シーン', settings: '設定', done: '完了',
+      appTitle: '同期カチンコ', scenePh: '例：12A', sceneAria: 'シーン', settings: '設定', done: '完了',
       stageAria: 'タップでボタンを表示／非表示', clockAria: '時刻', modeAria: 'モード', modeClock: '時計', modeCd: 'ダウン', modeUp: 'アップ',
       audAria: '音声出力', aBeep: 'ビープ', aWave: '波形', aOff: 'オフ', cdLen: 'カウントダウン時間', schedTitle: '開始時刻の予約', schedLbl: '予約',
       goCd: 'カウントダウン開始', goUp: 'カウントアップ開始', goStop: '停止', goCancelSched: '予約取消', fpsAria: 'フレームレート {fps}p、設定を開く',
@@ -564,7 +564,7 @@
       pvToday: '今日 {t} に開始（あと {left}）', pvTomorrow: '明日 {t} に開始（あと {left}）', pvUp: '0 からカウントアップ', pvCd: '{when} に終了、長さ {dur}'
     },
     ko: {
-      appTitle: '싱크 슬레이트', appShort: '슬레이트', scenePh: '예: 12A', sceneAria: '씬', settings: '설정', done: '완료',
+      appTitle: '싱크 슬레이트', scenePh: '예: 12A', sceneAria: '씬', settings: '설정', done: '완료',
       stageAria: '탭하여 버튼 숨기기/표시', clockAria: '시간', modeAria: '모드', modeClock: '시계', modeCd: '카운트다운', modeUp: '카운트업',
       audAria: '오디오 출력', aBeep: '비프', aWave: '파형', aOff: '끔', cdLen: '카운트다운 길이', schedTitle: '시작 시간 예약', schedLbl: '예약',
       goCd: '카운트다운 시작', goUp: '카운트업 시작', goStop: '정지', goCancelSched: '예약 취소', fpsAria: '프레임 레이트 {fps}p, 설정 열기',
@@ -1100,7 +1100,6 @@
   function applyI18n() {
     document.documentElement.lang = lang;
     document.title = t('appTitle');
-    $('appShort').setAttribute('content', t('appShort'));
     Array.prototype.forEach.call(document.querySelectorAll('[data-i18n]'), function (el) { el.textContent = t(el.getAttribute('data-i18n')); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-i18n-attr]'), function (el) {
       el.getAttribute('data-i18n-attr').split(';').forEach(function (pair) {

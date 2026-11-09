@@ -1,8 +1,8 @@
 {
-  "name": "同步場記板",
-  "short_name": "場記板",
-  "description": "多機錄影的同步時鐘：黑白方波、嗶聲、波形碼與 LTC。",
-  "lang": "zh-Hant",
+  "name": "Sync Slate",
+  "short_name": "Sync Slate",
+  "description": "Sync clock for multicam shoots: square wave, beep, waveform code and LTC.",
+  "lang": "en",
   "start_url": "./sync-slate.html",
   "scope": "./",
   "display": "fullscreen",
