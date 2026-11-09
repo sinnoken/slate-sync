@@ -18,16 +18,21 @@
 <style>
   :root {
     --ink:#ffffff; --ground:#000000; --dim:#8a8f98; --line:#2a2d33; --panel:#15171b;
-    --hm:#4fc3ff; --ss:#ffffff; --ff:#ffd400; --mark:#ffd400;
+    --hm:#4fc3ff; --ss:#ffffff; --ff:#ffd400; --mark:#ffd400; --bad:#ff8a80; --bad-line:#5a2a2a;
     color-scheme: dark;
     box-sizing: border-box;
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) { --ink:#ffffff; --ground:#000000; --dim:#8a8f98; --line:#2a2d33; --panel:#15171b; --hm:#4fc3ff; --ss:#ffffff; --ff:#ffd400; --mark:#ffd400; }
+  /* Colour palettes (settings → 外觀). They recolour digits and controls only; the full-screen sync flash
+     stays pure white on black (.flash-ov, main.inv) because the camera records it as the sync reference. */
+  :root[data-palette="white"] { --hm:#ffffff; --ss:#ffffff; --ff:#ffffff; --dim:#c2c6cc; --line:#5a5f68; }
+  :root[data-palette="red"] { --ink:#ff4a3d; --dim:#c8625a; --line:#3d1512; --panel:#140808; --hm:#b3261e; --ss:#ff4a3d; --ff:#ff8060; --mark:#ff4a3d; }
+  /* Light controls: only the control panel, settings page and dialogs turn light; the digit stage stays black. */
+  :root[data-palette="light"] footer, :root[data-palette="light"] .page, :root[data-palette="light"] .sheet {
+    --ink:#111111; --ground:#ffffff; --dim:#5d6168; --line:#d0d2d6; --panel:#f1f1ef; --mark:#7a6000; --bad:#b3261e; --bad-line:#e8b4b0;
+    color: var(--ink); color-scheme: light;
   }
-  :root[data-theme="dark"] { --ink:#ffffff; --ground:#000000; --dim:#8a8f98; --line:#2a2d33; --panel:#15171b; --hm:#4fc3ff; --ss:#ffffff; --ff:#ffd400; --mark:#ffd400; }
   *, *::before, *::after { box-sizing: inherit; }
   html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); background: var(--ground); }
   body {
@@ -129,7 +134,7 @@
   header.top .scene { flex: 1; min-width: 0; }
   .icon-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: var(--dim); padding: 8px 13px; font-size: 18px; }
   .icon-btn .lbl:empty { display: none; }
-  .icon-btn.armed { background: #ff8a80; border-color: #ff8a80; color: #000000; }
+  .icon-btn.armed { background: var(--bad); border-color: var(--bad); color: var(--ground); }
   body.clean .icon-btn { display: none; }
   body.flash .icon-btn { visibility: hidden; }
   .icon-btn[hidden] { display: none; }
@@ -138,7 +143,7 @@
   .cd .chips[hidden] ~ .go { margin-left: auto; }
   .cd .chips[hidden] + .icon-btn:not([hidden]) + .go { margin-left: 0; }
   button:disabled { opacity: .35; pointer-events: none; }
-  .clock .neg { color: #ff8a80; }
+  .clock .neg { color: var(--bad); }
   body.flash .clock .neg { color: var(--ground); }
   .time-field { display: flex; align-items: center; gap: 12px; margin: 4px 0 12px; font-size: 20px; flex-wrap: wrap; }
   .time-field input {
@@ -180,8 +185,8 @@
   .scene-k { color: var(--dim); font-weight: 700; font-size: clamp(18px, 4.5vw, 28px); letter-spacing: .04em; }
   body.clean .scene { border-bottom-color: transparent; }
   body.flash .scene-k { visibility: hidden; }
-  .sheet .reset, .page .reset { width: 100%; margin-bottom: 10px; color: #ff8a80; border-color: #5a2a2a; }
-  .page .reset.armed { background: #ff8a80; color: #000000; border-color: #ff8a80; }
+  .sheet .reset, .page .reset { width: 100%; margin-bottom: 10px; color: var(--bad); border-color: var(--bad-line); }
+  .page .reset.armed, .sheet .reset.armed { background: var(--bad); color: var(--ground); border-color: var(--bad); }
   .page { position: fixed; inset: 0; z-index: 30; background: var(--ground); overflow-y: auto; overscroll-behavior: contain;
     padding: 0 max(16px, env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) max(16px, env(safe-area-inset-left, 0px)); }
   .page[hidden] { display: none; }
@@ -197,7 +202,6 @@
   .item-d.num { font-size: 26px; color: var(--ink); font-variant-numeric: tabular-nums; margin-bottom: 0; }
   .row-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   #customWrap, #schedWrap { z-index: 35; }
-  .sheet .reset.armed { background: #ff8a80; color: #000000; border-color: #ff8a80; }
   .dur-inputs { display: flex; gap: 16px; margin-bottom: 14px; }
   .dur-inputs label { display: flex; align-items: baseline; gap: 6px; font-size: 24px; }
   .dur-inputs input {
@@ -206,7 +210,7 @@
     -webkit-user-select: text; user-select: text;
   }
   .dur-inputs input:focus-visible { outline: 3px solid var(--mark); outline-offset: 2px; }
-  .sheet .err { color: #ff8a80; }
+  .sheet .err { color: var(--bad); }
   .sheet .err[hidden] { display: none; }
 
   .gate {
@@ -359,6 +363,14 @@
         </div>
       </section>
       <section class="grp">
+        <h3>外觀</h3>
+        <div class="item">
+          <div class="item-k">配色</div>
+          <p class="item-d">全白：數字最好辨識。紅光：暗場不刺眼。淡色：控制區與設定頁改淺底。黑白方波不受影響。</p>
+          <div class="seg" role="group" aria-label="配色" id="paletteSeg"><button data-p="default">預設</button><button data-p="white">全白</button><button data-p="red">紅光</button><button data-p="light">淡色</button></div>
+        </div>
+      </section>
+      <section class="grp">
         <h3>倒數</h3>
         <div class="item row-item">
           <div><div class="item-k">自訂長度</div><p class="item-d num" id="customVal"></p></div>
@@ -449,7 +461,7 @@
   var DURS = [10, 30, 60, 180, 300, 600];
   var SEP = '<span class="sep">:</span>';
 
-  var state = { fps: 59.94, beep: true, mode: 'clock', dur: 60, custom: 7200, ltc: false, df: true, dispOfs: 0, audOfs: 0, wave: false, flashStyle: 'square' };
+  var state = { fps: 59.94, beep: true, mode: 'clock', dur: 60, custom: 7200, ltc: false, df: true, dispOfs: 0, audOfs: 0, wave: false, flashStyle: 'square', palette: 'default' };
   var running = false, endMs = 0, finished = false, waiting = false, startMs = 0, stoppedEl = 0;
   var ctx = null, lastKey = '', planSched = false;
 
@@ -463,6 +475,7 @@
     if (typeof saved.df === 'boolean') state.df = saved.df;
     if (typeof saved.wave === 'boolean') state.wave = saved.wave;
     if (saved.flashStyle === 'square' || saved.flashStyle === 'flash') state.flashStyle = saved.flashStyle;
+    if (['default', 'white', 'red', 'light'].indexOf(saved.palette) >= 0) state.palette = saved.palette;
     if (typeof saved.dispOfs === 'number' && Math.abs(saved.dispOfs) <= 500) state.dispOfs = saved.dispOfs;
     if (typeof saved.audOfs === 'number' && Math.abs(saved.audOfs) <= 500) state.audOfs = saved.audOfs;
     if (DURS.indexOf(saved.dur) >= 0 || (state.custom && saved.dur === state.custom)) state.dur = saved.dur;
@@ -587,6 +600,7 @@
     state.fps = 59.94; state.beep = true; state.mode = 'clock'; state.dur = 60; state.custom = 7200; state.ltc = false; state.df = true; state.dispOfs = 0; state.audOfs = 0;
     state.wave = false; renderWave();
     state.flashStyle = 'square'; renderFlashStyle();
+    state.palette = 'default'; renderPalette();
     renderOfs();
     ltcStop(); renderLtc();
     running = false; waiting = false; finished = false; tag.value = '';
@@ -918,6 +932,16 @@
   }
   $('fsSquare').addEventListener('click', function () { state.flashStyle = 'square'; save(); renderFlashStyle(); });
   $('fsFlash').addEventListener('click', function () { state.flashStyle = 'flash'; save(); renderFlashStyle(); });
+  function renderPalette() {
+    if (state.palette === 'default') document.documentElement.removeAttribute('data-palette');
+    else document.documentElement.setAttribute('data-palette', state.palette);
+    Array.prototype.forEach.call($('paletteSeg').children, function (b) {
+      b.setAttribute('aria-pressed', b.getAttribute('data-p') === state.palette);
+    });
+  }
+  Array.prototype.forEach.call($('paletteSeg').children, function (b) {
+    b.addEventListener('click', function () { state.palette = b.getAttribute('data-p'); save(); renderPalette(); });
+  });
   function renderOfs() {
     function fmt(v) { return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v) + ' ms'; }
     $('dispOfsV').textContent = fmt(state.dispOfs); $('audOfsV').textContent = fmt(state.audOfs);
@@ -1088,7 +1112,7 @@
     $('gate').hidden = true;
   });
 
-  renderControls(); renderLtc(); renderOfs(); renderWave(); renderFlashStyle();
+  renderControls(); renderLtc(); renderOfs(); renderWave(); renderFlashStyle(); renderPalette();
   // Installable app: offline cache (only where a service worker can run: https or localhost).
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     navigator.serviceWorker.register('sw.js').catch(function () {});
