@@ -50,6 +50,8 @@
   .opts { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 16px 0 0; color: var(--dim); font-size: 15px; }
   .opts label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; min-height: 44px; }
   .opts input { width: 18px; height: 18px; accent-color: var(--mark); }
+  .opts input.field { width: 6em; height: auto; font: inherit; color: var(--ink); background: var(--panel); border: 2px solid var(--line);
+    border-radius: 10px; padding: 8px 12px; min-height: 44px; font-variant-numeric: tabular-nums; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; margin: 14px 0; }
   .card .name { font-weight: 600; word-break: break-all; }
   .card .meta { color: var(--dim); font-size: 13px; }
@@ -61,6 +63,7 @@
   dd { margin: 0; font-variant-numeric: tabular-nums; }
   .warn { color: var(--bad); font-size: 14px; margin: 8px 0 0; }
   .err { color: var(--bad); }
+  .bad { color: var(--bad); font-weight: 600; }
   .progress { color: var(--dim); font-size: 14px; }
   .tablewrap { overflow-x: auto; }
   table { border-collapse: collapse; width: 100%; font-size: 15px; }
@@ -99,9 +102,14 @@
     <label><span data-i18n="opt.only">波形碼位置</span> <select id="optOnly"><option value="" data-i18n="opt.auto">自動偵測</option><option value="head" data-i18n="opt.head">開頭</option><option value="tail" data-i18n="opt.tail">結尾</option></select></label>
     <label><input type="checkbox" id="optFull"><span data-i18n="opt.full">整段都有波形碼（抽查中段，必要時分段）</span></label>
     <label><input type="checkbox" id="optMinute"><span data-i18n="opt.minute">尋找分鐘標記（顯示完整時分秒，較慢）</span></label>
+    <label><input type="checkbox" id="optAv"><span data-i18n="opt.av">聲畫同步檢查（另解畫面碼，與波形碼逐秒配對）</span></label>
+    <label><span data-i18n="opt.dist">手機到麥克風距離</span> <input type="number" id="optDist" class="field" min="0" step="0.1" value="0" inputmode="decimal"> <span data-i18n="opt.distUnit">公尺</span></label>
   </div>
 
   <div id="results"></div>
+  <div class="opts" id="avRefRow" hidden>
+    <label><span data-i18n="opt.avRef">聲畫基準檔</span> <select id="avRefSel"></select></label>
+  </div>
 
   <section id="relSec" hidden>
     <h2 data-i18n="rel.title">對齊到基準檔</h2>
@@ -194,6 +202,16 @@ function parseStsd(dv, a) {
   return en;
 }
 
+// Video sample entry (avc1/avc3/hvc1/hev1): size and the decoder configuration box VideoDecoder takes as description.
+function parseVisualStsd(dv, a) {
+  const size = dv.getUint32(a + 8), s = a + 16, e = a + 8 + size;
+  const en = { fmt: fourcc(dv, a + 12), width: dv.getUint16(s + 24), height: dv.getUint16(s + 26) };
+  eachBox(dv, s + 78, e, (t, p, q) => {
+    if (t === 'avcC' || t === 'hvcC') { en.cfg = t; en.desc = new Uint8Array(dv.buffer, dv.byteOffset + p, q - p).slice(); }
+  });
+  return en;
+}
+
 function parseTrak(dv, s, e) {
   const tr = { elst: [] };
   const walk = (x, y) => eachBox(dv, x, y, (t, a, b) => {
@@ -218,15 +236,18 @@ function parseTrak(dv, s, e) {
         break;
       }
       case 'hdlr': if (!tr.handler) tr.handler = fourcc(dv, a + 8); break;   // MOV: minf has a data-handler hdlr too
-      case 'stsd': tr.entry = parseStsd(dv, a); break;
+      case 'stsd': tr.entry = tr.handler === 'vide' ? parseVisualStsd(dv, a) : parseStsd(dv, a); break;
       case 'stts': {
         const n = dv.getUint32(a + 4); tr.stts = new Float64Array(n * 2);
         for (let i = 0; i < n; i++) { tr.stts[2 * i] = dv.getUint32(a + 8 + 8 * i); tr.stts[2 * i + 1] = dv.getUint32(a + 12 + 8 * i); }
         break;
       }
       case 'ctts': {
-        const v = dv.getUint8(a), n = Math.min(dv.getUint32(a + 4), 64); tr.ctts = [];
-        for (let i = 0; i < n; i++) tr.ctts.push([dv.getUint32(a + 8 + 8 * i), v === 1 ? dv.getInt32(a + 12 + 8 * i) : dv.getUint32(a + 12 + 8 * i)]);
+        // The video track keeps every entry: each frame's presentation time is needed to read the visual code.
+        const v = dv.getUint8(a), n = tr.handler === 'vide' ? dv.getUint32(a + 4) : Math.min(dv.getUint32(a + 4), 64); tr.ctts = [];
+        // Offsets are read signed in both versions, as ffmpeg does.
+        for (let i = 0; i < n; i++) tr.ctts.push([dv.getUint32(a + 8 + 8 * i), dv.getInt32(a + 12 + 8 * i)]);
+        if (!n) tr.ctts = null;
         break;
       }
       case 'stsc': {
@@ -236,12 +257,13 @@ function parseTrak(dv, s, e) {
       }
       case 'stsz': {
         tr.sampleSize = dv.getUint32(a + 4); tr.sampleCount = dv.getUint32(a + 8);
-        if (tr.sampleSize === 0 && tr.handler === 'soun') {
+        if (tr.sampleSize === 0 && (tr.handler === 'soun' || tr.handler === 'vide')) {
           tr.sizes = new Uint32Array(tr.sampleCount);
           for (let i = 0; i < tr.sampleCount; i++) tr.sizes[i] = dv.getUint32(a + 12 + 4 * i);
         }
         break;
       }
+      case 'stss': { const n = dv.getUint32(a + 4); tr.stss = new Uint32Array(n); for (let i = 0; i < n; i++) tr.stss[i] = dv.getUint32(a + 8 + 4 * i); break; }
       case 'stco': { const n = dv.getUint32(a + 4); tr.co = new Float64Array(n); for (let i = 0; i < n; i++) tr.co[i] = dv.getUint32(a + 8 + 4 * i); break; }
       case 'co64': { const n = dv.getUint32(a + 4); tr.co = new Float64Array(n); for (let i = 0; i < n; i++) tr.co[i] = u64(dv, a + 8 + 8 * i); break; }
     }
@@ -256,8 +278,8 @@ function parseMoov(dv) {
     if (t !== 'moov') return;
     eachBox(dv, s, e, (t2, a, b) => {
       if (t2 === 'mvhd') {
-        if (dv.getUint8(a) === 1) { m.created = u64(dv, a + 4); m.movieTs = dv.getUint32(a + 20); }
-        else { m.created = dv.getUint32(a + 4); m.movieTs = dv.getUint32(a + 12); }
+        if (dv.getUint8(a) === 1) { m.created = u64(dv, a + 4); m.movieTs = dv.getUint32(a + 20); m.movieDur = u64(dv, a + 24); }
+        else { m.created = dv.getUint32(a + 4); m.movieTs = dv.getUint32(a + 12); m.movieDur = dv.getUint32(a + 16); }
       } else if (t2 === 'trak') m.tracks.push(parseTrak(dv, a, b));
     });
   });
@@ -295,8 +317,27 @@ async function openMp4(file) {
   const m = parseMoov(new DataView(await file.slice(mv.off, mv.off + mv.size).arrayBuffer()));
   const aud = m.tracks.find(t => t.handler === 'soun');
   const vid = m.tracks.find(t => t.handler === 'vide');
-  if (!aud || !aud.entry) throw fail('err.noAudio');
+  const hasVid = !!(vid && vid.stts);
+  if ((!aud || !aud.entry) && !hasVid) throw fail('err.noAudio');
+  // A file without an audio track can still be timed from the visual code.
+  const media = aud && aud.entry ? mp4Audio(file, m, aud) : { kind: 'mp4', file, hasAudio: false, created: m.created, aStartAbs: null };
+  // The movie header's duration (what ffprobe reports as the format duration): the visual-code reads plan from it,
+  // like slate_sync.py does. The audio path keeps using the track-derived duration.
+  if (m.movieDur && m.movieTs) media.movieDuration = m.movieDur / m.movieTs;
+  return mp4Video(media, m, hasVid ? vid : null);
+}
 
+// Chunk table -> number of samples in each chunk.
+function chunkCounts(tr) {
+  const nChunks = tr.co.length, stsc = tr.stsc, out = new Float64Array(nChunks);
+  for (let i = 0; i < stsc.length / 3; i++) {
+    const first = stsc[3 * i] - 1, next = i + 1 < stsc.length / 3 ? stsc[3 * (i + 1)] - 1 : nChunks;
+    for (let c = first; c < next && c < nChunks; c++) out[c] = stsc[3 * i + 1];
+  }
+  return out;
+}
+
+function mp4Audio(file, m, aud) {
   // ---- audio sample/time tables
   const en = aud.entry, ed = editStart(aud, m.movieTs);
   const isAac = en.fmt === 'mp4a';
@@ -313,13 +354,8 @@ async function openMp4(file) {
     codec = 'mp4a.40.' + aot;
   }
   // chunk table -> per-sample file offsets (AAC) or per-chunk frame runs (PCM)
-  const nChunks = aud.co.length, stsc = aud.stsc;
-  const chunkSamples = new Float64Array(nChunks);
-  for (let i = 0; i < stsc.length / 3; i++) {
-    const first = stsc[3 * i] - 1, next = i + 1 < stsc.length / 3 ? stsc[3 * (i + 1)] - 1 : nChunks;
-    for (let c = first; c < next && c < nChunks; c++) chunkSamples[c] = stsc[3 * i + 1];
-  }
-  const media = { kind: 'mp4', file, isAac, codec, pcm, sr, channels, asc: en.asc, created: m.created };
+  const nChunks = aud.co.length, chunkSamples = chunkCounts(aud);
+  const media = { kind: 'mp4', file, hasAudio: true, isAac, codec, pcm, sr, channels, asc: en.asc, created: m.created };
   // media time (track timescale) of each sample start; for PCM one "sample" may hold several frames
   const tsOf = []; // [count, delta] runs
   for (let i = 0; i < aud.stts.length / 2; i++) tsOf.push([aud.stts[2 * i], aud.stts[2 * i + 1]]);
@@ -352,15 +388,26 @@ async function openMp4(file) {
   }
   const aStart = isAac ? media.timeOf(0) : media.frameTime(0);
   media.aStartAbs = Math.max(aStart, ed.empty);   // samples before the edit's media_time are not presented
+  return media;
+}
 
+function mp4Video(media, m, vid) {
   // ---- video track: frame count, rate, presentation start
-  let vStart = null, vEnd = null;
-  if (vid && vid.stts) {
-    const ve = editStart(vid, m.movieTs);
+  let vStart = null, vEnd = null, ve = null;
+  if (vid) {
+    ve = editStart(vid, m.movieTs);
     let best = [0, 0];
     for (let i = 0; i < vid.stts.length / 2; i++) if (vid.stts[2 * i] > best[0]) best = [vid.stts[2 * i], vid.stts[2 * i + 1]];
     media.vFrames = vid.sampleCount;
     media.fps = best[1] ? vid.ts / best[1] : null;
+    // Variable frame rate (phones): the sample durations (all but the last) differ and the average rate is more than
+    // 0.1 % off the most common one. The frame grid is then irregular (see visFloor).
+    let nS = 0, sum = 0, minD = Infinity, maxD = -Infinity;
+    for (let i = 0; i < vid.stts.length / 2; i++) {
+      const cnt = vid.stts[2 * i] - (i === vid.stts.length / 2 - 1 ? 1 : 0), d = vid.stts[2 * i + 1];
+      if (cnt > 0) { nS += cnt; sum += cnt * d; minD = Math.min(minD, d); maxD = Math.max(maxD, d); }
+    }
+    media.vfr = !!(media.fps && nS && minD !== maxD && Math.abs(nS * vid.ts / sum - media.fps) > 1e-3 * media.fps);
     let minPts = Infinity, dts = 0, j = 0, ci = 0, cLeft = vid.ctts ? vid.ctts[0][0] : 0;
     for (let i = 0; i < vid.stts.length / 2 && j < 64; i++) {
       for (let k = 0; k < vid.stts[2 * i] && j < 64; k++, j++) {
@@ -372,12 +419,39 @@ async function openMp4(file) {
     vStart = ve.empty + (minPts - ve.mt) / vid.ts;
     vEnd = ve.empty + (vid.mdur - ve.mt) / vid.ts;
   }
-  const fStart = vStart === null ? media.aStartAbs : Math.min(vStart, media.aStartAbs);
+  const fStart = vStart === null ? media.aStartAbs : (media.hasAudio ? Math.min(vStart, media.aStartAbs) : vStart);
   media.fStart = fStart;
-  media.aOff = media.aStartAbs - fStart;
+  media.aOff = media.hasAudio ? media.aStartAbs - fStart : 0;
   media.vOff = vStart === null ? null : vStart - fStart;
-  media.duration = Math.max(media.endTime, vEnd || 0) - fStart;
+  media.duration = Math.max(media.hasAudio ? media.endTime : 0, vEnd || 0) - fStart;
   media.vDur = vStart === null ? null : vEnd - vStart;
+  const en = vid && vid.entry;
+  // Several non-empty edits would play parts of the track out of order: frame times cannot be mapped that simply.
+  if (vid && vid.elst.filter(e => e.mt !== -1).length > 1) media.videoUnsupported = 'why.edits';
+  else if (en && en.desc && vid.co && vid.stsc) {
+    // Per-sample presentation time (file time: stts + ctts, through the edit list), file offset, size, keyframe.
+    const n = vid.sampleCount, pts = new Float64Array(n), off = new Float64Array(n), size = new Uint32Array(n), key = new Uint8Array(n);
+    const cs = chunkCounts(vid);
+    let si = 0;
+    for (let c = 0; c < cs.length; c++) {
+      let o = vid.co[c];
+      for (let k = 0; k < cs[c] && si < n; k++, si++) { const z = vid.sizes ? vid.sizes[si] : vid.sampleSize; off[si] = o; size[si] = z; o += z; }
+    }
+    let dts = 0, j = 0, ci = 0, cLeft = vid.ctts ? vid.ctts[0][0] : 0;
+    for (let i = 0; i < vid.stts.length / 2; i++) {
+      for (let k = 0; k < vid.stts[2 * i] && j < n; k++, j++) {
+        let c = 0;
+        if (vid.ctts && ci < vid.ctts.length) { c = vid.ctts[ci][1]; if (--cLeft === 0 && ++ci < vid.ctts.length) cLeft = vid.ctts[ci][0]; }
+        pts[j] = ve.empty + (dts + c - ve.mt) / vid.ts - fStart;
+        dts += vid.stts[2 * i + 1];
+      }
+    }
+    if (vid.stss) for (const s of vid.stss) { if (s >= 1 && s <= n) key[s - 1] = 1; } else key.fill(1);
+    const keys = [];
+    for (let i = 0; i < n; i++) if (key[i]) keys.push(i);
+    keys.sort((x, y) => pts[x] - pts[y]);
+    media.video = { fmt: en.fmt, cfg: en.cfg, desc: en.desc, width: en.width, height: en.height, n, pts, off, size, key, keys };
+  }
   return media;
 }
 
@@ -413,7 +487,7 @@ async function openWav(file) {
   const pcm = { float: fmt.tag === 3, le: true, bytes, frame: fmt.block };
   dataSize = Math.min(dataSize, file.size - dataOff);
   const total = Math.floor(dataSize / fmt.block);
-  return { kind: 'wav', file, isAac: false, pcm, sr: fmt.sr, channels: fmt.channels, total,
+  return { kind: 'wav', file, hasAudio: true, isAac: false, pcm, sr: fmt.sr, channels: fmt.channels, total,
     cFirst: new Float64Array([0, total]), co: [dataOff], frameTime: f => f / fmt.sr,
     aOff: 0, vOff: null, fStart: 0, duration: total / fmt.sr, bext };
 }
@@ -677,8 +751,11 @@ const NTSC = [24000 / 1001, 30000 / 1001, 60000 / 1001, 120000 / 1001];
 
 // Fit file_t = c + rate * R over every labelled second (R: real seconds since the first head second, or the
 // first second read in single-end mode). Middle probes are placed with the current line, then added.
-function solve(head, tail, probes) {
-  const LH = head.length ? label(head) : null, LT = tail.length ? label(tail) : null;
+// vis: { fi: frame interval } when the seconds are visual-code edges (labels mod 540, frame-level timing).
+function solve(head, tail, probes, vis) {
+  const fi = vis ? vis.fi : 0, labFn = vis ? s => labelVisual(s, fi) : label;
+  const step = vis ? VIS_MOD : 60, tol = vis ? 2 * fi : 0.002, maxRms = vis ? fi : 0.005;
+  const LH = head.length ? labFn(head) : null, LT = tail.length ? labFn(tail) : null;
   if (!LH && !LT) return { error: { key: 'err.inconsistent' } };
   let pts, base, M, ambiguous = false, clusters, tailCluster = null;
   if (LH && LT) {
@@ -693,14 +770,14 @@ function solve(head, tail, probes) {
     const locs = [localRatio(lh), localRatio(lt)].filter(Boolean);
     const rho = locs.length ? locs.reduce((a, [k, w]) => a + k * w, 0) / locs.reduce((a, [, w]) => a + w, 0) : 1;
     const span = locs.length ? Math.max(...locs.map(([, w]) => w)) : 0;
-    const pred = fileDiff / rho, rd = mod(rT - rH, 60), realDiff = rd + 60 * Math.round((pred - rd) / 60);
+    const pred = fileDiff / rho, rd = mod(rT - rH, step), realDiff = rd + step * Math.round((pred - rd) / step);
     if (realDiff <= 0) return { error: { key: 'err.headTail' } };
-    ambiguous = (span ? 0.003 / span : 0.01) * pred > 15 || Math.abs(pred - realDiff) > 15;
+    ambiguous = (span ? 0.003 / span : 0.01) * pred > step / 4 || Math.abs(pred - realDiff) > step / 4;
     let mh = LH.mod, mt = LT.mod;
     if (mh === 3600 && mt === 3600 && mod(rT - rH - realDiff, 3600) !== 0) mh = mt = 60;
     if (mh === 3600) { base = mod(rH, 3600); M = 3600; }
     else if (mt === 3600) { base = mod(rT - realDiff, 3600); M = 3600; }
-    else { base = mod(rH, 60); M = 60; }
+    else { base = mod(rH, step); M = step; }
     pts = lh.map(([t]) => [t, Math.round(t - tH)]).concat(lt.map(([t]) => [t, realDiff - Math.round(tT - t)]));
     clusters = [lh.map(([t]) => t)]; tailCluster = lt.map(([t]) => t);
   } else {
@@ -722,7 +799,8 @@ function solve(head, tail, probes) {
     [rate, c] = polyfit1(Q.map(p => p[1]), Q.map(p => p[0]));
     return { keep, rate, c };
   };
-  let { keep, rate, c } = fitKeep(pts, 0.002, 4);
+  const iters = vis ? 3 : 4;   // slate_sync.py refits 3 times; the audio path keeps this page's original 4
+  let { keep, rate, c } = fitKeep(pts, tol, iters);
   // Refine each second's start from ALL its pulses (pulse k at offset o_k sits at start + o_k * rate), with
   // median rejection at 1 ms; keep the refined times only if they scatter less than the sync edges alone.
   const pmap = new Map();
@@ -737,7 +815,7 @@ function solve(head, tail, probes) {
   const rmsOf = (P, F) => { const Q = P.filter((_, i) => F.keep[i]); return Math.sqrt(Q.reduce((x, p) => x + (p[0] - (F.c + F.rate * p[1])) ** 2, 0) / Q.length); };
   const syncFit = { keep, rate, c }, rmsSync = rmsOf(pts, syncFit);
   const refinedPts = pts.map(([t, R]) => [refine(t, rate), R]);
-  const refFit = fitKeep(refinedPts, 0.002, 4);
+  const refFit = fitKeep(refinedPts, tol, iters);
   const usedPulses = rmsOf(refinedPts, refFit) < 0.9 * rmsSync;
   if (usedPulses) {
     const nh = clusters[0].length;
@@ -747,22 +825,29 @@ function solve(head, tail, probes) {
   }
   const probeClusters = [];
   for (const secs of probes) {
-    const L = label(secs);
+    const L = labFn(secs);
     if (!L) continue;
-    const [tp0, rp0] = L.lab[0], rPred = (tp0 - c) / rate, rd = mod(rp0 - base, 60);
-    const R0 = rd + 60 * Math.round((rPred - rd) / 60);
+    const [tp0, rp0] = L.lab[0], rPred = (tp0 - c) / rate, rd = mod(rp0 - base, step);
+    const R0 = rd + step * Math.round((rPred - rd) / step);
     const add = L.lab.map(([t]) => [usedPulses ? refine(t, rate) : t, R0 + Math.round(t - tp0)]);
     pts = pts.concat(add); probeClusters.push(add.map(([t]) => t));
   }
-  if (probeClusters.length) ({ keep, rate, c } = fitKeep(pts, 0.05, 1));
+  if (probeClusters.length) ({ keep, rate, c } = fitKeep(pts, Math.max(0.05, tol), 1));
   const P = pts.filter((_, i) => keep[i]), n = P.length;
   const res = P.map(p => p[0] - (c + rate * p[1]));
   const rms = Math.sqrt(res.reduce((a, v) => a + v * v, 0) / n);
-  if (Math.abs(rate - 1) > 0.01 || (!probeClusters.length && rms > 0.005))
+  if (Math.abs(rate - 1) > 0.01 || (!probeClusters.length && rms > maxRms))
     return { error: { key: 'err.badFit', vars: { pct: ((rate - 1) * 100).toFixed(3), ms: (rms * 1000).toFixed(1) } } };
   const Rk = P.map(p => p[1]), Rm = Rk.reduce((a, v) => a + v, 0) / n;
   const sxx = Rk.reduce((a, v) => a + (v - Rm) ** 2, 0);
-  const sigma = Math.max(n > 2 ? Math.sqrt(res.reduce((a, v) => a + v * v, 0) / (n - 2)) : 0.0003, 1e-5);
+  let sigma = Math.max(n > 2 ? Math.sqrt(res.reduce((a, v) => a + v * v, 0) / (n - 2)) : 0.0003, 1e-5);
+  if (vis) {
+    // Each visual edge is only known to within ±half its gap: a uniform spread, sd = width / sqrt(12).
+    // Take the larger of that and the scatter actually seen.
+    const half = new Map(head.concat(tail, ...probes).map(d => [d.t.toFixed(6), d.half]));
+    const w2 = P.map(p => { const h = half.get(p[0].toFixed(6)); return (2 * (h === undefined ? fi / 2 : h)) ** 2 / 12; });
+    sigma = Math.max(n > 2 ? Math.sqrt(res.reduce((a, v) => a + v * v, 0) / (n - 2)) : 0, Math.sqrt(w2.reduce((a, v) => a + v, 0) / n));
+  }
   const uncPpm = sxx > 0 ? sigma / Math.sqrt(sxx) * 1e6 : NaN;
   const predSe = Rx => sxx > 0 ? sigma * Math.sqrt(1 / n + (Rx - Rm) ** 2 / sxx) : Infinity;
   // Piecewise model when the middle sits off the line (full-recording mode only).
@@ -773,14 +858,1501 @@ function solve(head, tail, probes) {
       return [Q.reduce((a, p) => a + p[0], 0) / Q.length, Q.reduce((a, p) => a + p[1], 0) / Q.length]; });
     const devs = centers.map(([tc, rc]) => tc - (c + rate * rc));
     maxDev = Math.max(...devs.map(Math.abs)) * 1000;
-    if (maxDev > 2) segs = centers.slice(1).map(([t2, r2], i) => { const [t1, r1] = centers[i]; return { from: t1, to: t2, rate: (t2 - t1) / (r2 - r1) }; });
+    if (maxDev > (vis ? Math.max(2, 1000 * fi) : 2)) segs = centers.slice(1).map(([t2, r2], i) => { const [t1, r1] = centers[i]; return { from: t1, to: t2, rate: (t2 - t1) / (r2 - r1) }; });
   }
   return { rate, c, base, M, ambiguous, n, rejected: pts.length - n, rms, uncPpm, predSe, segs, maxDev,
     both: !!(LH && LT), which: LH && LT ? 'both' : (LH ? 'head' : 'tail'), usedPulses };
 }
 
+// ============================================ 內嵌第三方程式碼：js-aruco2（四邊形偵測與位元讀取）
+// 來源：https://github.com/damianofalcioni/js-aruco2 commit 0491d5d228746411d0e9dd602b98f48636a644ba
+//       src/cv.js、src/aruco.js（MIT 授權，原檔版權與授權聲明保留於下方）。未使用 posit*.js、svd.js。
+// slate-sync 的修改：
+//   1. 刪除未使用的部分：內建字典、串流／MJPEG 輸入、SVG 產生、高斯模糊，以及模組載入用的程式碼。
+//   2. 字典不用內建表：由下方 TAG36H11_* 常數在執行時產生（見 visual code 區段）。
+//   3. findMarkers 的二值化門檻改為明暗兩端中點（CV.midLevel），取代 Otsu。
+const { AR, CV } = (function () {
+/*
+Copyright (c) 2011 Juan Mellado
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+*/
+
+/*
+References:
+- "OpenCV: Open Computer Vision Library"
+  http://sourceforge.net/projects/opencvlibrary/
+- "Stack Blur: Fast But Goodlooking"
+  http://incubator.quasimondo.com/processing/fast_blur_deluxe.php
+*/
+
+var CV = {};
+
+CV.Image = function(width, height, data){
+  this.width = width || 0;
+  this.height = height || 0;
+  this.data = data || [];
+};
+
+CV.grayscale = function(imageSrc, imageDst){
+  var src = imageSrc.data, dst = imageDst.data, len = src.length,
+      i = 0, j = 0;
+
+  for (; i < len; i += 4){
+    dst[j ++] =
+      (src[i] * 0.299 + src[i + 1] * 0.587 + src[i + 2] * 0.114 + 0.5) & 0xff;
+  }
+
+  imageDst.width = imageSrc.width;
+  imageDst.height = imageSrc.height;
+
+  return imageDst;
+};
+
+CV.threshold = function(imageSrc, imageDst, threshold){
+  var src = imageSrc.data, dst = imageDst.data,
+      len = src.length, tab = [], i;
+
+  for (i = 0; i < 256; ++ i){
+    tab[i] = i <= threshold? 0: 255;
+  }
+
+  for (i = 0; i < len; ++ i){
+    dst[i] = tab[ src[i] ];
+  }
+
+  imageDst.width = imageSrc.width;
+  imageDst.height = imageSrc.height;
+
+  return imageDst;
+};
+
+CV.adaptiveThreshold = function(imageSrc, imageDst, kernelSize, threshold){
+  var src = imageSrc.data, dst = imageDst.data, len = src.length, tab = [], i;
+
+  CV.stackBoxBlur(imageSrc, imageDst, kernelSize);
+
+  for (i = 0; i < 768; ++ i){
+    tab[i] = (i - 255 <= -threshold)? 255: 0;
+  }
+
+  for (i = 0; i < len; ++ i){
+    dst[i] = tab[ src[i] - dst[i] + 255 ];
+  }
+
+  imageDst.width = imageSrc.width;
+  imageDst.height = imageSrc.height;
+
+  return imageDst;
+};
+
+CV.otsu = function(imageSrc){
+  var src = imageSrc.data, len = src.length, hist = [],
+      threshold = 0, sum = 0, sumB = 0, wB = 0, wF = 0, max = 0,
+      mu, between, i;
+
+  for (i = 0; i < 256; ++ i){
+    hist[i] = 0;
+  }
+
+  for (i = 0; i < len; ++ i){
+    hist[ src[i] ] ++;
+  }
+
+  for (i = 0; i < 256; ++ i){
+    sum += hist[i] * i;
+  }
+
+  for (i = 0; i < 256; ++ i){
+    wB += hist[i];
+    if (0 !== wB){
+
+      wF = len - wB;
+      if (0 === wF){
+        break;
+      }
+
+      sumB += hist[i] * i;
+
+      mu = (sumB / wB) - ( (sum - sumB) / wF );
+
+      between = wB * wF * mu * mu;
+
+      if (between > max){
+        max = between;
+        threshold = i;
+      }
+    }
+  }
+
+  return threshold;
+};
+
+CV.stackBoxBlurMult =
+  [1, 171, 205, 293, 57, 373, 79, 137, 241, 27, 391, 357, 41, 19, 283, 265];
+
+CV.stackBoxBlurShift =
+  [0, 9, 10, 11, 9, 12, 10, 11, 12, 9, 13, 13, 10, 9, 13, 13];
+
+CV.BlurStack = function(){
+  this.color = 0;
+  this.next = null;
+};
+
+CV.stackBoxBlur = function(imageSrc, imageDst, kernelSize){
+  var src = imageSrc.data, dst = imageDst.data,
+      height = imageSrc.height, width = imageSrc.width,
+      heightMinus1 = height - 1, widthMinus1 = width - 1,
+      size = kernelSize + kernelSize + 1, radius = kernelSize + 1,
+      mult = CV.stackBoxBlurMult[kernelSize],
+      shift = CV.stackBoxBlurShift[kernelSize],
+      stack, stackStart, color, sum, pos, start, p, x, y, i;
+
+  stack = stackStart = new CV.BlurStack();
+  for (i = 1; i < size; ++ i){
+    stack = stack.next = new CV.BlurStack();
+  }
+  stack.next = stackStart;
+
+  pos = 0;
+
+  for (y = 0; y < height; ++ y){
+    start = pos;
+
+    color = src[pos];
+    sum = radius * color;
+
+    stack = stackStart;
+    for (i = 0; i < radius; ++ i){
+      stack.color = color;
+      stack = stack.next;
+    }
+    for (i = 1; i < radius; ++ i){
+      stack.color = src[pos + i];
+      sum += stack.color;
+      stack = stack.next;
+    }
+
+    stack = stackStart;
+    for (x = 0; x < width; ++ x){
+      dst[pos ++] = (sum * mult) >>> shift;
+
+      p = x + radius;
+      p = start + (p < widthMinus1? p: widthMinus1);
+      sum -= stack.color - src[p];
+
+      stack.color = src[p];
+      stack = stack.next;
+    }
+  }
+
+  for (x = 0; x < width; ++ x){
+    pos = x;
+    start = pos + width;
+
+    color = dst[pos];
+    sum = radius * color;
+
+    stack = stackStart;
+    for (i = 0; i < radius; ++ i){
+      stack.color = color;
+      stack = stack.next;
+    }
+    for (i = 1; i < radius; ++ i){
+      stack.color = dst[start];
+      sum += stack.color;
+      stack = stack.next;
+
+      start += width;
+    }
+
+    stack = stackStart;
+    for (y = 0; y < height; ++ y){
+      dst[pos] = (sum * mult) >>> shift;
+
+      p = y + radius;
+      p = x + ( (p < heightMinus1? p: heightMinus1) * width );
+      sum -= stack.color - dst[p];
+
+      stack.color = dst[p];
+      stack = stack.next;
+
+      pos += width;
+    }
+  }
+
+  return imageDst;
+};
+
+CV.findContours = function(imageSrc, binary){
+  var width = imageSrc.width, height = imageSrc.height, contours = [],
+      src, deltas, pos, pix, nbd, outer, hole, i, j;
+
+  src = CV.binaryBorder(imageSrc, binary);
+
+  deltas = CV.neighborhoodDeltas(width + 2);
+
+  pos = width + 3;
+  nbd = 1;
+
+  for (i = 0; i < height; ++ i, pos += 2){
+
+    for (j = 0; j < width; ++ j, ++ pos){
+      pix = src[pos];
+
+      if (0 !== pix){
+        outer = hole = false;
+
+        if (1 === pix && 0 === src[pos - 1]){
+          outer = true;
+        }
+        else if (pix >= 1 && 0 === src[pos + 1]){
+          hole = true;
+        }
+
+        if (outer || hole){
+          ++ nbd;
+
+          contours.push( CV.borderFollowing(src, pos, nbd, {x: j, y: i}, hole, deltas) );
+        }
+      }
+    }
+  }
+
+  return contours;
+};
+
+CV.borderFollowing = function(src, pos, nbd, point, hole, deltas){
+  var contour = [], pos1, pos3, pos4, s, s_end, s_prev;
+
+  contour.hole = hole;
+
+  s = s_end = hole? 0: 4;
+  do{
+    s = (s - 1) & 7;
+    pos1 = pos + deltas[s];
+    if (src[pos1] !== 0){
+      break;
+    }
+  }while(s !== s_end);
+
+  if (s === s_end){
+    src[pos] = -nbd;
+    contour.push( {x: point.x, y: point.y} );
+
+  }else{
+    pos3 = pos;
+    s_prev = s ^ 4;
+
+    while(true){
+      s_end = s;
+
+      do{
+        pos4 = pos3 + deltas[++ s];
+      }while(src[pos4] === 0);
+
+      s &= 7;
+
+      if ( ( (s - 1) >>> 0) < (s_end >>> 0) ){
+        src[pos3] = -nbd;
+      }
+      else if (src[pos3] === 1){
+        src[pos3] = nbd;
+      }
+
+      contour.push( {x: point.x, y: point.y} );
+
+      s_prev = s;
+
+      point.x += CV.neighborhood[s][0];
+      point.y += CV.neighborhood[s][1];
+
+      if ( (pos4 === pos) && (pos3 === pos1) ){
+        break;
+      }
+
+      pos3 = pos4;
+      s = (s + 4) & 7;
+    }
+  }
+
+  return contour;
+};
+
+CV.neighborhood =
+  [ [1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1], [0, 1], [1, 1] ];
+
+CV.neighborhoodDeltas = function(width){
+  var deltas = [], len = CV.neighborhood.length, i = 0;
+
+  for (; i < len; ++ i){
+    deltas[i] = CV.neighborhood[i][0] + (CV.neighborhood[i][1] * width);
+  }
+
+  return deltas.concat(deltas);
+};
+
+CV.approxPolyDP = function(contour, epsilon){
+  var slice = {start_index: 0, end_index: 0},
+      right_slice = {start_index: 0, end_index: 0},
+      poly = [], stack = [], len = contour.length,
+      pt, start_pt, end_pt, dist, max_dist, le_eps,
+      dx, dy, i, j, k;
+
+  epsilon *= epsilon;
+
+  k = 0;
+
+  for (i = 0; i < 3; ++ i){
+    max_dist = 0;
+
+    k = (k + right_slice.start_index) % len;
+    start_pt = contour[k];
+    if (++ k === len) {k = 0;}
+
+    for (j = 1; j < len; ++ j){
+      pt = contour[k];
+      if (++ k === len) {k = 0;}
+
+      dx = pt.x - start_pt.x;
+      dy = pt.y - start_pt.y;
+      dist = dx * dx + dy * dy;
+
+      if (dist > max_dist){
+        max_dist = dist;
+        right_slice.start_index = j;
+      }
+    }
+  }
+
+  if (max_dist <= epsilon){
+    poly.push( {x: start_pt.x, y: start_pt.y} );
+
+  }else{
+    slice.start_index = k;
+    slice.end_index = (right_slice.start_index += slice.start_index);
+
+    right_slice.start_index -= right_slice.start_index >= len? len: 0;
+    right_slice.end_index = slice.start_index;
+    if (right_slice.end_index < right_slice.start_index){
+      right_slice.end_index += len;
+    }
+
+    stack.push( {start_index: right_slice.start_index, end_index: right_slice.end_index} );
+    stack.push( {start_index: slice.start_index, end_index: slice.end_index} );
+  }
+
+  while(stack.length !== 0){
+    slice = stack.pop();
+
+    end_pt = contour[slice.end_index % len];
+    start_pt = contour[k = slice.start_index % len];
+    if (++ k === len) {k = 0;}
+
+    if (slice.end_index <= slice.start_index + 1){
+      le_eps = true;
+
+    }else{
+      max_dist = 0;
+
+      dx = end_pt.x - start_pt.x;
+      dy = end_pt.y - start_pt.y;
+
+      for (i = slice.start_index + 1; i < slice.end_index; ++ i){
+        pt = contour[k];
+        if (++ k === len) {k = 0;}
+
+        dist = Math.abs( (pt.y - start_pt.y) * dx - (pt.x - start_pt.x) * dy);
+
+        if (dist > max_dist){
+          max_dist = dist;
+          right_slice.start_index = i;
+        }
+      }
+
+      le_eps = max_dist * max_dist <= epsilon * (dx * dx + dy * dy);
+    }
+
+    if (le_eps){
+      poly.push( {x: start_pt.x, y: start_pt.y} );
+
+    }else{
+      right_slice.end_index = slice.end_index;
+      slice.end_index = right_slice.start_index;
+
+      stack.push( {start_index: right_slice.start_index, end_index: right_slice.end_index} );
+      stack.push( {start_index: slice.start_index, end_index: slice.end_index} );
+    }
+  }
+
+  return poly;
+};
+
+CV.warp = function(imageSrc, imageDst, contour, warpSize){
+  var src = imageSrc.data, dst = imageDst.data,
+      width = imageSrc.width, height = imageSrc.height,
+      pos = 0,
+      sx1, sx2, dx1, dx2, sy1, sy2, dy1, dy2, p1, p2, p3, p4,
+      m, r, s, t, u, v, w, x, y, i, j;
+
+  m = CV.getPerspectiveTransform(contour, warpSize - 1);
+
+  r = m[8];
+  s = m[2];
+  t = m[5];
+
+  for (i = 0; i < warpSize; ++ i){
+    r += m[7];
+    s += m[1];
+    t += m[4];
+
+    u = r;
+    v = s;
+    w = t;
+
+    for (j = 0; j < warpSize; ++ j){
+      u += m[6];
+      v += m[0];
+      w += m[3];
+
+      x = v / u;
+      y = w / u;
+
+      sx1 = x >>> 0;
+      sx2 = (sx1 === width - 1)? sx1: sx1 + 1;
+      dx1 = x - sx1;
+      dx2 = 1.0 - dx1;
+
+      sy1 = y >>> 0;
+      sy2 = (sy1 === height - 1)? sy1: sy1 + 1;
+      dy1 = y - sy1;
+      dy2 = 1.0 - dy1;
+
+      p1 = p2 = sy1 * width;
+      p3 = p4 = sy2 * width;
+
+      dst[pos ++] =
+        (dy2 * (dx2 * src[p1 + sx1] + dx1 * src[p2 + sx2]) +
+         dy1 * (dx2 * src[p3 + sx1] + dx1 * src[p4 + sx2]) ) & 0xff;
+
+    }
+  }
+
+  imageDst.width = warpSize;
+  imageDst.height = warpSize;
+
+  return imageDst;
+};
+
+CV.getPerspectiveTransform = function(src, size){
+  var rq = CV.square2quad(src);
+
+  rq[0] /= size;
+  rq[1] /= size;
+  rq[3] /= size;
+  rq[4] /= size;
+  rq[6] /= size;
+  rq[7] /= size;
+
+  return rq;
+};
+
+CV.square2quad = function(src){
+  var sq = [], px, py, dx1, dx2, dy1, dy2, den;
+
+  px = src[0].x - src[1].x + src[2].x - src[3].x;
+  py = src[0].y - src[1].y + src[2].y - src[3].y;
+
+  if (0 === px && 0 === py){
+    sq[0] = src[1].x - src[0].x;
+    sq[1] = src[2].x - src[1].x;
+    sq[2] = src[0].x;
+    sq[3] = src[1].y - src[0].y;
+    sq[4] = src[2].y - src[1].y;
+    sq[5] = src[0].y;
+    sq[6] = 0;
+    sq[7] = 0;
+    sq[8] = 1;
+
+  }else{
+    dx1 = src[1].x - src[2].x;
+    dx2 = src[3].x - src[2].x;
+    dy1 = src[1].y - src[2].y;
+    dy2 = src[3].y - src[2].y;
+    den = dx1 * dy2 - dx2 * dy1;
+
+    sq[6] = (px * dy2 - dx2 * py) / den;
+    sq[7] = (dx1 * py - px * dy1) / den;
+    sq[8] = 1;
+    sq[0] = src[1].x - src[0].x + sq[6] * src[1].x;
+    sq[1] = src[3].x - src[0].x + sq[7] * src[3].x;
+    sq[2] = src[0].x;
+    sq[3] = src[1].y - src[0].y + sq[6] * src[1].y;
+    sq[4] = src[3].y - src[0].y + sq[7] * src[3].y;
+    sq[5] = src[0].y;
+  }
+
+  return sq;
+};
+
+CV.isContourConvex = function(contour){
+  var orientation = 0, convex = true,
+      len = contour.length, i = 0, j = 0,
+      cur_pt, prev_pt, dxdy0, dydx0, dx0, dy0, dx, dy;
+
+  prev_pt = contour[len - 1];
+  cur_pt = contour[0];
+
+  dx0 = cur_pt.x - prev_pt.x;
+  dy0 = cur_pt.y - prev_pt.y;
+
+  for (; i < len; ++ i){
+    if (++ j === len) {j = 0;}
+
+    prev_pt = cur_pt;
+    cur_pt = contour[j];
+
+    dx = cur_pt.x - prev_pt.x;
+    dy = cur_pt.y - prev_pt.y;
+    dxdy0 = dx * dy0;
+    dydx0 = dy * dx0;
+
+    orientation |= dydx0 > dxdy0? 1: (dydx0 < dxdy0? 2: 3);
+
+    if (3 === orientation){
+        convex = false;
+        break;
+    }
+
+    dx0 = dx;
+    dy0 = dy;
+  }
+
+  return convex;
+};
+
+CV.perimeter = function(poly){
+  var len = poly.length, i = 0, j = len - 1,
+      p = 0.0, dx, dy;
+
+  for (; i < len; j = i ++){
+    dx = poly[i].x - poly[j].x;
+    dy = poly[i].y - poly[j].y;
+
+    p += Math.sqrt(dx * dx + dy * dy) ;
+  }
+
+  return p;
+};
+
+CV.minEdgeLength = function(poly){
+  var len = poly.length, i = 0, j = len - 1,
+      min = Infinity, d, dx, dy;
+
+  for (; i < len; j = i ++){
+    dx = poly[i].x - poly[j].x;
+    dy = poly[i].y - poly[j].y;
+
+    d = dx * dx + dy * dy;
+
+    if (d < min){
+      min = d;
+    }
+  }
+
+  return Math.sqrt(min);
+};
+
+CV.countNonZero = function(imageSrc, square){
+  var src = imageSrc.data, height = square.height, width = square.width,
+      pos = square.x + (square.y * imageSrc.width),
+      span = imageSrc.width - width,
+      nz = 0, i, j;
+
+  for (i = 0; i < height; ++ i){
+
+    for (j = 0; j < width; ++ j){
+
+      if ( 0 !== src[pos ++] ){
+        ++ nz;
+      }
+    }
+
+    pos += span;
+  }
+
+  return nz;
+};
+
+CV.binaryBorder = function(imageSrc, dst){
+  var src = imageSrc.data, height = imageSrc.height, width = imageSrc.width,
+      posSrc = 0, posDst = 0, i, j;
+
+  for (j = -2; j < width; ++ j){
+    dst[posDst ++] = 0;
+  }
+
+  for (i = 0; i < height; ++ i){
+    dst[posDst ++] = 0;
+
+    for (j = 0; j < width; ++ j){
+      dst[posDst ++] = (0 === src[posSrc ++]? 0: 1);
+    }
+
+    dst[posDst ++] = 0;
+  }
+
+  for (j = -2; j < width; ++ j){
+    dst[posDst ++] = 0;
+  }
+
+  return dst;
+};
+
+// slate-sync 新增：第 5 與第 95 百分位的中點（供 AR.Detector.prototype.findMarkers 使用）。
+CV.midLevel = function(imageSrc){
+  var src = imageSrc.data, n = imageSrc.width * imageSrc.height, hist = [], lo = 0, hi = 255, acc, i;
+  for (i = 0; i < 256; ++ i){ hist[i] = 0; }
+  for (i = 0; i < n; ++ i){ hist[src[i]] ++; }
+  for (acc = 0; acc + hist[lo] < n * 0.05; ++ lo){ acc += hist[lo]; }
+  for (acc = 0; acc + hist[hi] < n * 0.05; -- hi){ acc += hist[hi]; }
+  return (lo + hi) >> 1;
+};
+
+
+/*
+Copyright (c) 2020 Damiano Falcioni
+Copyright (c) 2011 Juan Mellado
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+*/
+
+/*
+References:
+- "ArUco: a minimal library for Augmented Reality applications based on OpenCv"
+  http://www.uco.es/investiga/grupos/ava/node/26
+- "js-aruco: a port to JavaScript of the ArUco library"
+  https://github.com/jcmellado/js-aruco
+*/
+
+var AR = {};
+
+AR.DICTIONARIES = {};
+
+AR.Dictionary = function (dicName) {
+  this.codes = {};
+  this.codeList = [];
+  this.tau = 0;
+  this._initialize(dicName);
+};
+
+AR.Dictionary.prototype._initialize = function (dicName) {
+  this.codes = {};
+  this.codeList = [];
+  this.tau = 0;
+  this.nBits = 0;
+  this.markSize = 0;
+  this.dicName = dicName;
+  var dictionary = AR.DICTIONARIES[dicName];
+  if (!dictionary)
+    throw 'The dictionary "' + dicName + '" is not recognized.';
+  
+  this.nBits = dictionary.nBits;
+  this.markSize = Math.sqrt(dictionary.nBits) + 2;
+  for (var i = 0; i < dictionary.codeList.length; i++) {
+    var code = null;
+    if (typeof dictionary.codeList[i] === 'number')
+      code = this._hex2bin(dictionary.codeList[i], dictionary.nBits);
+    if (typeof dictionary.codeList[i] === 'string')
+      code = this._hex2bin(parseInt(dictionary.codeList[i], 16), dictionary.nBits);
+    if (Array.isArray(dictionary.codeList[i])) 
+      code = this._bytes2bin(dictionary.codeList[i], dictionary.nBits);
+    if (code === null) 
+      throw 'Invalid code ' + i + ' in dictionary ' + dicName + ': ' + JSON.stringify(dictionary.codeList[i]);
+    if (code.length != dictionary.nBits)
+      throw 'The code ' + i + ' in dictionary ' + dicName + ' is not ' +  dictionary.nBits + ' bits long but ' + code.length + ': ' + code;
+    this.codeList.push(code);
+    this.codes[code] = {
+      id: i
+    };
+  }
+  this.tau = dictionary.tau || this._calculateTau();
+};
+
+AR.Dictionary.prototype.find = function (bits) {
+  var val = '',
+    i, j;
+  for (i = 0; i < bits.length; i++) {
+    var bitRow = bits[i];
+    for (j = 0; j < bitRow.length; j++) {
+      val += bitRow[j];
+    }
+  }
+  var minFound = this.codes[val];
+  if (minFound)
+    return {
+      id: minFound.id,
+      distance: 0
+    };
+
+  for (i = 0; i < this.codeList.length; i++) {
+    var code = this.codeList[i];
+    var distance = this._hammingDistance(val, code);
+    if (this._hammingDistance(val, code) < this.tau) {
+      if (!minFound || minFound.distance > distance) {
+        minFound = {
+          id: this.codes[code].id,
+          distance: distance
+        };
+      }
+    }
+  }
+  return minFound;
+};
+
+AR.Dictionary.prototype._hex2bin = function (hex, nBits) {
+  return hex.toString(2).padStart(nBits, '0');
+};
+
+AR.Dictionary.prototype._bytes2bin = function (byteList, nBits) {
+  var bits = '', byte;
+  for (byte of byteList) {
+    bits += byte.toString(2).padStart(bits.length + 8 > nBits?nBits - bits.length:8, '0');
+  }
+  return bits;
+};
+
+AR.Dictionary.prototype._hammingDistance = function (str1, str2) {
+  if (str1.length != str2.length)
+    throw 'Hamming distance calculation require inputs of the same length';
+  var distance = 0,
+    i;
+  for (i = 0; i < str1.length; i++)
+    if (str1[i] !== str2[i])
+      distance += 1;
+  return distance;
+};
+
+AR.Dictionary.prototype._calculateTau = function () {
+  var tau = Number.MAX_VALUE;
+  for(var i=0;i<this.codeList.length;i++)
+    for(var j=i+1;j<this.codeList.length;j++) {
+      var distance = this._hammingDistance(this.codeList[i], this.codeList[j]);
+      tau = distance < tau ? distance : tau;
+    }
+  return tau;
+};
+
+AR.Marker = function (id, corners, hammingDistance) {
+  this.id = id;
+  this.corners = corners;
+  this.hammingDistance = hammingDistance;
+};
+
+AR.Detector = function (config) {
+  config = config || {};
+  this.grey = new CV.Image();
+  this.thres = new CV.Image();
+  this.homography = new CV.Image();
+  this.binary = [];
+  this.contours = [];
+  this.polys = [];
+  this.candidates = [];
+  config.dictionaryName = config.dictionaryName || 'ARUCO_MIP_36h12';
+  this.dictionary = new AR.Dictionary(config.dictionaryName);
+  this.dictionary.tau = config.maxHammingDistance != null ? config.maxHammingDistance : this.dictionary.tau;
+};
+
+AR.Detector.prototype.detectImage = function (width, height, data) {
+  return this.detect({
+    width: width,
+    height: height,
+    data: data
+  });
+};
+
+AR.Detector.prototype.detect = function (image) {
+  CV.grayscale(image, this.grey);
+  CV.adaptiveThreshold(this.grey, this.thres, 2, 7);
+
+  this.contours = CV.findContours(this.thres, this.binary);
+  //Scale Fix: https://stackoverflow.com/questions/35936397/marker-detection-on-paper-sheet-using-javascript
+  //this.candidates = this.findCandidates(this.contours, image.width * 0.20, 0.05, 10);
+  this.candidates = this.findCandidates(this.contours, image.width * 0.01, 0.05, 10);
+  this.candidates = this.clockwiseCorners(this.candidates);
+  this.candidates = this.notTooNear(this.candidates, 10);
+
+  return this.findMarkers(this.grey, this.candidates, 49);
+};
+
+AR.Detector.prototype.findCandidates = function (contours, minSize, epsilon, minLength) {
+  var candidates = [],
+    len = contours.length,
+    contour, poly, i;
+
+  this.polys = [];
+
+  for (i = 0; i < len; ++i) {
+    contour = contours[i];
+
+    if (contour.length >= minSize) {
+      poly = CV.approxPolyDP(contour, contour.length * epsilon);
+
+      this.polys.push(poly);
+
+      if ((4 === poly.length) && (CV.isContourConvex(poly))) {
+
+        if (CV.minEdgeLength(poly) >= minLength) {
+          candidates.push(poly);
+        }
+      }
+    }
+  }
+
+  return candidates;
+};
+
+AR.Detector.prototype.clockwiseCorners = function (candidates) {
+  var len = candidates.length,
+    dx1, dx2, dy1, dy2, swap, i;
+
+  for (i = 0; i < len; ++i) {
+    dx1 = candidates[i][1].x - candidates[i][0].x;
+    dy1 = candidates[i][1].y - candidates[i][0].y;
+    dx2 = candidates[i][2].x - candidates[i][0].x;
+    dy2 = candidates[i][2].y - candidates[i][0].y;
+
+    if ((dx1 * dy2 - dy1 * dx2) < 0) {
+      swap = candidates[i][1];
+      candidates[i][1] = candidates[i][3];
+      candidates[i][3] = swap;
+    }
+  }
+
+  return candidates;
+};
+
+AR.Detector.prototype.notTooNear = function (candidates, minDist) {
+  var notTooNear = [],
+    len = candidates.length,
+    dist, dx, dy, i, j, k;
+
+  for (i = 0; i < len; ++i) {
+
+    for (j = i + 1; j < len; ++j) {
+      dist = 0;
+
+      for (k = 0; k < 4; ++k) {
+        dx = candidates[i][k].x - candidates[j][k].x;
+        dy = candidates[i][k].y - candidates[j][k].y;
+
+        dist += dx * dx + dy * dy;
+      }
+
+      if ((dist / 4) < (minDist * minDist)) {
+
+        if (CV.perimeter(candidates[i]) < CV.perimeter(candidates[j])) {
+          candidates[i].tooNear = true;
+        } else {
+          candidates[j].tooNear = true;
+        }
+      }
+    }
+  }
+
+  for (i = 0; i < len; ++i) {
+    if (!candidates[i].tooNear) {
+      notTooNear.push(candidates[i]);
+    }
+  }
+
+  return notTooNear;
+};
+
+AR.Detector.prototype.findMarkers = function (imageSrc, candidates, warpSize) {
+  var markers = [],
+    len = candidates.length,
+    candidate, marker, i;
+
+  for (i = 0; i < len; ++i) {
+    candidate = candidates[i];
+
+    CV.warp(imageSrc, this.homography, candidate, warpSize);
+
+    // slate-sync 修改：門檻取 warp 後影像第 5 與第 95 百分位的中點（原為 Otsu）。新舊 tag 依曝光時間混合的
+    // 轉換格中，兩者不同的格是中間灰階，Otsu 會把它們都判成白；取明暗兩端中點則和 pupil-apriltags 一樣判給佔比較大的一方。
+    CV.threshold(this.homography, this.homography, CV.midLevel(this.homography));
+
+    marker = this.getMarker(this.homography, candidate);
+    if (marker) {
+      markers.push(marker);
+    }
+  }
+
+  return markers;
+};
+
+AR.Detector.prototype.getMarker = function (imageSrc, candidate) {
+  var markSize = this.dictionary.markSize;
+  var width = (imageSrc.width / markSize) >>> 0,
+    minZero = (width * width) >> 1,
+    bits = [],
+    rotations = [],
+    square, inc, i, j;
+
+  for (i = 0; i < markSize; ++i) {
+    inc = (0 === i || (markSize - 1) === i) ? 1 : (markSize - 1);
+
+    for (j = 0; j < markSize; j += inc) {
+      square = {
+        x: j * width,
+        y: i * width,
+        width: width,
+        height: width
+      };
+      if (CV.countNonZero(imageSrc, square) > minZero) {
+        return null;
+      }
+    }
+  }
+
+  for (i = 0; i < markSize - 2; ++i) {
+    bits[i] = [];
+
+    for (j = 0; j < markSize - 2; ++j) {
+      square = {
+        x: (j + 1) * width,
+        y: (i + 1) * width,
+        width: width,
+        height: width
+      };
+
+      bits[i][j] = CV.countNonZero(imageSrc, square) > minZero ? 1 : 0;
+    }
+  }
+
+  rotations[0] = bits;
+
+  var foundMin = null;
+  var rot = 0;
+  for (i = 0; i < 4; i++) {
+    var found = this.dictionary.find(rotations[i]);
+    if (found && (foundMin === null || found.distance < foundMin.distance)) {
+      foundMin = found;
+      rot = i;
+      if (foundMin.distance === 0)
+        break;
+    }
+    rotations[i + 1] = this.rotate(rotations[i]);
+  }
+
+  if (foundMin)
+    return new AR.Marker(foundMin.id, this.rotate2(candidate, 4 - rot), foundMin.distance);
+
+  return null;
+};
+
+AR.Detector.prototype.rotate = function (src) {
+  var dst = [],
+    len = src.length,
+    i, j;
+
+  for (i = 0; i < len; ++i) {
+    dst[i] = [];
+    for (j = 0; j < src[i].length; ++j) {
+      dst[i][j] = src[src[i].length - j - 1][i];
+    }
+  }
+
+  return dst;
+};
+
+AR.Detector.prototype.rotate2 = function (src, rotation) {
+  var dst = [],
+    len = src.length,
+    i;
+
+  for (i = 0; i < len; ++i) {
+    dst[i] = src[(rotation + i) % len];
+  }
+
+  return dst;
+};
+
+return { AR: AR, CV: CV };
+})();
+
+// =========================================================== visual code (AprilTag), docs/visual-code.md
+// Mirrors slate_sync.py (frame_edges, label_visual, VEnd, exact_fps, vis_floor, visual_scan, av_check); only the
+// decoding (WebCodecs VideoDecoder) and the detector (js-aruco2 above) are browser-specific.
+// tag36h11 code table and bit layout: AprilRobotics/apriltag tag36h11.c @ b7c0ebe (BSD-2-Clause, see THIRD_PARTY_NOTICES.md)
+var TAG36H11_CODES = [0xd7e00984b, 0xdda664ca7, 0xdc4a1c821, 0xe17b470e9, 0xef91d01b1, 0xf429cdd73, 0x5da29225, 0x1106cba43, 0x223bed79d, 0x21f51213c, 0x33eb19ca6, 0x3f76eb0f8, 0x469a97414, 0x45dcfe0b0, 0x4a6465f72, 0x51801db96, 0x5eb946b4e, 0x68a7cc2ec, 0x6f0ba2652, 0x78765559d, 0x87b83d129, 0x86cc4a5c5, 0x8b64df90f, 0x9c577b611, 0xa3810f2f5, 0xaf4d75b83, 0xb59a03fef, 0xbb1096f85, 0xd1b92fc76, 0xd0dd509d2, 0xe2cfda160, 0x2ff497c63, 0x47240671b, 0x5047a2e55, 0x635ca87c7, 0x691254166, 0x68f43d94a, 0x6ef24bdb6, 0x8cdd8f886, 0x9de96b718, 0xaff6e5a8a, 0xbae46f029, 0xd225b6d59, 0xdf8ba8c01, 0xe3744a22f, 0xfbb59375d, 0x18a916828, 0x22f29c1ba, 0x286887d58, 0x41392322e, 0x75d18ecd1, 0x87c302743, 0x8c6317ba9, 0x9e40f36d7, 0xc0e5a806a, 0xcc78cb87c, 0x12d2f2d01, 0x379f36a21, 0x6973f59ac, 0x7789ea9f4, 0x8f1c73e84, 0x8dd287a20, 0x94a4eee4c, 0xa455379b5, 0xa9e92987d, 0xbd25cb40b, 0xbe98d3582, 0xd3d5972b2, 0x14c53d7c7, 0x4f1796936, 0x4e71fed1a, 0x66d46fae0, 0xa55abb933, 0xebee1acca, 0x1ad4ba6a4, 0x305b17571, 0x553611351, 0x59ca62775, 0x7819cb6a1, 0xedb7bc9eb, 0x5b2694212, 0x72e12d185, 0xed6152e2c, 0x5bcdadbf3, 0x78e0aa0c6, 0xc60a0b909, 0xef9a34b0d, 0x398a6621a, 0xa8a27c944, 0x4b564304e, 0x52902b4e2, 0x857280b56, 0xa91b2c84b, 0xe91df939b, 0x1fa405f28, 0x23793ab86, 0x68c17729f, 0x9fbf3b840, 0x36922413c, 0x4eb5f946e, 0x533fe2404, 0x63de7d35e, 0x925eddc72, 0x99b8b3896, 0xaace4c708, 0xc22994af0, 0x8f1eae41b, 0xd95fb486c, 0x13fb77857, 0x4fe0983a3, 0xd559bf8a9, 0xe1855d78d, 0xfec8daaad, 0x71ecb6d95, 0xdc9e50e4c, 0xca3a4c259, 0x740d12bbf, 0xaeedd18e0, 0xb509b9c8e, 0x5232fea1c, 0x19282d18b, 0x76c22d67b, 0x936beb34b, 0x8a5ea8dd, 0x679eadc28, 0xa08e119c5, 0x20a6e3e24, 0x7eab9c239, 0x96632c32e, 0x470d06e44, 0x8a70212fb, 0xa7e4251b, 0x9ec762cc0, 0xd8a3a1f48, 0xdb680f346, 0x4a1e93a9d, 0x638ddc04f, 0x4c2fcc993, 0x1ef28c95, 0xbf0d9792d, 0x6d27557c3, 0x623f977f4, 0x35b43be57, 0xbb0c428d5, 0xa6f01474d, 0x5a70c9749, 0x20ddabc3b, 0x2eabd78cf, 0x90aa18f88, 0xa9ea89350, 0x3cdb39b22, 0x839a08f34, 0x169bb814e, 0x1a575ab08, 0xa04d3d5a2, 0xbf7902f2b, 0x95a5e65c, 0x92e8fce94, 0x67ef48d12, 0x6400dbcac, 0xb12d8fb9f, 0x347f45d3, 0xb35826f56, 0xc546ac6e4, 0x81cc35b66, 0x41d14bd57, 0xc052b168, 0x7d6ce5018, 0xab4ed5ede, 0x5af817119, 0xd1454b182, 0x2badb090b, 0x3fcb4c0c, 0x2f1c28fd8, 0x93608c6f7, 0x4c93ba2b5, 0x7d950a5d, 0xe54b3d3fc, 0x15560cf9d, 0x189e4958a, 0x62140e9d2, 0x723bc1cdb, 0x2063f26fa, 0xfa08ab19f, 0x7955641db, 0x646b01daa, 0x71cd427cc, 0x9a42f7d4, 0x717edc643, 0x15eb94367, 0x8392e6bb2, 0x832408542, 0x2b9b874be, 0xb21f4730d, 0xb5d8f24c9, 0x7dbaf6931, 0x1b4e33629, 0x13452e710, 0xe974af612, 0x1df61d29a, 0x99f2532ad, 0xe50ec71b4, 0x5df0a36e8, 0x4934e4cea, 0xe34a0b4bd, 0xb7b26b588, 0xf255118d, 0xd0c8fa31e, 0x6a50c94f, 0xf28aa9f06, 0x131d194d8, 0x622e3da79, 0xac7478303, 0xc8f2521d7, 0x6c9c881f5, 0x49e38b60a, 0x513d8df65, 0xd7c2b0785, 0x9f6f9d75a, 0x9f6966020, 0x1e1a54e33, 0xc04d63419, 0x946e04cd7, 0x1bdac5902, 0x56469b830, 0xffad59569, 0x86970e7d8, 0x8a4b41e12, 0xad4688e3b, 0x85f8f5df4, 0xd833a0893, 0x2a36fdd7c, 0xd6a857cf2, 0x8829bc35c, 0x5e50d79bc, 0xfbb8035e4, 0xc1a95bebf, 0x36b0baf8, 0xe0da964ea, 0xb6483689b, 0x7c8e2f4c1, 0x5b856a23b, 0x2fc183995, 0xe914b6d70, 0xb31041969, 0x1bb478493, 0x63e2b456, 0xf2a082b9c, 0x8e5e646ea, 0x8172f8f6, 0xdacd923e, 0xe5dcf0e2e, 0xbf9446bae, 0x4822d50d1, 0x26e710bf5, 0xb90ba2a24, 0xf3b25aa73, 0x809ad589b, 0x94cc1e254, 0x5334a3adb, 0x592886b2f, 0xbf64704aa, 0x566dbf24c, 0x72203e692, 0x64e61e809, 0xd7259aad6, 0x7b924aedc, 0x2df2184e8, 0x353d1eca7, 0xfce30d7ce, 0xf7b0f436e, 0x57e8d8f68, 0x8c79e60db, 0x9c8362b2b, 0x63a5804f2, 0x9298353dc, 0x6f98a71c8, 0xa5731f693, 0x21ca5c870, 0x1c2107fd3, 0x6181f6c39, 0x19e574304, 0x329937606, 0x43d5c70d, 0x9b18ff162, 0x8e2ccfebf, 0x72b7b9b54, 0x9b71f4f3c, 0x935d7393e, 0x65938881a, 0x6a5bd6f2d, 0xa19783306, 0xe6472f4d7, 0x81163df5a, 0xa838e1cbd, 0x982748477, 0x50c54feb, 0xd82fbb58, 0x2c4c72799, 0x97d259ad6, 0x22d9a43ed, 0xfdb162a9f, 0xcb4a727d, 0x4fae2e371, 0x535b5be8b, 0x48795908a, 0xce7c18962, 0x4ea154d80, 0x50c064889, 0x8d97fc75d, 0xc8bd9ec61, 0x83ee8e8bb, 0xc8431419a, 0x1aa78079d, 0x8111aa4a5, 0xdfa3a69fe, 0x51630d83f, 0x2d930fb3f, 0x2133116e5, 0xae5395522, 0xbc07a4e8a, 0x57bf08ba0, 0x6cb18036a, 0xf0e2e4b75, 0x3eb692b6f, 0xd8178a3fa, 0x238cce6a6, 0xe97d5cdd7, 0xfe10d8d5e, 0xb39584a1d, 0xca03536fd, 0xaa61f3998, 0x72ff23ec2, 0x15aa7d770, 0x57a3a1282, 0xd1f3902dc, 0x6554c9388, 0xfd01283c7, 0xe8baa42c5, 0x72cee6adf, 0xf6614b3fa, 0x95c3778a2, 0x7da4cea7a, 0xd18a5912c, 0xd116426e5, 0x27c17bc1c, 0xb95b53bc1, 0xc8f937a05, 0xed220c9bd, 0xc97d72ab, 0x8fb1217ae, 0x25ca8a5a1, 0xb261b871b, 0x1bef0a056, 0x806a51179, 0xeed249145, 0x3f82aeceb, 0xcc56e9acf, 0x2e78d01eb, 0x102cee17f, 0x37caad3d5, 0x16ac5b1ee, 0x2af164ece, 0xd4cd81dc9, 0x12263a7e7, 0x57ac7d117, 0x9391d9740, 0x7aedaa77f, 0x9675a3c72, 0x277f25191, 0xebb6e64b9, 0x7ad3ef747, 0x12759b181, 0x948257d4d, 0xb63a850f6, 0x3a52a8f75, 0x4a019532c, 0xa021a7529, 0xcc661876d, 0x4085afd05, 0xe7048e089, 0x3f979cdc6, 0xd9da9071b, 0xed2fc5b68, 0x79d64c3a1, 0xfd44e2361, 0x8eea46a74, 0x42233b9c2, 0xae4d1765d, 0x7303a094c, 0x2d7033abe, 0x3dcc2b0b4, 0xf0967d09, 0x6f0cd7de, 0x9807aca0, 0x3a295cad3, 0x2b106b202, 0x3f38a828e, 0x78af46596, 0xbda2dc713, 0x9a8c8c9d9, 0x6a0f2ddce, 0xa76af6fe2, 0x86f66fa4, 0xd52d63f8d, 0x89f7a6e73, 0xcc6b23362, 0xb4ebf3c39, 0x564f300fa, 0xe8de3a706, 0x79a033b61, 0x765e160c5, 0xa266a4f85, 0xa68c38c24, 0xdca0711fb, 0x85fba85ba, 0x37a207b46, 0x158fcc4d0, 0x569d79b3, 0x7b1a25555, 0xa8ae22468, 0x7c592bdfd, 0xc59a5f66, 0xb1115daa3, 0xf17c87177, 0x6769d766b, 0x2b637356d, 0x13d8685ac, 0xf24cb6ec0, 0xbd0b56d1, 0x42ff0e26d, 0xb41609267, 0x96f9518af, 0xc56f96636, 0x4a8e10349, 0x863512171, 0xea455d86c, 0xbd0e25279, 0xe65e3f761, 0x36c84a922, 0x85fd1b38f, 0x657c91539, 0x15033fe04, 0x9051c921, 0xab27d80d8, 0xf92f7d0a1, 0x8eb6bb737, 0x10b5b0f63, 0x6c9c7ad63, 0xf66fe70ae, 0xca579bd92, 0x956198e4d, 0x29e4405e5, 0xe44eb885c, 0x41612456c, 0xea45e0abf, 0xd326529bd, 0x7b2c33cef, 0x80bc9b558, 0x7169b9740, 0xc37f99209, 0x31ff6dab9, 0xc795190ed, 0xa7636e95f, 0x9df075841, 0x55a083932, 0xa7cbdf630, 0x409ea4ef0, 0x92a1991b6, 0x4b078dee9, 0xae18ce9e4, 0x5a6e1ef35, 0x1a403bd59, 0x31ea70a83, 0x2bc3c4f3a, 0x5c921b3cb, 0x42da05c5, 0x1f667d16b, 0x416a368cf, 0xfbc0a7a3b, 0x9419f0c7c, 0x81be2fa03, 0x34e2c172f, 0x28648d8ae, 0xc7acbb885, 0x45f31eb6a, 0xd1cfc0a7b, 0x42c4d260d, 0xcf6584097, 0x94b132b14, 0x3c5c5df75, 0x8ae596fef, 0xaea8054eb, 0xae9cc573, 0x496fb731b, 0xebf105662, 0xaf9c83a37, 0xc0d64cd6b, 0x7b608159a, 0xe74431642, 0xd6fb9d900, 0x291e99de0, 0x10500ba9a, 0x5cd05d037, 0xa87254fb2, 0x9d7824a37, 0x8b2c7b47c, 0x30c788145, 0x2f4e5a8be, 0xbadb884da, 0x26e0d5c9, 0x6fdbaa32e, 0x34758eb31, 0x565cd1b4f, 0x2bfd90fb0, 0x93052a6b, 0xd3c13c4b9, 0x2daea43bf, 0xa279762bc, 0xf1bd9f22c, 0x4b7fec94f, 0x545761d5a, 0x7327df411, 0x1b52a442e, 0x49b0ce108, 0x24c764bc8, 0x374563045, 0xa3e8f91c6, 0xe6bd2241, 0xe0e52ee3c, 0x7e8e3caa, 0x96c2b7372, 0x33acbdfda, 0xb15d91e54, 0x464759ac1, 0x6886a1998, 0x57f5d3958, 0x5a1f5c1f5, 0xb58158ad, 0xe712053fb, 0x5352ddb25, 0x414b98ea0, 0x74f89f546, 0x38a56b3c3, 0x38db0dc17, 0xaa016a755, 0xdc72366f5, 0xcee93d75, 0xb2fe7a56b, 0xa847ed390, 0x8713ef88c, 0xa217cc861, 0x8bca25d7b, 0x455526818, 0xea3a7a180, 0xa9536e5e0, 0x9b64a1975, 0x5bfc756bc, 0x46aa169b, 0x53a17f76f, 0x4d6815274, 0xcca9cf3f6, 0x4013fcb8b, 0x3d26cdfa5, 0x5786231f7, 0x7d4ab09ab, 0x960b5ffbc, 0x8914df0d4, 0x2fc6f2213, 0xac235637e, 0x151b28ed3, 0x46f79b6db, 0x1382e0c9f, 0x53abf983a, 0x383c47ade, 0x3fcf88978, 0xeb9079df7, 0x9af0714d, 0xda19d1bb7, 0x9a02749f8, 0x1c62dab9b, 0x1a137e44b, 0x2867718c7, 0x35815525b, 0x7cd35c550, 0x2164f73a0, 0xe8b772fe0];
+var TAG36H11_BIT_X = [1, 2, 3, 4, 5, 2, 3, 4, 3, 6, 6, 6, 6, 6, 5, 5, 5, 4, 6, 5, 4, 3, 2, 5, 4, 3, 4, 1, 1, 1, 1, 1, 2, 2, 2, 3];
+var TAG36H11_BIT_Y = [1, 1, 1, 1, 1, 2, 2, 2, 3, 1, 2, 3, 4, 5, 2, 3, 4, 3, 6, 6, 6, 6, 6, 5, 5, 5, 4, 6, 5, 4, 3, 2, 5, 4, 3, 4];
+const VIS_MOD = 540;       // ID = seconds since local midnight mod 540 (9 minutes)
+const VIS_SHORT = 360;     // frames are scaled to about this short side before detection
+const VCHUNK = 2.5;        // minimum seconds per video read; reads end on a keyframe so the next one needs no pre-roll
+const VCHUNK_KEY = 4.0;    // how far past VCHUNK to look for that keyframe
+const VIS_PLATEAU = 5.0;   // stop when the estimated error has not dropped for this many seconds of video
+const SOUND = 343;         // m/s, for the distance field
+const READ_BLOCK = 16e6;   // bytes of video read from the file at a time
+
+// js-aruco2 reads the 6 x 6 data cells row by row from the top left, the first cell being the most significant bit
+// and white being 1. Data bit i (bit 35 - i of the code) sits at row bit_y[i] - 1, column bit_x[i] - 1 of those cells.
+// Only IDs 0-539 are used by the slate; tau 3 allows up to 2 bit errors (tag36h11 codes are at least 11 apart).
+AR.DICTIONARIES.TAG36H11 = { nBits: 36, tau: 3, codeList: TAG36H11_CODES.slice(0, VIS_MOD).map(code => {
+  const cell = new Array(36);
+  // Division instead of bit shifts: codes are 36 bits, wider than the 32-bit integer operators.
+  for (let i = 0; i < 36; i++) cell[(TAG36H11_BIT_Y[i] - 1) * 6 + TAG36H11_BIT_X[i] - 1] = Math.floor(code / 2 ** (35 - i)) % 2;
+  return cell.reduce((v, b) => v * 2 + b, 0);
+}) };
+let tagDetector = null;
+// AR.Detector.detect() without its RGBA -> grey step (the frames are grey already) and without notTooNear(): of two
+// quads whose corners are close it keeps only the larger, and for a small tag (about 2 px per cell) that is the white
+// quiet zone's outline, which has no bits, instead of the black border. Every candidate is decoded instead.
+function detectTags(w, h, grey) {
+  const d = tagDetector || (tagDetector = new AR.Detector({ dictionaryName: 'TAG36H11', maxHammingDistance: 3 }));
+  d.grey = new CV.Image(w, h, grey);
+  CV.adaptiveThreshold(d.grey, d.thres, 2, 7);
+  d.contours = CV.findContours(d.thres, d.binary);
+  let c = d.findCandidates(d.contours, w * 0.01, 0.05, 10);
+  c = d.clockwiseCorners(c);
+  return d.findMarkers(d.grey, c, 49);
+}
+
+// Frame-level edges: a frame showing ID n whose nearest earlier decoded frame showed n - 1 (mod 540), with only
+// undecodable transition frames between them. Edge at the midpoint, ±half the gap. frames: Map file time -> ID|null.
+function frameEdges(frames, fi) {
+  const out = [];
+  let last = null, prev = null;
+  for (const t of [...frames.keys()].sort((x, y) => x - y)) {
+    const idx = frames.get(t);
+    if (prev !== null && t - prev > 1.5 * fi) last = null;   // frames not contiguous (a gap between reads)
+    prev = t;
+    if (idx === null) continue;
+    if (last && idx === (last[1] + 1) % VIS_MOD && t - last[0] <= 3.5 * fi)
+      out.push({ t: (last[0] + t) / 2, half: (t - last[0]) / 2, val: idx, isMin: false });
+    last = [t, idx];
+  }
+  return out;
+}
+
+// Visual counterpart of label(): keep the edges that step up by one ID per second (about 1 s apart).
+function labelVisual(edges, fi) {
+  if (!edges.length) return null;
+  edges = edges.slice().sort((p, q) => p.t - q.t);
+  const agree = ref => edges.filter(e => {
+    const dt = e.t - ref.t, k = Math.round(dt);
+    return mod(ref.val + k, VIS_MOD) === e.val && Math.abs(dt - k) <= 0.01 * Math.abs(k) + 3 * fi;
+  }).map(e => [e.t, e.val]);
+  let good = [];
+  for (const r of edges) { const g = agree(r); if (g.length > good.length) good = g; }
+  if (good.length < Math.max(1, Math.floor(edges.length / 2))) return null;
+  return { lab: good, mod: VIS_MOD };
+}
+
+function exactFps(fps) {
+  for (const e of NTSC) if (fps && Math.abs(fps - e) < 0.005) return e;   // 59.94 -> 59.94005994...
+  return fps;
+}
+
+// Lower bounds for frame-level timing (vis_floor in slate_sync.py): [position error anywhere in the file in s,
+// speed-ratio error]. h = half a frame. Frame-level edges only average out their quantisation when successive seconds
+// fall at different phases of the frame grid; per end the residual F is the largest of:
+//   - h when the frame rate divides one second, the frame grid is irregular (VFR) or the fit is unknown;
+//   - sweep: the phase moves by step = |frac(fps x rate)| frames per real second; counting only the part of step the
+//     speed bound cannot explain, sure = max(0, step - fps x 2F / base), an end whose edges span S seconds sweeps
+//     sure x S frames and keeps h / max(1, sure x S);
+//   - coverage: the phases the edges actually fell at (from the fit); the widest circular gap g between the n edges'
+//     phases leaves h x min(1, g + 1/n).
+// Speed bound: 2F / base over two ends (base = distance between their mean edge times), 3F / S for one end alone.
+// Position bound: F + speed bound x reach, reach = largest distance from either end of the file to the nearer end's
+// mean edge time. ends: the edges ({ t, half }) read at each end; D: file duration.
+function visFloor(fps, fit, ends, D, vfr) {
+  const h = 0.5 / fps, fi = 1 / fps, mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+  ends = ends.filter(es => es.length).map(es => es.slice().sort((p, q) => p.t - q.t));
+  if (!ends.length) return [h, Infinity];
+  const ts = ends.map(es => es.map(e => e.t));
+  const span = Math.min(...ts.map(t => t[t.length - 1] - t[0]));
+  const base = Math.max(ts.length > 1 ? mean(ts[ts.length - 1]) - mean(ts[0]) : span, 1);
+  let F = h;
+  if (fit && fit.rate !== undefined && !vfr && Math.abs(fps - Math.round(fps)) >= 1e-3) {
+    const { rate, c } = fit;
+    let step = fps * rate;
+    step = Math.abs(step - Math.round(step));
+    for (let k = 0; k < 5; k++) F = h / Math.max(1, Math.max(0, step - fps * 2 * F / base) * span);
+    for (const es of ends) {
+      const ph = es.map(e => mod(((c + rate * Math.round((e.t - c) / rate)) - (e.t - e.half)) / fi, 1)).sort((x, y) => x - y);
+      let g = ph[0] + 1 - ph[ph.length - 1];
+      for (let k = 1; k < ph.length; k++) g = Math.max(g, ph[k] - ph[k - 1]);
+      F = Math.max(F, h * Math.min(1, g + 1 / es.length));
+    }
+  }
+  const rateFloor = ts.length > 1 ? 2 * F / base : 3 * F / Math.max(span, 1);
+  const reach = Math.max(mean(ts[0]), D - mean(ts[ts.length - 1]), 0);
+  return [F + rateFloor * reach, rateFloor];
+}
+const visWorst = (fit, D, fps, ends, vfr) =>
+  Math.max(fit.predSe((0 - fit.c) / fit.rate), fit.predSe((D - fit.c) / fit.rate), visFloor(fps, fit, ends, D, vfr)[0]) * 1000;
+
+// ---- video track decoding (WebCodecs)
+function videoCodec(v) {
+  const b = v.desc, hex = x => x.toString(16).padStart(2, '0');
+  if (v.cfg === 'avcC') return `${v.fmt}.${hex(b[1])}${hex(b[2])}${hex(b[3])}`;
+  // hvcC: profile space / tier / profile, compatibility flags (bit-reversed), level, constraint bytes
+  let flags = ((b[2] << 24) | (b[3] << 16) | (b[4] << 8) | b[5]) >>> 0, rev = 0;
+  for (let i = 0; i < 32; i++) { rev = (rev * 2) + (flags & 1); flags >>>= 1; }
+  const cons = Array.from(b.subarray(6, 12));
+  while (cons.length && !cons[cons.length - 1]) cons.pop();
+  return `${v.fmt}.${['', 'A', 'B', 'C'][b[1] >> 6]}${b[1] & 31}.${rev.toString(16)}.${(b[1] >> 5) & 1 ? 'H' : 'L'}${b[12]}` +
+    cons.map(x => '.' + x.toString(16)).join('');
+}
+
+// Decodes stretches of the video track and hands every frame, in presentation order, to a callback as a small grey
+// image (short side about VIS_SHORT px). Hardware decoding is preferred; if it fails the read is repeated with the
+// browser's default choice and the file stays there. decoders collects what was used ('hardware' / 'software').
+class VideoReader {
+  static async open(m) {
+    const v = m.video;
+    if (m.videoUnsupported) return { unsupported: { why: m.videoUnsupported } };
+    if (!v || typeof VideoDecoder === 'undefined') return { unsupported: { why: 'why.codec', codec: v ? v.fmt : '?' } };
+    const codec = videoCodec(v), base = { codec, codedWidth: v.width, codedHeight: v.height, description: v.desc };
+    for (const hw of ['prefer-hardware', 'no-preference']) {
+      try { if ((await VideoDecoder.isConfigSupported({ ...base, hardwareAcceleration: hw })).supported) return new VideoReader(m, base, hw); }
+      catch (e) { /* try the next preference */ }
+    }
+    return { unsupported: { why: 'why.codec', codec } };
+  }
+  constructor(m, config, hw) {
+    Object.assign(this, { m, v: m.video, config, hw, decoders: new Set(), fallback: null });
+    const s = Math.min(1, VIS_SHORT / Math.min(this.v.width, this.v.height));
+    this.w = 2 * Math.round(this.v.width * s / 2); this.h = 2 * Math.round(this.v.height * s / 2);
+    this.canvas = new OffscreenCanvas(this.w, this.h);
+    this.ctx = this.canvas.getContext('2d');
+    this.ctx.imageSmoothingQuality = 'high';
+    this.grey = new Uint8Array(this.w * this.h);
+  }
+  // Keyframe at or before t (file time), or null.
+  keyBefore(t) { let k = null; for (const i of this.v.keys) { if (this.v.pts[i] <= t + 1e-6) k = this.v.pts[i]; else break; } return k; }
+  keysIn(a, b) { return this.v.keys.map(i => this.v.pts[i]).filter(t => t >= a && t <= b); }
+  // Decode so that every frame with a <= pts < b reaches onFrame(t, grey, w, h). Starts at keyframe k0.
+  async read(k0, a, b, onFrame) {
+    try { return await this.decodeRange(k0, a, b, onFrame, this.hw); }
+    catch (e) {
+      if (this.hw !== 'prefer-hardware') throw e;
+      this.fallback = String((e && e.message) || e).slice(0, 200);
+      this.hw = 'no-preference';
+      return this.decodeRange(k0, a, b, onFrame, this.hw);
+    }
+  }
+  async decodeRange(k0, a, b, onFrame, hw) {
+    const v = this.v, BIAS = 1000, us = t => Math.round((t + BIAS) * 1e6);
+    let i0 = v.keys.find(i => Math.abs(v.pts[i] - k0) < 1e-6);
+    if (i0 === undefined) i0 = v.keys[0];
+    let last = -1;
+    for (let j = i0; j < v.n && v.pts[j] < b + 1; j++) if (v.pts[j] < b) last = j;   // decode order; reordering < 1 s
+    if (last < i0) return 0;
+    const byUs = new Map();
+    for (let j = i0; j <= last; j++) byUs.set(us(v.pts[j]), v.pts[j]);
+    // File bytes are read in blocks of at most READ_BLOCK, so a very long GOP is not loaded in one piece.
+    let buf = null, bufLo = 0, bufHi = 0;
+    const sample = async j => {
+      if (!buf || v.off[j] < bufLo || v.off[j] + v.size[j] > bufHi) {
+        bufLo = v.off[j]; bufHi = bufLo + v.size[j];
+        for (let k = j + 1; k <= last && v.off[k] >= bufLo && v.off[k] + v.size[k] - bufLo <= READ_BLOCK; k++) bufHi = Math.max(bufHi, v.off[k] + v.size[k]);
+        buf = new Uint8Array(await this.m.file.slice(bufLo, bufHi).arrayBuffer());
+      }
+      return buf.subarray(v.off[j] - bufLo, v.off[j] - bufLo + v.size[j]);
+    };
+    let failed = null, bytes = 0;
+    const dec = new VideoDecoder({
+      output: frame => {
+        const t = byUs.get(frame.timestamp);
+        if (t === undefined || t < a - 1e-3 || t >= b) { frame.close(); return; }
+        this.ctx.drawImage(frame, 0, 0, this.w, this.h);
+        frame.close();
+        const img = this.ctx.getImageData(0, 0, this.w, this.h);
+        CV.grayscale({ data: img.data, width: this.w, height: this.h }, { data: this.grey });
+        onFrame(t, this.grey, this.w, this.h);
+      },
+      error: e => { failed = e; },
+    });
+    dec.configure({ ...this.config, hardwareAcceleration: hw });
+    for (let j = i0; j <= last; j++) {
+      if (failed) break;
+      const data = await sample(j);
+      if (failed) break;
+      dec.decode(new EncodedVideoChunk({ type: v.key[j] ? 'key' : 'delta', timestamp: us(v.pts[j]), data }));
+      if (v.pts[j] >= k0 - 1e-6 && v.pts[j] < b) bytes += v.size[j];
+      if (dec.decodeQueueSize > 16) await new Promise(r => dec.addEventListener('dequeue', r, { once: true }));
+    }
+    try { if (!failed) await dec.flush(); } catch (e) { failed = failed || e; }
+    if (dec.state !== 'closed') dec.close();
+    if (failed) throw failed;
+    this.decoders.add(hw === 'prefer-hardware' ? 'hardware' : 'software');
+    return bytes;
+  }
+}
+
+// Video counterpart of End: reads one end of the file toward the other and detects the tag in every frame. Reads
+// start and end on keyframes where possible, so nothing is decoded twice; every frame's result is kept and the edges
+// are rebuilt from all of them, so an edge that straddles two reads is not lost.
+class VEnd {
+  constructor(vr, D, start, dir, limit, maxRead, fi, tick) {
+    Object.assign(this, { vr, D, pos: start, origin: start, dir, limit, maxRead, fi, tick,
+      frames: new Map(), edges: [], started: false, done: false, idle: 0, readSince: 0, roi: null, miss: 0, decoded: 0, bytes: 0 });
+  }
+  plan() {
+    const D = this.D;
+    let a, b;
+    if (this.dir > 0) {
+      a = this.pos;
+      const later = this.vr.keysIn(a + VCHUNK - 1e-6, Math.min(a + VCHUNK + VCHUNK_KEY, D));
+      b = Math.min(later.length ? later[0] : a + VCHUNK, D);
+    } else {
+      b = this.pos;
+      const k = this.vr.keyBefore(b - VCHUNK);
+      a = Math.max(k !== null ? k : Math.max(b - VCHUNK, 0), 0);
+    }
+    const k0 = this.vr.keyBefore(a);
+    return [a, b, k0 !== null ? k0 : a];
+  }
+  // Tag ID in this frame, or null. After a hit only the tag's area (grown by 25 %) is searched; three misses in a
+  // row go back to the whole frame. IDs 540-586 are not used by the slate.
+  detect(grey, w, h) {
+    let x0 = 0, y0 = 0, sw = w, sh = h, sub = grey;
+    if (this.roi) {
+      [x0, y0] = this.roi; sw = this.roi[2] - x0; sh = this.roi[3] - y0;
+      sub = new Uint8Array(sw * sh);
+      for (let y = 0; y < sh; y++) sub.set(grey.subarray((y + y0) * w + x0, (y + y0) * w + x0 + sw), y * sw);
+    }
+    let best = null;
+    for (const d of detectTags(sw, sh, sub)) {
+      if (d.id >= VIS_MOD) continue;
+      const c = d.corners;
+      let area = 0;
+      for (let i = 0; i < 4; i++) { const p = c[i], q = c[(i + 3) % 4]; area += p.x * q.y - p.y * q.x; }
+      area = Math.abs(area) / 2;
+      if (!best || area > best[0]) best = [area, d];
+    }
+    if (!best) {
+      if (this.roi && ++this.miss >= 3) { this.roi = null; this.miss = 0; }
+      return null;
+    }
+    const xs = best[1].corners.map(p => p.x + x0), ys = best[1].corners.map(p => p.y + y0);
+    const lx = Math.min(...xs), hx = Math.max(...xs), ly = Math.min(...ys), hy = Math.max(...ys);
+    const mx = (hx - lx) * 0.25, my = (hy - ly) * 0.25;
+    this.roi = [Math.trunc(Math.max(0, lx - mx)), Math.trunc(Math.max(0, ly - my)), Math.trunc(Math.min(w, hx + mx + 1)), Math.trunc(Math.min(h, hy + my + 1))];
+    this.miss = 0;
+    return best[1].id;
+  }
+  // Read one more stretch; returns its length in seconds (0 when finished).
+  async step() {
+    if (this.done) return 0;
+    const D = this.D;
+    if ((this.dir > 0 && D - this.pos < 0.2) || (this.dir < 0 && this.pos < 0.2)) { this.done = true; return 0; }
+    const [a, b, k0] = this.plan();
+    if (b - a < 0.05) { this.done = true; return 0; }
+    this.bytes += await this.vr.read(k0, a, b, (t, grey, w, h) => this.frames.set(Math.round(t * 1e6) / 1e6, this.detect(grey, w, h)));
+    this.decoded += b - k0;
+    const n0 = this.edges.length;
+    this.edges = frameEdges(this.frames, this.fi);
+    if (this.edges.length > n0) { this.started = true; this.idle = 0; }
+    else if (this.started && ++this.idle >= 2) this.done = true;
+    if (this.started) { this.readSince += b - a; if (this.readSince >= this.maxRead) this.done = true; }
+    else if (Math.abs(this.pos - this.origin) >= this.limit) this.done = true;
+    this.pos = this.dir > 0 ? b : a;
+    if (this.tick) this.tick();
+    return b - a;
+  }
+}
+
+// Read the visual code from both ends inward, the same way as the audio. fit is null when no edge was found anywhere.
+async function visualScan(m, vr, opts, tick) {
+  const D = m.movieDuration || m.duration, fps = exactFps(m.fps) || 30, fi = 1 / fps, vis = { fi };
+  const limit = 30 * 60, maxRead = 120, target = 1.0;
+  const head = new VEnd(vr, D, 0, +1, limit, maxRead, fi, tick), tail = new VEnd(vr, D, D, -1, limit, maxRead, fi, tick);
+  if (opts.only === 'head') tail.done = true;
+  if (opts.only === 'tail') head.done = true;
+  while (!((head.started || head.done) && (tail.started || tail.done))) {
+    if (!(head.started || head.done)) await head.step();
+    if (!(tail.started || tail.done)) await tail.step();
+    if (head.pos >= tail.pos) { if (!head.started) head.done = true; if (!tail.started) tail.done = true; break; }
+  }
+  const ends = [head, tail], sc = { ends, fit: null, probes: [], singleFrom: null, fps, vis, vr, D };
+  if (!head.edges.length && !tail.edges.length) return sc;
+  if (head.edges.length && tail.edges.length &&
+      Math.min(...tail.edges.map(e => e.t)) - Math.max(...head.edges.map(e => e.t)) < 60) {
+    for (const [t, id] of tail.frames) head.frames.set(t, id);
+    head.edges = frameEdges(head.frames, fi);
+    tail.edges = []; tail.done = true;
+    if (head.edges[0].t > D / 2) sc.singleFrom = 'tail';
+  }
+  // Refine until the target is met, the error stops dropping for VIS_PLATEAU seconds, or the code ends.
+  let fit, best = Infinity, flat = 0;
+  for (;;) {
+    fit = solve(head.edges, tail.edges, [], vis);
+    if (fit.error) break;
+    const worst = visWorst(fit, D, fps, ends.map(x => x.edges), m.vfr);
+    if (worst <= target) break;
+    if (worst < best - 1e-9) { best = worst; flat = 0; }
+    if (flat >= VIS_PLATEAU) break;
+    let read = 0;
+    for (const e of ends) if (e.edges.length && !e.done) read = Math.max(read, await e.step());
+    if (!read) break;
+    flat += read;
+  }
+  if (!fit.error && opts.probe) {
+    const lo = (head.edges.length ? Math.max(...head.edges.map(e => e.t)) : 0) + 30;
+    const hi = (tail.edges.length ? Math.min(...tail.edges.map(e => e.t)) : D) - 30;
+    for (let k = 0; k < opts.probe && hi - lo >= 60; k++) {
+      const pe = new VEnd(vr, D, lo + (hi - lo) * (k + 1) / (opts.probe + 1), +1, 6, 6, fi, tick);
+      for (let s = 0; s < 3; s++) await pe.step();
+      head.decoded += pe.decoded; head.bytes += pe.bytes;
+      if (pe.edges.length) sc.probes.push(pe.edges);
+    }
+    if (sc.probes.length) fit = solve(head.edges, tail.edges, sc.probes, vis);
+  }
+  sc.fit = fit;
+  return sc;
+}
+
+function readStats(r, sc) {
+  r.visualReadS = sc.ends.reduce((a, e) => a + e.decoded, 0);
+  r.visualReadMb = sc.ends.reduce((a, e) => a + e.bytes, 0) / 1e6;
+  r.videoDecoder = [...sc.vr.decoders].sort().join('+') || null;
+  if (sc.vr.fallback) r.hwFallback = sc.vr.fallback;
+}
+
+// Consistent visual edges per end: [[name, [[file_t, ID]], Map file_t -> half width]].
+function visualGroups(sc) {
+  const out = [];
+  sc.ends.forEach((e, k) => {
+    const L = e.edges.length ? labelVisual(e.edges, sc.vis.fi) : null;
+    if (!L) return;
+    const name = k === 0 && sc.singleFrom !== 'tail' ? 'head' : 'tail';   // only the tail recorded: merged into head
+    out.push([name, L.lab, new Map(e.edges.map(x => [x.t.toFixed(6), x.half]))]);
+  });
+  return out;
+}
+
+// Time result from the visual code alone (no waveform code in the audio, or no audio track).
+async function analyzeVideo(file, m, vr, opts, tick) {
+  const sc = await visualScan(m, vr, opts, tick);
+  const fit = sc.fit;
+  if (!fit) return { file: file.name, error: { key: 'err.noCodeAny' } };
+  if (fit.error) return { file: file.name, error: fit.error };
+  const r = buildResult(file, m, fit, sc.probes, sc.singleFrom, [null, null], sc.D);
+  const [floor, rateFloor] = visFloor(sc.fps, fit, sc.ends.map(x => x.edges), sc.D, m.vfr);
+  if (!r.segments) r.worstMs = Math.max(r.worstMs, floor * 1000);
+  r.uncPpm = Math.max(r.uncPpm, rateFloor * 1e6);
+  r.source = 'video';
+  r.visFloorMs = floor * 1000;
+  r.visualEdges = visualGroups(sc).reduce((a, g) => a + g[1].length, 0);
+  readStats(r, sc);
+  r.label540 = r.startLabel;
+  if (opts.av) r.avError = { key: 'av.noAudio' };
+  return r;
+}
+
+// Audio/video sync check: pair audio and visual edges of the same second (less than 0.5 s apart).
+// offset = visual edge - (audio edge - distance / 343 m/s).
+async function avCheck(r, m, vr, opts, tick) {
+  if (vr.unsupported) { r.avError = { key: m.video || m.videoUnsupported ? 'av.codec' : 'av.noVideo', vars: vr.unsupported }; return; }
+  const sc = await visualScan(m, vr, opts, tick);
+  r.source = 'audio';
+  readStats(r, sc);
+  const groups = visualGroups(sc);
+  r.visualEdges = groups.reduce((a, g) => a + g[1].length, 0);
+  if (!groups.length) { r.avError = { key: 'av.noVisual' }; return; }
+  r.source = 'both';
+  // The picture also tells where in the 9-minute cycle the file starts: widens the cross-file start window.
+  const [tv, idx] = groups[0][1][0], tgt = mod(idx - (tv - m.vOff) / r.rate, VIS_MOD), base = mod(r.startLabel, 60);
+  r.label540 = mod(base + 60 * Math.round((tgt - base) / 60), VIS_MOD);
+  const lag = opts.distance / SOUND, pairs = {};
+  let nAudio = 0;
+  for (const [name, lab, half] of groups) {
+    const ts = lab.map(([t]) => t), a0 = Math.max(0, Math.min(...ts) - 0.5);
+    const w = await readWindow(m, a0, Math.max(...ts) + 1.0);
+    let secs = [];
+    for (const ch of w.chans) { const d = decode(ch, w.t0, w.sr); if (d.length > secs.length) secs = d; }
+    nAudio += secs.length;
+    const out = [];
+    for (const [t, i] of lab) {
+      const s = secs.find(s => (s.isMin ? 0 : s.val) === i % 60 && Math.abs(t - s.t) < 0.5);
+      if (s) out.push([t, t - (s.t - lag), half.get(t.toFixed(6))]);
+    }
+    if (out.length) pairs[name] = out;
+    if (tick) tick();
+  }
+  const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+  r.audioEdges = nAudio;
+  r.avDistance = opts.distance;
+  r.avOffsetMs = null;
+  r.avJitterMs = r.avDriftPpm = r.avDriftUncPpm = null;
+  const keys = Object.keys(pairs);
+  if (!keys.length) { r.avError = { key: 'av.noPairs' }; return; }
+  r.avOffsetMs = {};
+  for (const k of ['head', 'tail'])
+    r.avOffsetMs[k] = pairs[k] ? { mean: mean(pairs[k].map(p => p[1])) * 1000, half: mean(pairs[k].map(p => p[2])) * 1000, pairs: pairs[k].length } : null;
+  const dev = keys.flatMap(k => pairs[k].map(p => p[1] - r.avOffsetMs[k].mean / 1000));
+  if (dev.length > 1) { const mu = mean(dev); r.avJitterMs = Math.sqrt(dev.reduce((a, v) => a + (v - mu) ** 2, 0) / (dev.length - 1)) * 1000; }
+  if (keys.length === 2) {
+    const all = pairs.head.concat(pairs.tail), T = all.map(p => p[0]), Y = all.map(p => p[1]);
+    const [slope, icpt, sxx] = polyfit1(T, Y), n = all.length;
+    const res = all.map((p, i) => Y[i] - (icpt + slope * T[i]));
+    const sd = n > 2 ? Math.sqrt(res.reduce((a, v) => a + v * v, 0) / (n - 2)) : 0;
+    const sig = Math.max(sd, Math.sqrt(mean(all.map(p => (2 * p[2]) ** 2 / 12))));
+    // Each end's mean offset can carry the same frame quantisation (see visFloor).
+    const vfit = sc.fit && !sc.fit.error ? sc.fit : null;
+    const unc = Math.max(sig / Math.sqrt(sxx), visFloor(sc.fps, vfit, sc.ends.map(x => x.edges), sc.D, m.vfr)[1]);
+    r.avDriftPpm = slope * 1e6; r.avDriftUncPpm = unc * 1e6;
+  }
+}
+
 async function analyze(file, opts, tick) {
   const m = await openMedia(file);
+  // The video track is decoded only when needed: no waveform code in the audio, or the A/V sync check.
+  let vr = null;
+  const hasVideo = !!(m.video || m.videoUnsupported);
+  const video = async () => vr || (vr = await VideoReader.open(m));
+  if (!m.hasAudio) {
+    const v = await video();
+    if (v.unsupported) return { file: file.name, error: { key: 'err.vcodec', vars: v.unsupported } };
+    return analyzeVideo(file, m, v, opts, tick);
+  }
   const D = m.duration, limit = 30 * 60, maxRead = 120, target = 1.0;
   const head = new End(m, 0, +1, limit, maxRead, tick), tail = new End(m, D, -1, limit, maxRead, tick);
   if (opts.only === 'head') tail.done = true;
@@ -791,7 +2363,12 @@ async function analyze(file, opts, tick) {
     if (!(tail.started || tail.done)) await tail.step();
     if (head.pos >= tail.pos) { if (!head.started) head.done = true; if (!tail.started) tail.done = true; break; }
   }
-  if (!head.found.length && !tail.found.length) return { file: file.name, error: { key: 'err.noCode' } };
+  if (!head.found.length && !tail.found.length) {
+    if (!hasVideo) return { file: file.name, error: { key: 'err.noCode' } };
+    const v = await video();                             // a camera that only saw the slate's screen
+    if (v.unsupported) return { file: file.name, error: { key: 'err.noCodeVcodec', vars: v.unsupported } };
+    return analyzeVideo(file, m, v, opts, tick);
+  }
   let singleFrom = null;
   if (head.found.length && tail.found.length &&
       Math.min(...tail.found.map(d => d.t)) - Math.max(...head.found.map(d => d.t)) < 60) {
@@ -830,6 +2407,21 @@ async function analyze(file, opts, tick) {
     }
     if (probes.length) { fit = solve(head.found, tail.found, probes); if (fit.error) return { file: file.name, error: fit.error }; }
   }
+  const used = [head, tail].filter(e => e.found.length).map(e => e.used);
+  const r = buildResult(file, m, fit, probes, singleFrom, [used[0], used[used.length - 1]]);
+  if (opts.av) {
+    try { await avCheck(r, m, await video(), opts, tick); }
+    catch (e) {                                          // the timing result from the audio still stands
+      for (const k of ['source', 'visualReadS', 'visualReadMb', 'videoDecoder', 'hwFallback', 'visualEdges', 'label540']) delete r[k];
+      r.avError = { key: 'av.codec', vars: { why: 'why.decode', msg: String((e && e.message) || e).slice(0, 200) } };
+    }
+  }
+  return r;
+}
+
+// Turn a fit into the per-file result (same fields for the waveform code and the visual code).
+// D: the duration the reads planned from (the visual code uses the movie header's, as slate_sync.py does).
+function buildResult(file, m, fit, probes, singleFrom, channel, D = m.duration) {
   const { rate, c, base, M } = fit;
   const realAt = t => mod(base + (t - c) / rate, M);
   let fps = m.fps || null;
@@ -857,10 +2449,9 @@ async function analyze(file, opts, tick) {
   else { const d = new Date(file.lastModified); hint = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds(); hintSrc = 'mtime'; }
   if (M === 3600 && hint !== null) { startClock = Math.round((hint - startLabel) / 3600) * 3600 + startLabel; clockMod = 86400; }
   else hintSrc = null;
-  const used = [head, tail].filter(e => e.found.length).map(e => e.used);
   // mode: 'full' (middle probed), 'both' (head and tail), or the single end read: 'head' / 'tail'
   const mode = probes.length ? 'full' : (fit.both ? 'both' : (singleFrom || fit.which));
-  return { file: file.name, kind, mode, channel: [used[0], used[used.length - 1]], startLabel, mod: M, startClock, clockMod, hintSrc,
+  return { file: file.name, kind, mode, channel, startLabel, mod: M, startClock, clockMod, hintSrc,
     length: mLen, correctedLength: corrected, frames: hasV ? m.vFrames : null, fps: hasV ? fps : null,
     rate, ppm: (rate - 1) * 1e6, uncPpm: fit.uncPpm, worstMs, edgesUsed: fit.n, edgesRejected: fit.rejected,
     fitRmsMs: fit.rms * 1000, segments, midDevMs: fit.maxDev, aOff: m.aOff, vOff: hasV ? m.vOff : null, ambiguous: fit.ambiguous };
@@ -936,6 +2527,72 @@ const I18N = {
     'err.headTail': '頭尾讀到的時間不合理',
     'err.badFit': '讀取結果不合理（速率偏差 {pct}%，擬合殘差 {ms} ms），可能有秒數讀錯，請檢查訊號品質',
     'err.noCode': '整個檔案都讀不到波形碼',
+    'opt.av': '聲畫同步檢查（另解畫面碼，與波形碼逐秒配對）',
+    'opt.dist': '手機到麥克風距離',
+    'opt.distUnit': '公尺',
+    'opt.avRef': '聲畫基準檔',
+    'opt.avRefNone': '不比較',
+    'src.video': '畫面碼（video）',
+    'src.audio': '波形碼（audio）',
+    'src.both': '波形碼；畫面碼另作聲畫同步檢查（both）',
+    'card.source': '時間來源',
+    'card.floor': '（含影格量化誤差下限 {ms} ms：相位平均不掉的部分與速度誤差的外推）',
+    'card.fitVis': '使用 {n} 個畫面碼邊緣，殘差 {ms} ms',
+    'card.vis': '畫面解碼',
+    'card.visV': '實際解碼 {s} 秒（含關鍵格起的預解），讀取 {mb} MB，有效畫面碼邊緣 {n} 個，{dec}',
+    'dec.hardware': '硬體解碼（WebCodecs）',
+    'dec.software': '軟體解碼',
+    'dec.sep': '＋',
+    'warn.hwFallback': '硬體解碼失敗，已改用瀏覽器預設的解碼方式：{why}',
+    'card.avOff': '聲畫偏移',
+    'card.avOffV': '{parts}（畫面 − 聲音，正值為畫面晚）',
+    'av.part': '{end} {ms} ms（±{half} ms，{n} 對）',
+    'av.head': '開頭',
+    'av.tail': '結尾',
+    'av.sep': '；',
+    'card.avJit': '逐秒偏移標準差',
+    'card.avJitV': '{ms} ms',
+    'card.avDrift': '聲畫漂移',
+    'card.avDriftV': '{ppm} ppm（估計誤差 ±{unc} ppm）',
+    'warn.avDrift': '聲畫漂移 {ppm} ppm，超過估計誤差（±{unc} ppm）3 倍：聲音與畫面的時鐘不一致',
+    'card.avEdges': '有效邊緣',
+    'card.avEdgesV': '畫面 {v} 個，聲音 {a} 個',
+    'card.avDist': '聲音傳播',
+    'card.avDistV': '已扣除 {ms} ms（距離 {m} m）',
+    'card.avRef': '相對基準檔偏移差',
+    'card.avRefV': '{parts}（基準：{ref}）',
+    'avRef.part': '{end} {ms} ms',
+    'card.avErr': '聲畫同步檢查',
+    'av.noAudio': '沒有聲音的波形碼可配對',
+    'av.noVideo': '檔案沒有畫面軌',
+    'av.noVisual': '讀不到畫面碼',
+    'av.noPairs': '聲音與畫面的秒號配對不起來',
+    'av.codec': '無法讀取畫面碼（{why}），只分析音訊',
+    'av.note': '單一檔案的偏移 = 場記板本身的聲畫偏移 + 攝影機本身的聲畫偏移；同一場記板拍多台攝影機時，彼此的差值才是攝影機之間的相對偏移；絕對值需要已知同步的基準設備。量得的場記板偏移可填入場記板「設定 → 校準」。',
+    'note.vis540': '畫面碼：起點時間只知道 9 分鐘週期內的位置，相對位置在 ±4.5 分鐘內有效',
+    'clock.vis': '（9 分鐘週期第 {m} 分）',
+    'rel.note540': '起點位置以畫面碼判定，各檔案開始時間相差須在 ±4.5 分鐘內。',
+    'rel.note180': '起點位置以畫面碼與分鐘標記判定，各檔案開始時間相差須在 ±1.5 分鐘內。',
+    'err.noCodeAny': '整個檔案都讀不到波形碼，也讀不到畫面碼',
+    'err.vcodec': '檔案沒有音訊軌，且無法讀取畫面碼（{why}）',
+    'err.noCodeVcodec': '整個檔案都讀不到波形碼，也無法改讀畫面碼（{why}）',
+    'why.codec': '這個瀏覽器無法解碼此影片格式 {codec}',
+    'why.edits': '影片軌有多段剪輯清單（edit list），不支援',
+    'why.decode': '畫面解碼失敗：{msg}',
+    'rep.avNoteHead': '聲畫偏移說明：',
+    'rep.source': '  時間來源          : {v}',
+    'rep.fitVis': '  擬合              : {n} 個畫面碼邊緣，殘差 {ms} ms',
+    'rep.vis': '  畫面解碼          : {v}',
+    'rep.avOff': '  聲畫偏移          : {v}',
+    'rep.avJit': '  逐秒偏移標準差    : {ms} ms',
+    'rep.avDrift': '  聲畫漂移          : {ppm} ppm（估計誤差 ±{unc} ppm）',
+    'rep.avDriftWarn': '  ⚠ 聲畫漂移        : {ppm} ppm，超過估計誤差（±{unc} ppm）3 倍：聲音與畫面的時鐘不一致',
+    'rep.avEdges': '  有效邊緣          : 畫面 {v} 個，聲音 {a} 個',
+    'rep.avRef': '  相對基準檔偏移差  : {v}',
+    'rep.avErr': '  ✗ 聲畫同步檢查    : {v}',
+    'rep.hwFallback': '  ⚠ 硬體解碼失敗    : 已改用瀏覽器預設的解碼方式：{why}',
+    'rep.avDist': '  （已扣除聲音傳播 {ms} ms：距離 {m} m）',
+    'rep.vis540': '  （畫面碼：起點時間只知道 9 分鐘週期內的位置，相對位置在 ±4.5 分鐘內有效）',
   },
   en: {
     'title': 'Sync Analyzer',
@@ -1005,6 +2662,72 @@ const I18N = {
     'err.headTail': 'The times read at the head and tail do not add up',
     'err.badFit': 'Implausible result (rate deviation {pct}%, fit residual {ms} ms). Some seconds may have been misread; check the signal quality.',
     'err.noCode': 'No waveform code could be read anywhere in the file',
+    'opt.av': 'A/V sync check (also reads the visual code and pairs it with the waveform code second by second)',
+    'opt.dist': 'Phone-to-microphone distance',
+    'opt.distUnit': 'm',
+    'opt.avRef': 'A/V reference file',
+    'opt.avRefNone': 'None',
+    'src.video': 'visual code (video)',
+    'src.audio': 'waveform code (audio)',
+    'src.both': 'waveform code; visual code used for the A/V sync check (both)',
+    'card.source': 'Time source',
+    'card.floor': ' (including a frame-quantisation floor of {ms} ms: the phase error that does not average out, plus the speed error extrapolated)',
+    'card.fitVis': '{n} visual-code edges used, residual {ms} ms',
+    'card.vis': 'Video decoding',
+    'card.visV': '{s} s actually decoded (including pre-roll from the keyframe), {mb} MB read, {n} valid visual-code edges, {dec}',
+    'dec.hardware': 'hardware decoding (WebCodecs)',
+    'dec.software': 'software decoding',
+    'dec.sep': ' + ',
+    'warn.hwFallback': 'Hardware decoding failed; switched to the browser’s default decoder: {why}',
+    'card.avOff': 'A/V offset',
+    'card.avOffV': '{parts} (video − audio; positive means the picture is late)',
+    'av.part': '{end} {ms} ms (±{half} ms, {n} pairs)',
+    'av.head': 'head',
+    'av.tail': 'tail',
+    'av.sep': '; ',
+    'card.avJit': 'Per-second offset std dev',
+    'card.avJitV': '{ms} ms',
+    'card.avDrift': 'A/V drift',
+    'card.avDriftV': '{ppm} ppm (estimated error ±{unc} ppm)',
+    'warn.avDrift': 'A/V drift {ppm} ppm exceeds 3 times its estimated error (±{unc} ppm): the audio and video clocks disagree',
+    'card.avEdges': 'Valid edges',
+    'card.avEdgesV': 'video {v}, audio {a}',
+    'card.avDist': 'Sound travel',
+    'card.avDistV': '{ms} ms subtracted ({m} m)',
+    'card.avRef': 'Offset vs. A/V reference',
+    'card.avRefV': '{parts} (reference: {ref})',
+    'avRef.part': '{end} {ms} ms',
+    'card.avErr': 'A/V sync check',
+    'av.noAudio': 'No waveform code in the audio to pair with',
+    'av.noVideo': 'The file has no video track',
+    'av.noVisual': 'No visual code could be read',
+    'av.noPairs': 'The audio and video seconds could not be paired',
+    'av.codec': 'The visual code could not be read ({why}); only the audio was analyzed',
+    'av.note': 'A single file’s offset = the slate’s own A/V offset + the camera’s own A/V offset. With one slate filmed by several cameras, only the differences between them are the cameras’ relative offsets; absolute values need reference equipment known to be in sync. The slate offset you measure can be entered in the slate under “Settings → Calibration”.',
+    'note.vis540': 'Visual code: the start time is known only within the 9-minute cycle, so relative positions hold within ±4.5 minutes',
+    'clock.vis': ' (minute {m} of the 9-minute cycle)',
+    'rel.note540': 'Start positions are worked out from the visual code, so the files must start within ±4.5 minutes of each other.',
+    'rel.note180': 'Start positions are worked out from the visual code and minute markers, so the files must start within ±1.5 minutes of each other.',
+    'err.noCodeAny': 'Neither the waveform code nor the visual code could be read anywhere in the file',
+    'err.vcodec': 'The file has no audio track, and the visual code could not be read ({why})',
+    'err.noCodeVcodec': 'No waveform code could be read anywhere in the file, and the visual code could not be read instead ({why})',
+    'why.codec': 'this browser cannot decode the video format {codec}',
+    'why.edits': 'the video track has several edits (edit list), which is not supported',
+    'why.decode': 'video decoding failed: {msg}',
+    'rep.avNoteHead': 'About the A/V offset: ',
+    'rep.source': '  Time source           : {v}',
+    'rep.fitVis': '  Fit                   : {n} visual-code edges, residual {ms} ms',
+    'rep.vis': '  Video decoding        : {v}',
+    'rep.avOff': '  A/V offset            : {v}',
+    'rep.avJit': '  Per-second std dev    : {ms} ms',
+    'rep.avDrift': '  A/V drift             : {ppm} ppm (estimated error ±{unc} ppm)',
+    'rep.avDriftWarn': '  ⚠ A/V drift           : {ppm} ppm, more than 3 times its estimated error (±{unc} ppm): the audio and video clocks disagree',
+    'rep.avEdges': '  Valid edges           : video {v}, audio {a}',
+    'rep.avRef': '  vs. A/V reference     : {v}',
+    'rep.avErr': '  ✗ A/V sync check      : {v}',
+    'rep.hwFallback': '  ⚠ Hardware decoding   : failed; switched to the browser’s default decoder: {why}',
+    'rep.avDist': '  (sound travel of {ms} ms subtracted: distance {m} m)',
+    'rep.vis540': '  (Visual code: the start time is known only within the 9-minute cycle; relative positions hold within ±4.5 minutes)',
   },
   ja: {
     'title': '同期アナライザー',
@@ -1074,6 +2797,72 @@ const I18N = {
     'err.headTail': '先頭と末尾で読み取った時刻のつじつまが合いません',
     'err.badFit': '読み取り結果が不自然です（速度のずれ {pct}%、フィッティング残差 {ms} ms）。秒を読み違えた可能性があります。信号の品質を確認してください',
     'err.noCode': 'ファイルのどこからも波形コードを読み取れません',
+    'opt.av': 'A/V 同期チェック（映像コードも読み取り、波形コードと秒ごとに照合）',
+    'opt.dist': 'スマホとマイクの距離',
+    'opt.distUnit': 'm',
+    'opt.avRef': 'A/V 基準ファイル',
+    'opt.avRefNone': '比較しない',
+    'src.video': '映像コード（video）',
+    'src.audio': '波形コード（audio）',
+    'src.both': '波形コード。映像コードは A/V 同期チェックに使用（both）',
+    'card.source': '時刻の取得元',
+    'card.floor': '（フレーム量子化誤差の下限 {ms} ms を含む：平均化されない位相の誤差と、速度誤差の外挿分）',
+    'card.fitVis': '映像コードのエッジ {n} 個を使用、残差 {ms} ms',
+    'card.vis': '映像のデコード',
+    'card.visV': '実際のデコード {s} 秒（キーフレームからの先行デコードを含む）、読み込み {mb} MB、有効な映像コードのエッジ {n} 個、{dec}',
+    'dec.hardware': 'ハードウェアデコード（WebCodecs）',
+    'dec.software': 'ソフトウェアデコード',
+    'dec.sep': '＋',
+    'warn.hwFallback': 'ハードウェアデコードに失敗したため、ブラウザー既定のデコード方式に切り替えました：{why}',
+    'card.avOff': 'A/V オフセット',
+    'card.avOffV': '{parts}（映像 − 音声、正の値は映像が遅い）',
+    'av.part': '{end} {ms} ms（±{half} ms、{n} 組）',
+    'av.head': '先頭',
+    'av.tail': '末尾',
+    'av.sep': '；',
+    'card.avJit': 'オフセットの標準偏差',
+    'card.avJitV': '{ms} ms',
+    'card.avDrift': 'A/V ドリフト',
+    'card.avDriftV': '{ppm} ppm（推定誤差 ±{unc} ppm）',
+    'warn.avDrift': 'A/V ドリフト {ppm} ppm が推定誤差（±{unc} ppm）の 3 倍を超えています：音声と映像のクロックが一致していません',
+    'card.avEdges': '有効なエッジ',
+    'card.avEdgesV': '映像 {v} 個、音声 {a} 個',
+    'card.avDist': '音の伝搬',
+    'card.avDistV': '{ms} ms を差し引き済み（距離 {m} m）',
+    'card.avRef': 'A/V 基準との差',
+    'card.avRefV': '{parts}（基準：{ref}）',
+    'avRef.part': '{end} {ms} ms',
+    'card.avErr': 'A/V 同期チェック',
+    'av.noAudio': '照合できる音声の波形コードがありません',
+    'av.noVideo': 'ファイルに映像トラックがありません',
+    'av.noVisual': '映像コードを読み取れません',
+    'av.noPairs': '音声と映像の秒を照合できません',
+    'av.codec': '映像コードを読み取れないため（{why}）、音声のみ解析しました',
+    'av.note': '1 つのファイルのオフセット ＝ スレート自体の A/V オフセット ＋ カメラ自体の A/V オフセットです。同じスレートを複数のカメラで撮った場合、互いの差がカメラ間の相対オフセットになります。絶対値には同期が確認済みの基準機材が必要です。測定したスレートのオフセットは、スレートの「設定 → キャリブレーション」に入力できます。',
+    'note.vis540': '映像コード：開始時刻は 9 分周期内の位置しかわからないため、相対位置は ±4.5 分以内で有効です',
+    'clock.vis': '（9 分周期の {m} 分目）',
+    'rel.note540': '開始位置は映像コードで判定するため、各ファイルの開始時刻の差は ±4.5 分以内である必要があります。',
+    'rel.note180': '開始位置は映像コードと分マーカーで判定するため、各ファイルの開始時刻の差は ±1.5 分以内である必要があります。',
+    'err.noCodeAny': 'ファイルのどこからも波形コードと映像コードを読み取れません',
+    'err.vcodec': 'ファイルに音声トラックがなく、映像コードも読み取れません（{why}）',
+    'err.noCodeVcodec': 'ファイルのどこからも波形コードを読み取れず、映像コードも読み取れません（{why}）',
+    'why.codec': 'このブラウザーは映像形式 {codec} をデコードできません',
+    'why.edits': '映像トラックに複数の編集リスト（edit list）があり、対応していません',
+    'why.decode': '映像のデコードに失敗：{msg}',
+    'rep.avNoteHead': 'A/V オフセットについて：',
+    'rep.source': '  時刻の取得元          : {v}',
+    'rep.fitVis': '  フィッティング        : 映像コードのエッジ {n} 個、残差 {ms} ms',
+    'rep.vis': '  映像のデコード        : {v}',
+    'rep.avOff': '  A/V オフセット        : {v}',
+    'rep.avJit': '  秒ごとの標準偏差      : {ms} ms',
+    'rep.avDrift': '  A/V ドリフト          : {ppm} ppm（推定誤差 ±{unc} ppm）',
+    'rep.avDriftWarn': '  ⚠ A/V ドリフト        : {ppm} ppm、推定誤差（±{unc} ppm）の 3 倍超：音声と映像のクロックが一致していません',
+    'rep.avEdges': '  有効なエッジ          : 映像 {v} 個、音声 {a} 個',
+    'rep.avRef': '  A/V 基準との差        : {v}',
+    'rep.avErr': '  ✗ A/V 同期チェック    : {v}',
+    'rep.hwFallback': '  ⚠ HW デコード失敗     : ブラウザー既定のデコード方式に切り替え：{why}',
+    'rep.avDist': '  （音の伝搬 {ms} ms を差し引き済み：距離 {m} m）',
+    'rep.vis540': '  （映像コード：開始時刻は 9 分周期内の位置しかわからないため、相対位置は ±4.5 分以内で有効）',
   },
   ko: {
     'title': '싱크 분석기',
@@ -1143,6 +2932,72 @@ const I18N = {
     'err.headTail': '시작과 끝에서 읽은 시각이 서로 맞지 않습니다',
     'err.badFit': '읽기 결과가 비정상입니다(속도 편차 {pct}%, 피팅 잔차 {ms} ms). 일부 초를 잘못 읽었을 수 있으니 신호 품질을 확인하세요',
     'err.noCode': '파일 어디에서도 파형 코드를 읽을 수 없습니다',
+    'opt.av': 'A/V 싱크 검사 (화면 코드도 읽어 파형 코드와 초 단위로 대조)',
+    'opt.dist': '휴대폰과 마이크 사이 거리',
+    'opt.distUnit': 'm',
+    'opt.avRef': 'A/V 기준 파일',
+    'opt.avRefNone': '비교 안 함',
+    'src.video': '화면 코드(video)',
+    'src.audio': '파형 코드(audio)',
+    'src.both': '파형 코드, 화면 코드는 A/V 싱크 검사에 사용(both)',
+    'card.source': '시간 기준',
+    'card.floor': ' (프레임 양자화 오차 하한 {ms} ms 포함: 평균되지 않는 위상 오차와 속도 오차의 외삽분)',
+    'card.fitVis': '화면 코드 에지 {n}개 사용, 잔차 {ms} ms',
+    'card.vis': '화면 디코딩',
+    'card.visV': '실제 디코딩 {s}초(키프레임부터의 선행 디코딩 포함), 읽은 양 {mb} MB, 유효한 화면 코드 에지 {n}개, {dec}',
+    'dec.hardware': '하드웨어 디코딩(WebCodecs)',
+    'dec.software': '소프트웨어 디코딩',
+    'dec.sep': ' + ',
+    'warn.hwFallback': '하드웨어 디코딩에 실패해 브라우저 기본 디코딩 방식으로 전환했습니다: {why}',
+    'card.avOff': 'A/V 오프셋',
+    'card.avOffV': '{parts} (화면 − 소리, 양수는 화면이 늦음)',
+    'av.part': '{end} {ms} ms (±{half} ms, {n}쌍)',
+    'av.head': '시작',
+    'av.tail': '끝',
+    'av.sep': '; ',
+    'card.avJit': '초별 오프셋 표준편차',
+    'card.avJitV': '{ms} ms',
+    'card.avDrift': 'A/V 드리프트',
+    'card.avDriftV': '{ppm} ppm (추정 오차 ±{unc} ppm)',
+    'warn.avDrift': 'A/V 드리프트 {ppm} ppm이 추정 오차(±{unc} ppm)의 3배를 넘습니다: 소리와 화면의 클럭이 일치하지 않습니다',
+    'card.avEdges': '유효 에지',
+    'card.avEdgesV': '화면 {v}개, 소리 {a}개',
+    'card.avDist': '소리 전파',
+    'card.avDistV': '{ms} ms 차감됨(거리 {m} m)',
+    'card.avRef': 'A/V 기준 파일과의 차이',
+    'card.avRefV': '{parts} (기준: {ref})',
+    'avRef.part': '{end} {ms} ms',
+    'card.avErr': 'A/V 싱크 검사',
+    'av.noAudio': '대조할 소리의 파형 코드가 없습니다',
+    'av.noVideo': '파일에 영상 트랙이 없습니다',
+    'av.noVisual': '화면 코드를 읽을 수 없습니다',
+    'av.noPairs': '소리와 화면의 초를 대조할 수 없습니다',
+    'av.codec': '화면 코드를 읽을 수 없어({why}) 오디오만 분석했습니다',
+    'av.note': '한 파일의 오프셋 = 슬레이트 자체의 A/V 오프셋 + 카메라 자체의 A/V 오프셋입니다. 슬레이트 하나를 여러 카메라로 찍은 경우 서로의 차이가 카메라 간 상대 오프셋입니다. 절댓값을 알려면 싱크가 확인된 기준 장비가 필요합니다. 측정한 슬레이트 오프셋은 슬레이트의 ‘설정 → 보정’에 입력할 수 있습니다.',
+    'note.vis540': '화면 코드: 시작 시각은 9분 주기 안의 위치만 알 수 있으므로 상대 위치는 ±4.5분 이내에서만 유효합니다',
+    'clock.vis': ' (9분 주기의 {m}분째)',
+    'rel.note540': '시작 위치는 화면 코드로 판정하므로 파일 간 시작 시각 차이가 ±4.5분 이내여야 합니다.',
+    'rel.note180': '시작 위치는 화면 코드와 분 마커로 판정하므로 파일 간 시작 시각 차이가 ±1.5분 이내여야 합니다.',
+    'err.noCodeAny': '파일 어디에서도 파형 코드와 화면 코드를 읽을 수 없습니다',
+    'err.vcodec': '파일에 오디오 트랙이 없고 화면 코드도 읽을 수 없습니다({why})',
+    'err.noCodeVcodec': '파일 어디에서도 파형 코드를 읽을 수 없고 화면 코드도 읽을 수 없습니다({why})',
+    'why.codec': '이 브라우저는 영상 형식 {codec}을 디코딩할 수 없음',
+    'why.edits': '영상 트랙에 편집 목록(edit list)이 여러 개 있어 지원하지 않음',
+    'why.decode': '영상 디코딩 실패: {msg}',
+    'rep.avNoteHead': 'A/V 오프셋 안내: ',
+    'rep.source': '  시간 기준             : {v}',
+    'rep.fitVis': '  피팅                  : 화면 코드 에지 {n}개, 잔차 {ms} ms',
+    'rep.vis': '  화면 디코딩           : {v}',
+    'rep.avOff': '  A/V 오프셋            : {v}',
+    'rep.avJit': '  초별 표준편차         : {ms} ms',
+    'rep.avDrift': '  A/V 드리프트          : {ppm} ppm (추정 오차 ±{unc} ppm)',
+    'rep.avDriftWarn': '  ⚠ A/V 드리프트        : {ppm} ppm, 추정 오차(±{unc} ppm)의 3배 초과: 소리와 화면의 클럭이 일치하지 않음',
+    'rep.avEdges': '  유효 에지             : 화면 {v}개, 소리 {a}개',
+    'rep.avRef': '  A/V 기준과의 차이     : {v}',
+    'rep.avErr': '  ✗ A/V 싱크 검사       : {v}',
+    'rep.hwFallback': '  ⚠ HW 디코딩 실패      : 브라우저 기본 디코딩 방식으로 전환: {why}',
+    'rep.avDist': '  (소리 전파 {ms} ms 차감됨: 거리 {m} m)',
+    'rep.vis540': '  (화면 코드: 시작 시각은 9분 주기 안의 위치만 알 수 있어 상대 위치는 ±4.5분 이내에서 유효)',
   },
 };
 
@@ -1195,35 +3050,79 @@ const fmtClock = (sec, m) => {
   const p2 = v => String(v).padStart(2, '0'), ss = s.toFixed(3).padStart(6, '0');
   if (m === 60) return `??:??:${ss}`;
   if (m === 3600) return `??:${p2(mi)}:${ss}`;
+  if (m === VIS_MOD) return `??:??:${ss}` + t('clock.vis', { m: mi });
   return `${p2(h)}:${p2(mi)}:${ss}`;
 };
 const sgn = (v, d) => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(d);
 let results = [];
 window.__results = results;
 
-const errText = e => e.key ? t(e.key, e.vars) : e.raw;
+// vars.why, when present, is itself a dictionary key (the reason), translated with the same vars.
+const errText = e => e.key ? t(e.key, e.vars && e.vars.why ? { ...e.vars, why: t(e.vars.why, e.vars) } : e.vars) : e.raw;
 const kindOf = r => t('kind.' + r.kind);
 const isSingle = r => r.mode === 'head' || r.mode === 'tail';
 const hintNote = r => r.hintSrc ? t('hintNote', { src: t('hint.' + r.hintSrc) }) : '';
 
+// ---- visual code / A/V sync check parts of a result (present only when the video track was decoded)
+const floorNote = r => r.visFloorMs ? t('card.floor', { ms: r.visFloorMs.toFixed(3) }) : '';
+const decText = r => (r.videoDecoder || '').split('+').filter(Boolean).map(d => t('dec.' + d)).join(t('dec.sep'));
+const visText = r => t('card.visV', { s: r.visualReadS.toFixed(1), mb: r.visualReadMb.toFixed(1), n: r.visualEdges, dec: decText(r) });
+const avOffText = r => ['head', 'tail'].filter(k => r.avOffsetMs[k]).map(k => { const o = r.avOffsetMs[k];
+  return t('av.part', { end: t('av.' + k), ms: sgn(o.mean, 3), half: o.half.toFixed(3), n: o.pairs }); }).join(t('av.sep'));
+const driftBad = r => Math.abs(r.avDriftPpm) > 3 * r.avDriftUncPpm;
+// Offset relative to the A/V reference file chosen in the menu. Only ends measured in both files are compared (the
+// head of one file is never set against the tail of another); null when there is no such end.
+function avRefDiff(r) {
+  const ref = results.find(x => !x.error && x.avOffsetMs && x.file === $('avRefSel').value);
+  if (!ref || ref === r || !r.avOffsetMs) return null;
+  const o = r.avOffsetMs, ro = ref.avOffsetMs, d = { ref: ref.file };
+  for (const k of ['head', 'tail']) d[k] = o[k] && ro[k] ? o[k].mean - ro[k].mean : null;
+  return d.head === null && d.tail === null ? null : d;
+}
+const avRefText = d => t('card.avRefV', { ref: d.ref,
+  parts: ['head', 'tail'].filter(k => d[k] !== null).map(k => t('avRef.part', { end: t('av.' + k), ms: sgn(d[k], 3) })).join(t('av.sep')) });
+function avRows(r) {
+  const rows = [];
+  if (r.visualReadS !== undefined) rows.push([t('card.vis'), visText(r)]);
+  if (r.avError) rows.push([t('card.avErr'), '✗ ' + esc(errText(r.avError))]);
+  if (!r.avOffsetMs) return rows;
+  rows.push([t('card.avOff'), t('card.avOffV', { parts: avOffText(r) })]);
+  if (r.avJitterMs !== null) rows.push([t('card.avJit'), t('card.avJitV', { ms: r.avJitterMs.toFixed(3) })]);
+  if (r.avDriftPpm !== null) {
+    const v = t('card.avDriftV', { ppm: sgn(r.avDriftPpm, 1), unc: r.avDriftUncPpm.toFixed(1) });
+    rows.push([t('card.avDrift'), driftBad(r) ? `<span class="bad">⚠ ${v}</span>` : v]);
+  }
+  rows.push([t('card.avEdges'), t('card.avEdgesV', { v: r.visualEdges, a: r.audioEdges })]);
+  if (r.avDistance) rows.push([t('card.avDist'), t('card.avDistV', { ms: (r.avDistance / SOUND * 1000).toFixed(3), m: r.avDistance })]);
+  const d = avRefDiff(r);
+  if (d) rows.push([t('card.avRef'), esc(avRefText(d))]);
+  return rows;
+}
+
 function cardHtml(r) {
   if (r.error) return `<h2 class="name">${esc(r.file)}</h2><p class="err">✗ ${esc(errText(r.error))}</p>`;
-  const kind = kindOf(r);
+  const kind = kindOf(r), video = r.source === 'video';
   const rows = [
+    ...(r.source ? [[t('card.source'), t('src.' + r.source)]] : []),
     [t('card.start', { kind }), fmtClock(r.startClock, r.clockMod) + hintNote(r)],
     ...(r.fps ? [[t('card.fps'), `${r.fps.toFixed(6)} → ${(r.fps * r.rate).toFixed(6)} fps`]] : []),
     [t('card.mode'), t('mode.' + r.mode)],
     [t('card.drift'), t('card.driftV', { ppm: sgn(r.ppm, 3), unc: r.uncPpm.toFixed(3) })],
-    [t('card.err'), t('card.errV', { ms: r.worstMs.toFixed(3), seg: r.segments ? t('card.afterSeg') : '' })],
+    [t('card.err'), t('card.errV', { ms: r.worstMs.toFixed(3), seg: r.segments ? t('card.afterSeg') : '' }) + floorNote(r)],
     ...(r.segments ? r.segments.map((g, i) => [t('card.seg', { i: i + 1 }),
       t('card.segV', { a: g.fileFrom.toFixed(3), b: g.fileTo.toFixed(3), v: (g.speed * 100).toFixed(6) })]) : []),
     ...(!r.segments && r.midDevMs !== null ? [[t('card.mid'), t('card.midV', { ms: r.midDevMs.toFixed(3) })]] : []),
     [t('card.end', { kind }), fmtClock(r.startClock + r.correctedLength, r.clockMod)],
-    [t('card.fit'), t('card.fitV', { n: r.edgesUsed, ms: r.fitRmsMs.toFixed(3) }) + (r.edgesRejected ? t('card.rejected', { n: r.edgesRejected }) : '')],
-    [t('card.chan'), r.channel[0] === r.channel[1] ? t('card.chan1', { n: r.channel[0] + 1 }) : t('card.chan2', { a: r.channel[0] + 1, b: r.channel[1] + 1 })],
+    [t('card.fit'), t(video ? 'card.fitVis' : 'card.fitV', { n: r.edgesUsed, ms: r.fitRmsMs.toFixed(3) }) + (r.edgesRejected ? t('card.rejected', { n: r.edgesRejected }) : '')],
+    ...(video ? [] : [[t('card.chan'), r.channel[0] === r.channel[1] ? t('card.chan1', { n: r.channel[0] + 1 }) : t('card.chan2', { a: r.channel[0] + 1, b: r.channel[1] + 1 })]]),
     [t('card.offs'), t('card.offsA', { a: sgn(r.aOff, 6) }) + (r.vOff !== null ? t('card.offsV', { v: sgn(r.vOff, 6) }) : '')],
+    ...avRows(r),
   ];
-  const warns = [];
+  const warns = [], notes = [];
+  if (r.hwFallback) warns.push(t('warn.hwFallback', { why: esc(r.hwFallback) }));
+  if (r.avOffsetMs && r.avDriftPpm !== null && driftBad(r)) warns.push(t('warn.avDrift', { ppm: sgn(r.avDriftPpm, 1), unc: r.avDriftUncPpm.toFixed(1) }));
+  if (r.mod === VIS_MOD) notes.push(t('note.vis540'));
+  if (r.avOffsetMs) notes.push(t('av.note'));
 
   if (r.segments) warns.push(t('warn.seg', { ms: r.midDevMs.toFixed(1) }));
   if (isSingle(r)) warns.push(t('warn.single'));
@@ -1236,7 +3135,7 @@ function cardHtml(r) {
         <div class="meta">${t('card.orig', { kind, len: r.length.toFixed(6), frames: r.frames ? t('card.frames', { n: r.frames }) : '' })}</div></div>
     </div>
     <dl>${rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('')}</dl>
-    ${warns.map(w => `<p class="warn">⚠ ${w}</p>`).join('')}`;
+    ${warns.map(w => `<p class="warn">⚠ ${w}</p>`).join('')}${notes.map(n => `<p class="note">${n}</p>`).join('')}`;
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -1253,33 +3152,65 @@ function textReport() {
     L.push(t('rep.end', { kind, clock: fmtClock(r.startClock + r.correctedLength, r.clockMod) }));
     if (r.fps) L.push(t('rep.fps', { a: r.fps.toFixed(6), b: (r.fps * r.rate).toFixed(6) }));
     L.push(t('rep.drift', { ppm: sgn(r.ppm, 3), unc: r.uncPpm.toFixed(3) }));
-    L.push(t('rep.fit', { n: r.edgesUsed, ms: r.fitRmsMs.toFixed(3) }));
+    L.push(t(r.source === 'video' ? 'rep.fitVis' : 'rep.fit', { n: r.edgesUsed, ms: r.fitRmsMs.toFixed(3) }));
     L.push(t('rep.offs', { a: sgn(r.aOff, 6), vid: r.vOff !== null ? t('card.offsV', { v: sgn(r.vOff, 6) }) : '' }));
     L.push(t('rep.mode', { mode: t('mode.' + r.mode) }));
-    L.push(t('rep.err', { ms: r.worstMs.toFixed(3), seg: r.segments ? t('card.afterSeg') : '' }));
+    if (r.source) L.push(t('rep.source', { v: t('src.' + r.source) }));
+    L.push(t('rep.err', { ms: r.worstMs.toFixed(3), seg: r.segments ? t('card.afterSeg') : '' }) + floorNote(r));
     if (r.segments) r.segments.forEach((g, i) => L.push(t('rep.seg', { i: i + 1, a: g.fileFrom.toFixed(3), b: g.fileTo.toFixed(3), v: (g.speed * 100).toFixed(6) })));
     else if (r.midDevMs !== null) L.push(t('rep.mid', { ms: r.midDevMs.toFixed(3) }));
     if (isSingle(r)) L.push(t('rep.single'));
+    if (r.mod === VIS_MOD) L.push(t('rep.vis540'));
+    reportAv(L, r);
   }
+  if (results.some(r => !r.error && r.avOffsetMs)) L.push('='.repeat(64), t('rep.avNoteHead') + t('av.note'));
   const rel = relRows();
   if (rel) {
     L.push('='.repeat(64), t('rep.relHead', { file: rel.ref.file }));
     for (const x of rel.rows) L.push(t('rep.relRow', { file: x.file, ref: x.r === rel.ref ? t('refMark') : '',
       off: sgn(x.offset, 6), v: (x.speed * 100).toFixed(6), len: x.length.toFixed(6) }));
+    if (rel.M === VIS_MOD || rel.M === 180) L.push('  ' + t(rel.M === VIS_MOD ? 'rel.note540' : 'rel.note180'));
   }
   return L.join('\n');
 }
 
+// The A/V sync check part of one file's text report.
+function reportAv(L, r) {
+  if (r.visualReadS !== undefined) {
+    L.push(t('rep.vis', { v: visText(r) }));
+    if (r.hwFallback) L.push(t('rep.hwFallback', { why: r.hwFallback }));
+  }
+  if (r.avError) L.push(t('rep.avErr', { v: errText(r.avError) }));
+  if (!r.avOffsetMs) return;
+  L.push(t('rep.avOff', { v: t('card.avOffV', { parts: avOffText(r) }) }));
+  if (r.avJitterMs !== null) L.push(t('rep.avJit', { ms: r.avJitterMs.toFixed(3) }));
+  if (r.avDriftPpm !== null)
+    L.push(t(driftBad(r) ? 'rep.avDriftWarn' : 'rep.avDrift', { ppm: sgn(r.avDriftPpm, 1), unc: r.avDriftUncPpm.toFixed(1) }));
+  L.push(t('rep.avEdges', { v: r.visualEdges, a: r.audioEdges }));
+  if (r.avDistance) L.push(t('rep.avDist', { ms: (r.avDistance / SOUND * 1000).toFixed(3), m: r.avDistance }));
+  const d = avRefDiff(r);
+  if (d) L.push(t('rep.avRef', { v: avRefText(d) }));
+}
+
+// A file's start label usable modulo M, or null. Waveform code: seconds in the minute (or hour, with a minute
+// marker); visual code: seconds in the 9-minute cycle, so files with it can be matched over ±4.5 minutes.
+function startLabelFor(r, M) {
+  if (r.mod % M === 0) return r.startLabel;
+  if (r.label540 !== undefined && VIS_MOD % M === 0) return r.label540;
+  return null;
+}
 // Every file on the reference file's own timeline: real(t) = start + t / rate;  t_ref = (real - start_ref) * rate_ref.
+// Start positions are matched modulo the longest cycle every file knows: 3600 s (minute markers), 540 s (visual
+// code), 180 s (both kinds mixed) or 60 s.
 function relRows() {
   const ok = results.filter(r => !r.error);
   if (ok.length < 2) return null;
   const ref = ok.find(r => r.file === $('refSel').value) || ok[0];
-  const M = ok.every(r => r.mod === 3600) ? 3600 : 60;
+  const M = [3600, VIS_MOD, 180, 60].find(m => ok.every(r => startLabelFor(r, m) !== null));
   return { ref, M, ok, rows: ok.map(r => ({ file: r.file, r,
-    offset: wrap(r.startLabel - ref.startLabel, M) * ref.rate, speed: r.rate / ref.rate, length: r.length * ref.rate / r.rate })) };
+    offset: wrap(startLabelFor(r, M) - startLabelFor(ref, M), M) * ref.rate, speed: r.rate / ref.rate, length: r.length * ref.rate / r.rate })) };
 }
-function convertT(rel, src, t, dst) { return (wrap(src.startLabel - dst.startLabel, rel.M) + t / src.rate) * dst.rate; }
+function convertT(rel, src, t, dst) { return (wrap(startLabelFor(src, rel.M) - startLabelFor(dst, rel.M), rel.M) + t / src.rate) * dst.rate; }
 
 function renderRel() {
   const rel = relRows();
@@ -1287,7 +3218,7 @@ function renderRel() {
   if (rel) {
     $('relTable').innerHTML = `<tr><th>${t('th.file')}</th><th style="text-align:right">${t('th.start')}</th><th style="text-align:right">${t('th.speed')}</th><th style="text-align:right">${t('th.len')}</th></tr>` +
       rel.rows.map(x => `<tr><td>${esc(x.file)}${x.r === rel.ref ? t('refMark') : ''}</td><td class="n num">${sgn(x.offset, 6)}</td><td class="n num">${(x.speed * 100).toFixed(6)} %</td><td class="n num">${x.length.toFixed(6)}</td></tr>`).join('');
-    $('relNote').textContent = rel.M === 3600 ? '' : t('rel.note60');
+    $('relNote').textContent = rel.M === 3600 ? '' : t({ [VIS_MOD]: 'rel.note540', 180: 'rel.note180' }[rel.M] || 'rel.note60');
     const cur = $('convSrc').value;
     $('convSrc').innerHTML = rel.ok.map(r => `<option${r.file === cur ? ' selected' : ''}>${esc(r.file)}</option>`).join('');
     renderConv();
@@ -1309,8 +3240,17 @@ $('convT').addEventListener('input', renderConv);
 function renderRefSel() {
   const ok = results.filter(r => !r.error), cur = $('refSel').value;
   $('refSel').innerHTML = ok.map(r => `<option${r.file === cur ? ' selected' : ''}>${esc(r.file)}</option>`).join('');
+  renderAvRefSel();
 }
 $('refSel').addEventListener('change', renderRel);
+// A/V reference menu: files with a measured A/V offset; the first entry compares nothing.
+function renderAvRefSel() {
+  const av = results.filter(r => !r.error && r.avOffsetMs), cur = $('avRefSel').value;
+  $('avRefRow').hidden = !av.length;
+  $('avRefSel').innerHTML = `<option value="">${t('opt.avRefNone')}</option>` +
+    av.map(r => `<option value="${esc(r.file)}"${r.file === cur ? ' selected' : ''}>${esc(r.file)}</option>`).join('');
+}
+$('avRefSel').addEventListener('change', rerender);
 
 // Re-render everything built from results in the current language (the aria-live text is left alone so a
 // language switch is not announced as a new analysis).
@@ -1319,7 +3259,7 @@ function rerender() {
     if (card.result) card.innerHTML = cardHtml(card.result);
     else { const p = card.querySelector('.progress'); if (p) p.textContent = progressText(card.steps); }
   }
-  if (results.length) renderRel();
+  if (results.length) { renderAvRefSel(); renderRel(); }
 }
 const progressText = n => n ? t('prog.n', { n }) : t('prog.start');
 
@@ -1332,7 +3272,9 @@ function addFiles(list) {
   busy = busy.then(async () => {
     let bad = 0;
     $('live').textContent = t('live.start', { n: files.length });
-    const opts = { only: $('optOnly').value || null, probe: $('optFull').checked ? 3 : 0, minute: $('optMinute').checked };
+    const dist = parseFloat($('optDist').value);
+    const opts = { only: $('optOnly').value || null, probe: $('optFull').checked ? 3 : 0, minute: $('optMinute').checked,
+      av: $('optAv').checked, distance: isFinite(dist) && dist > 0 ? dist : 0 };
     for (const f of files) {
       const card = document.createElement('div');
       card.className = 'card';
