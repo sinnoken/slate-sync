@@ -87,8 +87,13 @@ def read_audio(path, start, length, info):
     """Decode [start, start+length) of the file timeline (seconds from the file's start).
     Returns (samples (n, channels), file time of samples[0])."""
     start = max(0.0, start)
-    cmd = ["ffmpeg", "-v", "error", "-ss", f"{start:.6f}", "-t", f"{length:.6f}",
-           "-i", path, "-vn", "-map", "0:a:0", "-ar", str(SR), "-f", "f32le", "-"]
+    # An input-side -ss on AAC makes ffmpeg start the output at the next packet boundary (up to 1024 samples,
+    # 21 ms, late; a full packet late at 0). So seek the input to 1 s before the target and cut exactly on the
+    # output side, which drops decoded samples by timestamp. Near the start, decode from the top and cut.
+    pre = start - 1.0 if start >= 1.1 else 0.0
+    cmd = ["ffmpeg", "-v", "error"] + (["-ss", f"{pre:.6f}"] if pre else []) + [
+           "-i", path, "-ss", f"{start - pre:.6f}", "-t", f"{length:.6f}",
+           "-vn", "-map", "0:a:0", "-ar", str(SR), "-f", "f32le", "-"]
     p = subprocess.run(cmd, capture_output=True)
     if p.returncode:
         raise RuntimeError("ffmpeg 解碼失敗：" + p.stderr.decode(errors="replace").strip())
