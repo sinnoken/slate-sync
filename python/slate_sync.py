@@ -709,6 +709,10 @@ def convert(al, src, t, dst):
 
 
 def main():
+    # A console whose encoding lacks a character (e.g. "▶" on a Traditional Chinese Windows console, cp950)
+    # would abort the report half-way; print a replacement character instead.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
     ap = argparse.ArgumentParser(description="讀取同步場記板波形碼，計算起點真實時間與校正後長度")
     ap.add_argument("files", nargs="+")
     ap.add_argument("--channel", type=int, help="波形碼所在聲道（0 起算），預設自動判斷")
