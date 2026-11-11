@@ -24,11 +24,14 @@ slate-sync turns a phone into a sync slate. Record it at the head and tail of ea
 - **Phone slate, no install.** Open the page and add it to the home screen. It runs full screen and **works offline** after the first visit.
   - **Clock, countdown or count-up**, with scheduled starts.
   - **Full-screen black/white square wave.** Black to white marks the whole second, so a camera that only sees the screen can still be aligned.
+  - **AprilTag visual code.** A machine-readable tag that changes on every whole second, together with the waveform code. A camera that films only the screen can then be timed automatically.
   - **Audio sync signal:** beep, **waveform code** or **LTC**, at 23.976 to 120 fps.
 - **Waveform code you can read by eye.** Each second's number is encoded as pulse counts, so you can read it in any editor's waveform view. It survives clipping, limiters, auto gain and lossy compression, and works through the phone speaker and a camera's built-in mic.
 - **Drag-and-drop analyzer in the browser.** Files never leave your computer. It reads only the head and tail of each file, not the whole recording.
   - **Per file:** speed ratio, corrected length, true start time and clock drift in ppm.
   - **Against a reference file:** each file's start offset and playback speed, plus conversion of any moment between files.
+  - **Picture-only files:** reads the AprilTag from the picture when a file has no waveform code.
+  - **Audio/video sync check:** when a file has both the tag and the waveform code, reports how far picture and sound are apart, how much that varies, and whether it drifts.
 - **English, 繁體中文, 日本語 and 한국어.** The interface follows your device language, and you can switch it from the page.
 - **Command-line version** (Python + ffmpeg) for every format ffmpeg can read, with JSON output for scripts.
 - **Measured accuracy:** on test files, speed-ratio error is 0.01–0.06 ppm and start/length error under 0.01 ms (see [testing](docs/testing.md)).
@@ -39,7 +42,8 @@ slate-sync turns a phone into a sync slate. Record it at the head and tail of ea
    - within 30 cm it is most reliable;
    - up to 1 m works in a quiet room;
    - don't send LTC over the air.
-2. **At the head and the tail.** Record the slate for at least one minute, so it crosses a full minute and the minute marker is captured. You can unplug it in between. A camera that only sees picture just films the phone screen.
+2. **At the head and the tail.** Record the slate for at least one minute, so it crosses a full minute and the minute marker is captured. You can unplug it in between.
+   - **Cameras that only see picture:** set Settings → Visual sync signal to **AprilTag** and film the phone so the tag fills a good part of the frame, in focus and facing the camera. Tap the digits to hide the controls, which makes the tag larger.
 3. **Afterwards.** Drop all files into the analyzer (or run `slate_sync.py`).
 4. **In your editor.** Align cameras by picture and use the analyzer's numbers to check and convert. Correct each file with its speed ratio, adjusted frame rate or corrected length.
 
@@ -49,10 +53,11 @@ slate-sync turns a phone into a sync slate. Record it at the head and tail of ea
 |---|---|---|
 | **Sync slate** | Phone browser | Open <https://sinnoken.github.io/slate-sync/> and tap the slate. To install: on iPhone, Safari → Share → Add to Home Screen; on Android, Chrome → menu → Install app. |
 | **Analyzer** | Desktop browser (Chrome, Edge, desktop Firefox, Safari 26+) | Open the same site and choose the analyzer, then drag in files. |
-| **Command line** | Python 3.8+, numpy, ffmpeg | See below. |
+| **Command line** | Python 3.8+, numpy, ffmpeg; pupil-apriltags for picture | See below. |
 
 ```bash
 pip install -r python/requirements.txt          # also needs ffmpeg / ffprobe
+pip install pupil-apriltags                     # only for reading the AprilTag from picture
 python python/slate_sync.py A001.MP4 ZOOM0001.WAV --ref A001.MP4
 python python/slate_sync.py *.MP4 --ref A001.MP4 --at B002.MP4=125.5   # where B002 at 125.5 s falls in every other file
 ```
@@ -69,7 +74,13 @@ python python/slate_sync.py *.MP4 --ref A001.MP4 --at B002.MP4=125.5   # where B
 | `--target 1` | Target accuracy in ms anywhere in the file; reading stops once reached |
 | `--search 30` / `--max-read 120` | Minutes to search inward from each end / seconds to keep reading after the code is found |
 | `--minute` | Read about one more minute to find the minute marker and show full hh:mm:ss |
+| `--av` | Also read the AprilTag from picture and check audio/video sync, even when the waveform code is found |
+| `--distance M` | Phone-to-microphone distance in meters; the sound travel time (about 2.9 ms/m) is subtracted |
+| `--av-ref FILE` | Reference file for the audio/video sync check; other files also list their difference from it |
+| `--no-hwaccel` | Decode picture in software only (by default the GPU is tried first: `cuda`, then `d3d11va`, falling back to software) |
 | `--json` | JSON output |
+
+Picture is decoded only when needed: when a file has no waveform code, or with `--av`. It follows the same head/tail reading and stopping rules as audio. The tag, timing and report fields are specified in [docs/visual-code.md](docs/visual-code.md).
 
 ## Modes
 
@@ -88,7 +99,10 @@ Every second that is read goes into one fit. While reading, the analyzer estimat
 - **Accuracy on test files:** speed-ratio error is about 0.01–0.06 ppm, and start and length errors are under 0.01 ms. With 20 dB of clipping, the speed error is about 1 ppm. Details are in [docs/testing.md](docs/testing.md).
 - **Straight-line correction.** The analyzer corrects with one straight line between head and tail. If the clock rate changes during the take (for example with temperature), the middle departs from that line; use `--full` to measure it.
 - **Any length.** The number of whole minutes between head and tail is derived from the clock rate measured at each end, so no minute marker is needed.
-- **Start-time window.** Cross-file start positions are matched by second, so files must start within ±30 s of each other (±30 min when `--minute` finds the minute marker). Align cameras by picture.
+- **Start-time window.** Cross-file start positions are matched by second, so files must start within ±30 s of each other (±30 min when `--minute` finds the minute marker; ±4.5 min when the AprilTag is read). Otherwise align cameras by picture.
+- **Picture precision.** Timing read from the AprilTag is accurate to about half a frame per edge, much coarser than the waveform code. When a file has both, timing comes from the audio and the picture is used for the sync check. Measured results are in [docs/testing.md](docs/testing.md).
+- **Audio/video offset.** A file's offset is the slate's own offset plus the camera's. Between cameras filmed with the same slate, the difference is reliable; an absolute value needs a reference device known to be in sync.
+- **Video decoding.** Reading the AprilTag decodes the picture at the head and tail, starting from the previous keyframe. This reads far more data than audio and takes longer. In the browser, H.265 support depends on the browser and operating system.
 - **Audio track.** Only the first audio track is read.
 - **Formats.** The web analyzer does not support AVCHD (.MTS, usually AC-3 audio), MXF or fragmented MP4; use the Python version for those.
 - **Real devices.** All validation used software-generated signals, so test with your own devices before relying on it.
@@ -111,11 +125,13 @@ Both web tools are single HTML files with no build step and no server code.
 | [`web/sync-slate.html`](web/sync-slate.html) | Sync slate (phone PWA) |
 | [`web/sync-analyzer.html`](web/sync-analyzer.html) | Analyzer (desktop browser) |
 | [`python/slate_sync.py`](python/slate_sync.py) | Command-line analyzer |
-| [`tests/make_test_media.py`](tests/make_test_media.py) | Generates test files with a known drift |
-| [`docs/waveform-code.md`](docs/waveform-code.md) | Waveform code specification (Traditional Chinese) |
-| [`docs/testing.md`](docs/testing.md) | How it was validated, with results (Traditional Chinese) |
+| [`tests/make_test_media.py`](tests/make_test_media.py) | Generates test files with a known drift, with or without the AprilTag |
+| [`tests/check_visual_code.py`](tests/check_visual_code.py) | Checks that the embedded tag tables match and every ID is detected |
+| [`tests/check_read_audio.py`](tests/check_read_audio.py) | Checks that audio reads start on the exact requested sample (AAC and WAV) |
+| [`tests/check_cli_encoding.py`](tests/check_cli_encoding.py) | Checks that the report prints fully on a non-UTF-8 console |
+| [`docs/`](docs/README.md) | Specifications and test results (Traditional Chinese); [the index](docs/README.md) lists which document owns which specification |
 | [`CHANGELOG.md`](CHANGELOG.md) | Release notes (Traditional Chinese) |
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). The embedded AprilTag code table (BSD-2-Clause) and the js-aruco2 detector (MIT) keep their own notices; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

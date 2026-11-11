@@ -24,11 +24,14 @@ slate-sync 把手機變成同步場記板。每段開頭和結尾各錄一次，
 - **手機場記板，免安裝**：開啟網頁、加到主畫面即可，全螢幕，第一次開啟後**離線也能用**。
   - **時鐘、倒數、正數**三種模式，可排程開始。
   - **全螢幕黑白方波**：黑變白就是整秒，只拍得到螢幕的攝影機也能對齊。
+  - **AprilTag 畫面碼**：機器可讀的標記，每個整秒換一次，和波形碼同步；只拍到螢幕的攝影機也能由分析器自動對時。
   - **聲音同步訊號**：嗶聲、**波形碼**或 **LTC**，支援 23.976–120 fps。
 - **用眼睛就能讀的波形碼**：每秒的數字以脈衝數量表示，在任何剪輯軟體的波形畫面都看得出來。不怕削波、限幅、自動增益與有損壓縮；用手機喇叭播放、攝影機內建麥克風收音也能用。
 - **瀏覽器拖放分析**：檔案不會上傳，只讀每個檔案的頭尾，不必讀完整段。
   - **每個檔案**：速度比例、校正後長度、起點真實時間、時鐘偏差（ppm）。
   - **對齊到基準檔**：各檔案的起點位置、播放速度，以及任一時刻在檔案之間的換算。
+  - **只有畫面的檔案**：檔案讀不到波形碼時，改從畫面讀 AprilTag。
+  - **聲畫同步檢查**：同一個檔案同時有畫面碼與波形碼時，報告畫面與聲音相差多少、逐秒的抖動，以及是否漂移。
 - **繁體中文、English、日本語、한국어**：介面跟著裝置語言自動切換，也可以在頁面上手動選擇。
 - **命令列版本**（Python＋ffmpeg）：支援 ffmpeg 能讀的所有格式，可輸出 JSON 供腳本使用。
 - **實測精度**：以測試檔驗證，速度比例誤差 0.01–0.06 ppm，起點與長度誤差小於 0.01 毫秒（見[驗證方式與結果](docs/testing.md)）。
@@ -39,7 +42,8 @@ slate-sync 把手機變成同步場記板。每段開頭和結尾各錄一次，
    - 手機距麥克風 30 cm 內最穩定；
    - 1 m 內在安靜時仍可用；
    - 不要用 LTC 走空氣傳播。
-2. **開頭與結尾**：場記板至少錄 1 分鐘，跨過一次整分鐘才能讀到分鐘標記，中間可以拔掉。只拍得到畫面的攝影機，拍手機螢幕即可。
+2. **開頭與結尾**：場記板至少錄 1 分鐘，跨過一次整分鐘才能讀到分鐘標記，中間可以拔掉。
+   - **只拍得到畫面的攝影機**：把「設定 → 畫面同步訊號」切到 **AprilTag**，拍攝時讓 tag 清楚、正面、佔畫面夠大的範圍。點一下數字把按鈕藏起來，tag 會更大。
 3. **事後分析**：把所有檔案丟進分析器，或執行 `slate_sync.py`。
 4. **在剪輯軟體中**：跨機對齊以畫面為準，分析器的數字用來換算與確認；以速度比例、修正後影格率或校正後長度修正每個檔案。
 
@@ -49,10 +53,11 @@ slate-sync 把手機變成同步場記板。每段開頭和結尾各錄一次，
 |---|---|---|
 | **同步場記板** | 手機瀏覽器 | 開啟 <https://sinnoken.github.io/slate-sync/>，點選場記板。安裝方式：iPhone 用 Safari → 分享 → 加入主畫面；Android 用 Chrome → 選單 → 安裝應用程式。 |
 | **同步分析器** | 電腦瀏覽器（Chrome、Edge、Firefox 桌面版、Safari 26+） | 開啟同一個網址，選擇分析器，拖入檔案。 |
-| **命令列** | Python 3.8+、numpy、ffmpeg | 見下方。 |
+| **命令列** | Python 3.8+、numpy、ffmpeg；讀畫面另需 pupil-apriltags | 見下方。 |
 
 ```bash
 pip install -r python/requirements.txt          # 另需安裝 ffmpeg / ffprobe
+pip install pupil-apriltags                     # 只有從畫面讀 AprilTag 時需要
 python python/slate_sync.py A001.MP4 ZOOM0001.WAV --ref A001.MP4
 python python/slate_sync.py *.MP4 --ref A001.MP4 --at B002.MP4=125.5   # B002 的 125.5 秒對應各檔案的哪一秒
 ```
@@ -69,7 +74,13 @@ python python/slate_sync.py *.MP4 --ref A001.MP4 --at B002.MP4=125.5   # B002 �
 | `--target 1` | 目標精度：檔案任何位置的預估誤差（ms），達到即停止讀取 |
 | `--search 30`／`--max-read 120` | 每端最多往內找幾分鐘／找到後最多再讀幾秒 |
 | `--minute` | 讀到波形碼後再多讀約 1 分鐘尋找分鐘標記，以顯示完整的時分秒（預設讀到就停） |
+| `--av` | 即使讀到波形碼，也從畫面讀 AprilTag 並做聲畫同步檢查 |
+| `--distance M` | 手機到麥克風的距離（公尺），扣除聲音傳播時間（約 2.9 ms/公尺） |
+| `--av-ref 檔名` | 聲畫同步檢查的基準檔；其他檔案另列與它的差值 |
+| `--no-hwaccel` | 畫面只用軟體解碼（預設先試 GPU：`cuda`、再 `d3d11va`，失敗時改用軟體） |
 | `--json` | 以 JSON 輸出 |
+
+只有需要時才解畫面：檔案讀不到波形碼，或加了 `--av`。讀取頭尾與停止的規則和音訊相同。標記、時序與報告欄位的規格見 [docs/visual-code.md](docs/visual-code.md)。
 
 ## 模式
 
@@ -88,7 +99,10 @@ python python/slate_sync.py *.MP4 --ref A001.MP4 --at B002.MP4=125.5   # B002 �
 - **測試檔精度**：速度比例誤差約 0.01–0.06 ppm，起點與長度誤差在 0.01 毫秒以內；削波 20 dB 時速度誤差約 1 ppm。詳見 [docs/testing.md](docs/testing.md)。
 - **以直線修正**：分析器用頭尾之間的一條直線修正。拍攝中速率若有變化（例如溫度），中段會偏離直線，可用 `--full` 實測。
 - **長度不限**：頭尾之間經過幾個整分鐘，由兩端各自量到的時鐘比例推算，不需要分鐘標記。
-- **起點時間範圍**：跨檔案的起點位置以秒數判定，各檔案開始時間相差須在 ±30 秒內（加 `--minute` 讀到分鐘標記時為 ±30 分鐘）；跨機對齊以畫面為準。
+- **起點時間範圍**：跨檔案的起點位置以秒數判定，各檔案開始時間相差須在 ±30 秒內（加 `--minute` 讀到分鐘標記時為 ±30 分鐘；讀到 AprilTag 時為 ±4.5 分鐘）；超出時以畫面對齊。
+- **畫面的精度**：從 AprilTag 讀到的每個邊緣精度約半格，比波形碼粗很多。檔案兩者都有時，時間結果取自音訊，畫面用於聲畫同步檢查。實測結果見 [docs/testing.md](docs/testing.md)。
+- **聲畫偏移**：單一檔案的偏移 = 場記板本身的偏移 + 攝影機本身的偏移。同一個場記板拍多台攝影機時，彼此的差值可靠；絕對值需要已知同步的基準設備。
+- **影片解碼**：讀 AprilTag 要從前一個關鍵格開始解頭尾的畫面，讀取量比音訊大很多、也比較久。網頁版能不能解 H.265 取決於瀏覽器與作業系統。
 - **音訊軌**：只讀第一條音訊軌。
 - **格式**：網頁版不支援 AVCHD（.MTS，多為 AC-3 音訊）、MXF 與片段式（fragmented）MP4，請改用 Python 版。
 - **實際設備**：所有驗證都以軟體產生的訊號進行，正式使用前請先用自己的設備錄一段確認。
@@ -111,11 +125,13 @@ python python/slate_sync.py *.MP4 --ref A001.MP4 --at B002.MP4=125.5   # B002 �
 | [`web/sync-slate.html`](web/sync-slate.html) | 同步場記板（手機 PWA） |
 | [`web/sync-analyzer.html`](web/sync-analyzer.html) | 同步分析器（電腦瀏覽器） |
 | [`python/slate_sync.py`](python/slate_sync.py) | 命令列版分析器 |
-| [`tests/make_test_media.py`](tests/make_test_media.py) | 產生已知漂移量的測試檔 |
-| [`docs/waveform-code.md`](docs/waveform-code.md) | 波形碼格式規格 |
-| [`docs/testing.md`](docs/testing.md) | 驗證方式與結果 |
+| [`tests/make_test_media.py`](tests/make_test_media.py) | 產生已知漂移量的測試檔，可含 AprilTag 畫面碼 |
+| [`tests/check_visual_code.py`](tests/check_visual_code.py) | 檢查各處內嵌的 tag 碼表一致、每個 ID 都偵測得到 |
+| [`tests/check_read_audio.py`](tests/check_read_audio.py) | 檢查音訊從任何位置讀取都精確落在要求的取樣（AAC 與 WAV） |
+| [`tests/check_cli_encoding.py`](tests/check_cli_encoding.py) | 檢查主控台不是 UTF-8 時報告仍完整印出 |
+| [`docs/`](docs/README.md) | 規格與驗證結果；[索引](docs/README.md)列出每份文件負責的規格 |
 | [`CHANGELOG.md`](CHANGELOG.md) | 更新紀錄 |
 
 ## 授權
 
-[MIT](LICENSE)
+[MIT](LICENSE)。內嵌的 AprilTag 碼表（BSD-2-Clause）與 js-aruco2 偵測器（MIT）保留各自的授權聲明，見 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
