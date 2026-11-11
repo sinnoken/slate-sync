@@ -292,6 +292,28 @@
   :root:not([lang="zh-Hant"]) .controls button, :root:not([lang="zh-Hant"]) .chips .chip,
   :root:not([lang="zh-Hant"]) .cd .icon-btn { padding-left: 10px; padding-right: 10px; }
   :root:not([lang="zh-Hant"]) .controls .seg button { min-width: 48px; }
+  /* AprilTag (settings → 畫面同步訊號, docs/visual-code.md): the tag with its white quiet zone takes the digit
+     area's short side, centred. In the space left over, a frame band strip sits at each end (top and bottom when
+     upright, left and right when sideways) and the digits shrink to one line between the tag and the far strip.
+     Tag and band are pure black and white in every palette; the full-screen flash is not used. Positions and sizes
+     come from layoutTag(), so the tag never moves when the text changes. */
+  .vt-band, .vt-tag { display: none; }
+  body.atag main { background: #000000; }
+  body.atag .vt-band { display: block; position: absolute; inset: 0; opacity: 0; pointer-events: none; will-change: opacity; }
+  body.atag .vt-band i { position: absolute; background: #ffffff; }
+  body.atag .vt-tag { display: block; position: absolute; image-rendering: crisp-edges; image-rendering: pixelated; }
+  body.atag #stageText { position: absolute; left: var(--vt-tx); top: var(--vt-ty); width: var(--vt-tw); height: var(--vt-th);
+    visibility: var(--vt-tv); container-type: size; overflow: hidden; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+  body.atag .bar { display: none; }
+  body.atag .clock { display: flex; justify-content: center; align-items: baseline; }
+  body.atag .clock .hm, body.atag .clock .sf { display: block; font-size: calc(min(14cqw, 45cqh) * var(--k, 1)); }
+  body.atag .clock .sep { display: inline; }
+  body.atag .clock .sf::before { content: ":"; opacity: .55; margin: 0 -0.12em; }
+  body.atag .status, body.atag .ltc-now { width: 100%; max-width: 100%; font-size: min(4.5cqw, 14cqh); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  body.atag .ltc-now:empty { display: block; }
+  /* Three sync choices share one row: each button takes room by its label length, and a label that still doesn't fit
+     wraps between words (never inside a Japanese or Korean word) instead of spilling over. */
+  #fsSeg button { flex: 1 1 auto; white-space: normal; word-break: keep-all; line-height: 1.1; padding-left: 8px; padding-right: 8px; }
 </style>
 </head>
 <body>
@@ -302,7 +324,9 @@
   </header>
 
   <main id="stage" aria-label="點一下隱藏或顯示按鈕" data-i18n-attr="aria-label:stageAria">
-    <div>
+    <div class="vt-band" id="vtBand" aria-hidden="true"><i></i><i></i></div>
+    <canvas class="vt-tag" id="vtTag" aria-hidden="true"></canvas>
+    <div id="stageText">
       <div class="clock" id="clock" role="timer" aria-label="時間" data-i18n-attr="aria-label:clockAria"><div class="hm"><span class="neg" id="cNeg" hidden>−</span><span id="cH">00</span><span class="sep">:</span><span id="cM">00</span></div><div class="sf"><span class="ss" id="cS">00</span><span class="sep">:</span><span class="ff" id="cF">00</span></div></div>
       <div class="ltc-now" id="ltcNow"></div>
       <div class="status" id="status" role="status" aria-live="polite"></div>
@@ -343,8 +367,8 @@
         </div>
         <div class="item">
           <div class="item-k" data-i18n="syncK">畫面同步訊號</div>
-          <p class="item-d" data-i18n="syncD">黑白方波：黑變白是整秒，遠處也清楚。短閃白：較省電、不刺眼。</p>
-          <div class="seg" role="group" aria-label="畫面同步訊號" data-i18n-attr="aria-label:syncK"><button id="fsSquare" aria-pressed="true" data-i18n="fsSquare">黑白方波</button><button id="fsFlash" aria-pressed="false" data-i18n="fsFlash">短閃白</button></div>
+          <p class="item-d" data-i18n="syncD">黑白方波：黑變白是整秒，遠處也清楚。短閃白：較省電、不刺眼。AprilTag：給只拍到畫面、沒錄到場記板聲音的攝影機用，分析器可自動對時；拍攝時讓整個碼清楚入鏡。</p>
+          <div class="seg" id="fsSeg" role="group" aria-label="畫面同步訊號" data-i18n-attr="aria-label:syncK"><button id="fsSquare" aria-pressed="true" data-i18n="fsSquare">黑白方波</button><button id="fsFlash" aria-pressed="false" data-i18n="fsFlash">短閃白</button><button id="fsTag" aria-pressed="false" data-i18n="fsTag">AprilTag</button></div>
         </div>
       </section>
       <section class="grp">
@@ -476,7 +500,7 @@
       hintNoWake: '提醒：請在手機設定中暫時關閉自動鎖定，避免螢幕變暗。',
       hintWakeFail: '提醒：無法自動保持螢幕常亮，請在手機設定中暫時關閉自動鎖定。',
       grpShoot: '拍攝', fpsK: '影格率', fpsD: '和攝影機相同。高於 30 fps 時，60Hz 的手機螢幕會跳過部分影格號碼。',
-      syncK: '畫面同步訊號', syncD: '黑白方波：黑變白是整秒，遠處也清楚。短閃白：較省電、不刺眼。', fsSquare: '黑白方波', fsFlash: '短閃白',
+      syncK: '畫面同步訊號', syncD: '黑白方波：黑變白是整秒，遠處也清楚。短閃白：較省電、不刺眼。AprilTag：給只拍到畫面、沒錄到場記板聲音的攝影機用，分析器可自動對時；拍攝時讓整個碼清楚入鏡。', fsSquare: '黑白方波', fsFlash: '短閃白', fsTag: 'AprilTag',
       grpLook: '外觀', paletteK: '配色', paletteD: '全白：數字最好辨識。紅光：暗場不刺眼。淺色：控制區與設定頁改淺底。黑白方波不受影響。',
       pDefault: '預設', pWhite: '全白', pRed: '紅光', pLight: '淺色',
       langK: '語言', langD: '自動：跟隨手機的語言設定。', langAuto: '自動',
@@ -508,7 +532,7 @@
       hintNoWake: 'Note: turn off auto-lock in your phone settings while shooting so the screen stays on.',
       hintWakeFail: 'Note: the screen can’t be kept on automatically. Turn off auto-lock in your phone settings for now.',
       grpShoot: 'Shooting', fpsK: 'Frame rate', fpsD: 'Match the camera. Above 30 fps, a 60Hz phone screen skips some frame numbers.',
-      syncK: 'Visual sync signal', syncD: 'Square wave: black to white marks the top of each second, easy to read from a distance. Short flash: saves battery and is easier on the eyes.', fsSquare: 'Square wave', fsFlash: 'Short flash',
+      syncK: 'Visual sync signal', syncD: 'Square wave: black to white marks the top of each second, easy to read from a distance. Short flash: saves battery and is easier on the eyes. AprilTag: for cameras that see the screen but don’t record the slate’s audio; the analyzer syncs them automatically. Keep the whole tag sharp and in frame while shooting.', fsSquare: 'Square wave', fsFlash: 'Short flash', fsTag: 'AprilTag',
       grpLook: 'Appearance', paletteK: 'Colors', paletteD: 'White: most legible digits. Red: easy on the eyes on a dark set. Light: light background for the controls and settings. The square wave is unaffected.',
       pDefault: 'Default', pWhite: 'White', pRed: 'Red', pLight: 'Light',
       langK: 'Language', langD: 'Auto follows your phone’s language.', langAuto: 'Auto',
@@ -540,7 +564,7 @@
       hintNoWake: '注意：画面が暗くならないよう、端末の設定で自動ロックを一時的にオフにしてください。',
       hintWakeFail: '注意：画面を点灯したままにできませんでした。端末の設定で自動ロックを一時的にオフにしてください。',
       grpShoot: '撮影', fpsK: 'フレームレート', fpsD: 'カメラと同じ値にします。30 fps を超えると、60Hz の画面では一部のフレーム番号が表示されません。',
-      syncK: '画面の同期信号', syncD: '白黒の矩形波：黒から白が秒の頭で、離れていても見やすい。ショートフラッシュ：省電力でまぶしくない。', fsSquare: '矩形波', fsFlash: 'フラッシュ',
+      syncK: '画面の同期信号', syncD: '白黒の矩形波：黒から白が秒の頭で、離れていても見やすい。ショートフラッシュ：省電力でまぶしくない。AprilTag：画面だけを撮り、スレートの音を録らないカメラ向け。アナライザーで自動的に同期できます。撮影中はコード全体をはっきり映してください。', fsSquare: '矩形波', fsFlash: 'フラッシュ', fsTag: 'AprilTag',
       grpLook: '表示', paletteK: '配色', paletteD: '白：数字が最も読みやすい。赤：暗い現場でもまぶしくない。淡色：操作部と設定画面を明るい背景に。矩形波には影響しません。',
       pDefault: '標準', pWhite: '白', pRed: '赤', pLight: '淡色',
       langK: '言語', langD: '自動：端末の言語設定に合わせます。', langAuto: '自動',
@@ -572,7 +596,7 @@
       hintNoWake: '참고: 화면이 어두워지지 않도록 휴대폰 설정에서 자동 잠금을 잠시 꺼 주세요.',
       hintWakeFail: '참고: 화면 켜짐을 자동으로 유지할 수 없습니다. 휴대폰 설정에서 자동 잠금을 잠시 꺼 주세요.',
       grpShoot: '촬영', fpsK: '프레임 레이트', fpsD: '카메라와 같게 맞추세요. 30 fps를 넘으면 60Hz 휴대폰 화면에서는 일부 프레임 번호를 건너뜁니다.',
-      syncK: '화면 싱크 신호', syncD: '흑백 사각파: 검정에서 흰색이 매초 시작이며 멀리서도 잘 보입니다. 짧은 플래시: 배터리를 아끼고 덜 눈부십니다.', fsSquare: '흑백 사각파', fsFlash: '짧은 플래시',
+      syncK: '화면 싱크 신호', syncD: '흑백 사각파: 검정에서 흰색이 매초 시작이며 멀리서도 잘 보입니다. 짧은 플래시: 배터리를 아끼고 덜 눈부십니다. AprilTag: 화면만 찍고 슬레이트 소리는 녹음하지 않는 카메라용으로, 분석기가 자동으로 싱크를 맞춥니다. 촬영할 때 코드 전체가 선명하게 화면에 들어오게 하세요.', fsSquare: '흑백 사각파', fsFlash: '짧은 플래시', fsTag: 'AprilTag',
       grpLook: '화면', paletteK: '색상', paletteD: '화이트: 숫자가 가장 잘 보입니다. 레드: 어두운 현장에서 눈부시지 않습니다. 라이트: 조작부와 설정 화면을 밝은 배경으로 바꿉니다. 사각파에는 영향이 없습니다.',
       pDefault: '기본', pWhite: '화이트', pRed: '레드', pLight: '라이트',
       langK: '언어', langD: '자동: 휴대폰의 언어 설정을 따릅니다.', langAuto: '자동',
@@ -620,7 +644,7 @@
     if (typeof saved.ltc === 'boolean') state.ltc = saved.ltc;
     if (typeof saved.df === 'boolean') state.df = saved.df;
     if (typeof saved.wave === 'boolean') state.wave = saved.wave;
-    if (saved.flashStyle === 'square' || saved.flashStyle === 'flash') state.flashStyle = saved.flashStyle;
+    if (saved.flashStyle === 'square' || saved.flashStyle === 'flash' || saved.flashStyle === 'tag') state.flashStyle = saved.flashStyle;
     if (['default', 'white', 'red', 'light'].indexOf(saved.palette) >= 0) state.palette = saved.palette;
     if (typeof saved.dispOfs === 'number' && Math.abs(saved.dispOfs) <= 500) state.dispOfs = saved.dispOfs;
     if (typeof saved.audOfs === 'number' && Math.abs(saved.audOfs) <= 500) state.audOfs = saved.audOfs;
@@ -873,6 +897,8 @@
   $('stage').addEventListener('click', function () {
     if (document.activeElement === tag) { tag.blur(); return; }
     document.body.classList.toggle('clean');
+    // The stage resizes now; don't wait for ResizeObserver, which is not always delivered promptly (seen in iframes).
+    relayout();
   });
 
   // ---- Audio ----
@@ -1080,12 +1106,68 @@
   }
   function renderWave() { /* output selection lives in the main screen's four-way switch */ }
   function renderFlashStyle() {
-    var sq = state.flashStyle === 'square';
-    $('fsSquare').setAttribute('aria-pressed', sq); $('fsFlash').setAttribute('aria-pressed', !sq);
+    var sq = state.flashStyle === 'square', vt = state.flashStyle === 'tag';
+    $('fsSquare').setAttribute('aria-pressed', sq); $('fsFlash').setAttribute('aria-pressed', state.flashStyle === 'flash');
+    $('fsTag').setAttribute('aria-pressed', vt);
     document.body.classList.toggle('sq', sq);
+    if (vt !== document.body.classList.contains('atag')) { document.body.classList.toggle('atag', vt); relayout(); }
   }
   $('fsSquare').addEventListener('click', function () { state.flashStyle = 'square'; save(); renderFlashStyle(); });
   $('fsFlash').addEventListener('click', function () { state.flashStyle = 'flash'; save(); renderFlashStyle(); });
+  $('fsTag').addEventListener('click', function () { state.flashStyle = 'tag'; save(); renderFlashStyle(); });
+
+  // ---- Visual code (AprilTag), see docs/visual-code.md ----
+  // tag36h11 code table and bit layout: AprilRobotics/apriltag tag36h11.c @ b7c0ebe (BSD-2-Clause, see THIRD_PARTY_NOTICES.md)
+  var TAG36H11_CODES = [0xd7e00984b, 0xdda664ca7, 0xdc4a1c821, 0xe17b470e9, 0xef91d01b1, 0xf429cdd73, 0x5da29225, 0x1106cba43, 0x223bed79d, 0x21f51213c, 0x33eb19ca6, 0x3f76eb0f8, 0x469a97414, 0x45dcfe0b0, 0x4a6465f72, 0x51801db96, 0x5eb946b4e, 0x68a7cc2ec, 0x6f0ba2652, 0x78765559d, 0x87b83d129, 0x86cc4a5c5, 0x8b64df90f, 0x9c577b611, 0xa3810f2f5, 0xaf4d75b83, 0xb59a03fef, 0xbb1096f85, 0xd1b92fc76, 0xd0dd509d2, 0xe2cfda160, 0x2ff497c63, 0x47240671b, 0x5047a2e55, 0x635ca87c7, 0x691254166, 0x68f43d94a, 0x6ef24bdb6, 0x8cdd8f886, 0x9de96b718, 0xaff6e5a8a, 0xbae46f029, 0xd225b6d59, 0xdf8ba8c01, 0xe3744a22f, 0xfbb59375d, 0x18a916828, 0x22f29c1ba, 0x286887d58, 0x41392322e, 0x75d18ecd1, 0x87c302743, 0x8c6317ba9, 0x9e40f36d7, 0xc0e5a806a, 0xcc78cb87c, 0x12d2f2d01, 0x379f36a21, 0x6973f59ac, 0x7789ea9f4, 0x8f1c73e84, 0x8dd287a20, 0x94a4eee4c, 0xa455379b5, 0xa9e92987d, 0xbd25cb40b, 0xbe98d3582, 0xd3d5972b2, 0x14c53d7c7, 0x4f1796936, 0x4e71fed1a, 0x66d46fae0, 0xa55abb933, 0xebee1acca, 0x1ad4ba6a4, 0x305b17571, 0x553611351, 0x59ca62775, 0x7819cb6a1, 0xedb7bc9eb, 0x5b2694212, 0x72e12d185, 0xed6152e2c, 0x5bcdadbf3, 0x78e0aa0c6, 0xc60a0b909, 0xef9a34b0d, 0x398a6621a, 0xa8a27c944, 0x4b564304e, 0x52902b4e2, 0x857280b56, 0xa91b2c84b, 0xe91df939b, 0x1fa405f28, 0x23793ab86, 0x68c17729f, 0x9fbf3b840, 0x36922413c, 0x4eb5f946e, 0x533fe2404, 0x63de7d35e, 0x925eddc72, 0x99b8b3896, 0xaace4c708, 0xc22994af0, 0x8f1eae41b, 0xd95fb486c, 0x13fb77857, 0x4fe0983a3, 0xd559bf8a9, 0xe1855d78d, 0xfec8daaad, 0x71ecb6d95, 0xdc9e50e4c, 0xca3a4c259, 0x740d12bbf, 0xaeedd18e0, 0xb509b9c8e, 0x5232fea1c, 0x19282d18b, 0x76c22d67b, 0x936beb34b, 0x8a5ea8dd, 0x679eadc28, 0xa08e119c5, 0x20a6e3e24, 0x7eab9c239, 0x96632c32e, 0x470d06e44, 0x8a70212fb, 0xa7e4251b, 0x9ec762cc0, 0xd8a3a1f48, 0xdb680f346, 0x4a1e93a9d, 0x638ddc04f, 0x4c2fcc993, 0x1ef28c95, 0xbf0d9792d, 0x6d27557c3, 0x623f977f4, 0x35b43be57, 0xbb0c428d5, 0xa6f01474d, 0x5a70c9749, 0x20ddabc3b, 0x2eabd78cf, 0x90aa18f88, 0xa9ea89350, 0x3cdb39b22, 0x839a08f34, 0x169bb814e, 0x1a575ab08, 0xa04d3d5a2, 0xbf7902f2b, 0x95a5e65c, 0x92e8fce94, 0x67ef48d12, 0x6400dbcac, 0xb12d8fb9f, 0x347f45d3, 0xb35826f56, 0xc546ac6e4, 0x81cc35b66, 0x41d14bd57, 0xc052b168, 0x7d6ce5018, 0xab4ed5ede, 0x5af817119, 0xd1454b182, 0x2badb090b, 0x3fcb4c0c, 0x2f1c28fd8, 0x93608c6f7, 0x4c93ba2b5, 0x7d950a5d, 0xe54b3d3fc, 0x15560cf9d, 0x189e4958a, 0x62140e9d2, 0x723bc1cdb, 0x2063f26fa, 0xfa08ab19f, 0x7955641db, 0x646b01daa, 0x71cd427cc, 0x9a42f7d4, 0x717edc643, 0x15eb94367, 0x8392e6bb2, 0x832408542, 0x2b9b874be, 0xb21f4730d, 0xb5d8f24c9, 0x7dbaf6931, 0x1b4e33629, 0x13452e710, 0xe974af612, 0x1df61d29a, 0x99f2532ad, 0xe50ec71b4, 0x5df0a36e8, 0x4934e4cea, 0xe34a0b4bd, 0xb7b26b588, 0xf255118d, 0xd0c8fa31e, 0x6a50c94f, 0xf28aa9f06, 0x131d194d8, 0x622e3da79, 0xac7478303, 0xc8f2521d7, 0x6c9c881f5, 0x49e38b60a, 0x513d8df65, 0xd7c2b0785, 0x9f6f9d75a, 0x9f6966020, 0x1e1a54e33, 0xc04d63419, 0x946e04cd7, 0x1bdac5902, 0x56469b830, 0xffad59569, 0x86970e7d8, 0x8a4b41e12, 0xad4688e3b, 0x85f8f5df4, 0xd833a0893, 0x2a36fdd7c, 0xd6a857cf2, 0x8829bc35c, 0x5e50d79bc, 0xfbb8035e4, 0xc1a95bebf, 0x36b0baf8, 0xe0da964ea, 0xb6483689b, 0x7c8e2f4c1, 0x5b856a23b, 0x2fc183995, 0xe914b6d70, 0xb31041969, 0x1bb478493, 0x63e2b456, 0xf2a082b9c, 0x8e5e646ea, 0x8172f8f6, 0xdacd923e, 0xe5dcf0e2e, 0xbf9446bae, 0x4822d50d1, 0x26e710bf5, 0xb90ba2a24, 0xf3b25aa73, 0x809ad589b, 0x94cc1e254, 0x5334a3adb, 0x592886b2f, 0xbf64704aa, 0x566dbf24c, 0x72203e692, 0x64e61e809, 0xd7259aad6, 0x7b924aedc, 0x2df2184e8, 0x353d1eca7, 0xfce30d7ce, 0xf7b0f436e, 0x57e8d8f68, 0x8c79e60db, 0x9c8362b2b, 0x63a5804f2, 0x9298353dc, 0x6f98a71c8, 0xa5731f693, 0x21ca5c870, 0x1c2107fd3, 0x6181f6c39, 0x19e574304, 0x329937606, 0x43d5c70d, 0x9b18ff162, 0x8e2ccfebf, 0x72b7b9b54, 0x9b71f4f3c, 0x935d7393e, 0x65938881a, 0x6a5bd6f2d, 0xa19783306, 0xe6472f4d7, 0x81163df5a, 0xa838e1cbd, 0x982748477, 0x50c54feb, 0xd82fbb58, 0x2c4c72799, 0x97d259ad6, 0x22d9a43ed, 0xfdb162a9f, 0xcb4a727d, 0x4fae2e371, 0x535b5be8b, 0x48795908a, 0xce7c18962, 0x4ea154d80, 0x50c064889, 0x8d97fc75d, 0xc8bd9ec61, 0x83ee8e8bb, 0xc8431419a, 0x1aa78079d, 0x8111aa4a5, 0xdfa3a69fe, 0x51630d83f, 0x2d930fb3f, 0x2133116e5, 0xae5395522, 0xbc07a4e8a, 0x57bf08ba0, 0x6cb18036a, 0xf0e2e4b75, 0x3eb692b6f, 0xd8178a3fa, 0x238cce6a6, 0xe97d5cdd7, 0xfe10d8d5e, 0xb39584a1d, 0xca03536fd, 0xaa61f3998, 0x72ff23ec2, 0x15aa7d770, 0x57a3a1282, 0xd1f3902dc, 0x6554c9388, 0xfd01283c7, 0xe8baa42c5, 0x72cee6adf, 0xf6614b3fa, 0x95c3778a2, 0x7da4cea7a, 0xd18a5912c, 0xd116426e5, 0x27c17bc1c, 0xb95b53bc1, 0xc8f937a05, 0xed220c9bd, 0xc97d72ab, 0x8fb1217ae, 0x25ca8a5a1, 0xb261b871b, 0x1bef0a056, 0x806a51179, 0xeed249145, 0x3f82aeceb, 0xcc56e9acf, 0x2e78d01eb, 0x102cee17f, 0x37caad3d5, 0x16ac5b1ee, 0x2af164ece, 0xd4cd81dc9, 0x12263a7e7, 0x57ac7d117, 0x9391d9740, 0x7aedaa77f, 0x9675a3c72, 0x277f25191, 0xebb6e64b9, 0x7ad3ef747, 0x12759b181, 0x948257d4d, 0xb63a850f6, 0x3a52a8f75, 0x4a019532c, 0xa021a7529, 0xcc661876d, 0x4085afd05, 0xe7048e089, 0x3f979cdc6, 0xd9da9071b, 0xed2fc5b68, 0x79d64c3a1, 0xfd44e2361, 0x8eea46a74, 0x42233b9c2, 0xae4d1765d, 0x7303a094c, 0x2d7033abe, 0x3dcc2b0b4, 0xf0967d09, 0x6f0cd7de, 0x9807aca0, 0x3a295cad3, 0x2b106b202, 0x3f38a828e, 0x78af46596, 0xbda2dc713, 0x9a8c8c9d9, 0x6a0f2ddce, 0xa76af6fe2, 0x86f66fa4, 0xd52d63f8d, 0x89f7a6e73, 0xcc6b23362, 0xb4ebf3c39, 0x564f300fa, 0xe8de3a706, 0x79a033b61, 0x765e160c5, 0xa266a4f85, 0xa68c38c24, 0xdca0711fb, 0x85fba85ba, 0x37a207b46, 0x158fcc4d0, 0x569d79b3, 0x7b1a25555, 0xa8ae22468, 0x7c592bdfd, 0xc59a5f66, 0xb1115daa3, 0xf17c87177, 0x6769d766b, 0x2b637356d, 0x13d8685ac, 0xf24cb6ec0, 0xbd0b56d1, 0x42ff0e26d, 0xb41609267, 0x96f9518af, 0xc56f96636, 0x4a8e10349, 0x863512171, 0xea455d86c, 0xbd0e25279, 0xe65e3f761, 0x36c84a922, 0x85fd1b38f, 0x657c91539, 0x15033fe04, 0x9051c921, 0xab27d80d8, 0xf92f7d0a1, 0x8eb6bb737, 0x10b5b0f63, 0x6c9c7ad63, 0xf66fe70ae, 0xca579bd92, 0x956198e4d, 0x29e4405e5, 0xe44eb885c, 0x41612456c, 0xea45e0abf, 0xd326529bd, 0x7b2c33cef, 0x80bc9b558, 0x7169b9740, 0xc37f99209, 0x31ff6dab9, 0xc795190ed, 0xa7636e95f, 0x9df075841, 0x55a083932, 0xa7cbdf630, 0x409ea4ef0, 0x92a1991b6, 0x4b078dee9, 0xae18ce9e4, 0x5a6e1ef35, 0x1a403bd59, 0x31ea70a83, 0x2bc3c4f3a, 0x5c921b3cb, 0x42da05c5, 0x1f667d16b, 0x416a368cf, 0xfbc0a7a3b, 0x9419f0c7c, 0x81be2fa03, 0x34e2c172f, 0x28648d8ae, 0xc7acbb885, 0x45f31eb6a, 0xd1cfc0a7b, 0x42c4d260d, 0xcf6584097, 0x94b132b14, 0x3c5c5df75, 0x8ae596fef, 0xaea8054eb, 0xae9cc573, 0x496fb731b, 0xebf105662, 0xaf9c83a37, 0xc0d64cd6b, 0x7b608159a, 0xe74431642, 0xd6fb9d900, 0x291e99de0, 0x10500ba9a, 0x5cd05d037, 0xa87254fb2, 0x9d7824a37, 0x8b2c7b47c, 0x30c788145, 0x2f4e5a8be, 0xbadb884da, 0x26e0d5c9, 0x6fdbaa32e, 0x34758eb31, 0x565cd1b4f, 0x2bfd90fb0, 0x93052a6b, 0xd3c13c4b9, 0x2daea43bf, 0xa279762bc, 0xf1bd9f22c, 0x4b7fec94f, 0x545761d5a, 0x7327df411, 0x1b52a442e, 0x49b0ce108, 0x24c764bc8, 0x374563045, 0xa3e8f91c6, 0xe6bd2241, 0xe0e52ee3c, 0x7e8e3caa, 0x96c2b7372, 0x33acbdfda, 0xb15d91e54, 0x464759ac1, 0x6886a1998, 0x57f5d3958, 0x5a1f5c1f5, 0xb58158ad, 0xe712053fb, 0x5352ddb25, 0x414b98ea0, 0x74f89f546, 0x38a56b3c3, 0x38db0dc17, 0xaa016a755, 0xdc72366f5, 0xcee93d75, 0xb2fe7a56b, 0xa847ed390, 0x8713ef88c, 0xa217cc861, 0x8bca25d7b, 0x455526818, 0xea3a7a180, 0xa9536e5e0, 0x9b64a1975, 0x5bfc756bc, 0x46aa169b, 0x53a17f76f, 0x4d6815274, 0xcca9cf3f6, 0x4013fcb8b, 0x3d26cdfa5, 0x5786231f7, 0x7d4ab09ab, 0x960b5ffbc, 0x8914df0d4, 0x2fc6f2213, 0xac235637e, 0x151b28ed3, 0x46f79b6db, 0x1382e0c9f, 0x53abf983a, 0x383c47ade, 0x3fcf88978, 0xeb9079df7, 0x9af0714d, 0xda19d1bb7, 0x9a02749f8, 0x1c62dab9b, 0x1a137e44b, 0x2867718c7, 0x35815525b, 0x7cd35c550, 0x2164f73a0, 0xe8b772fe0];
+  var TAG36H11_BIT_X = [1, 2, 3, 4, 5, 2, 3, 4, 3, 6, 6, 6, 6, 6, 5, 5, 5, 4, 6, 5, 4, 3, 2, 5, 4, 3, 4, 1, 1, 1, 1, 1, 2, 2, 2, 3];
+  var TAG36H11_BIT_Y = [1, 1, 1, 1, 1, 2, 2, 2, 3, 1, 2, 3, 4, 5, 2, 3, 4, 3, 6, 6, 6, 6, 6, 5, 5, 5, 4, 6, 5, 4, 3, 2, 5, 4, 3, 4];
+  var vtBand = $('vtBand'), vtTag = $('vtTag'), vtCtx = vtTag.getContext('2d', { alpha: false }), tagId = -1, bandOn = null;
+  // 12 x 12 cells: one white quiet-zone cell around the official 10 x 10 layout (white ring, black ring, then data
+  // bit i at row bit_y[i] + 1, column bit_x[i] + 1, white when bit 35 - i of the code is set). Whole pixels only.
+  function drawTag(id) {
+    var n = vtTag.width / 12, code = TAG36H11_CODES[id];
+    vtCtx.fillStyle = '#ffffff'; vtCtx.fillRect(0, 0, 12 * n, 12 * n);
+    vtCtx.fillStyle = '#000000'; vtCtx.fillRect(2 * n, 2 * n, 8 * n, 8 * n);
+    vtCtx.fillStyle = '#ffffff';
+    for (var i = 0; i < 36; i++) {
+      // Division instead of bit shifts: codes are 36 bits, wider than the 32-bit integer operators.
+      if (Math.floor(code / Math.pow(2, 35 - i)) % 2) vtCtx.fillRect((TAG36H11_BIT_X[i] + 2) * n, (TAG36H11_BIT_Y[i] + 2) * n, n, n);
+    }
+    tagId = id;
+  }
+  // The tag (12 cells) takes the digit area's short side, in whole device pixels per cell so no cell edge is resampled
+  // into grey, centred and snapped to the device pixel grid. Along the long side, each end gets a band strip at least
+  // 12 px wide if the leftover space allows, and the one-line digits go between the tag and the far strip.
+  function layoutTag() {
+    if (state.flashStyle !== 'tag') return;
+    var W = stageEl.clientWidth, H = stageEl.clientHeight, dpr = window.devicePixelRatio || 1;
+    var up = W <= H, shortS = up ? W : H, longS = up ? H : W;
+    var cell = Math.max(1, Math.floor(shortS * dpr / 12)), side = cell * 12 / dpr;
+    // Snap the tag's absolute position, not just its offset inside the stage, to the device pixel grid: the stage itself
+    // can start mid-pixel (e.g. a 58 px header at DPR 2.625 is 152.25 device pixels).
+    var sr = stageEl.getBoundingClientRect();
+    function snap(origin, x) { var v = Math.round((origin + x) * dpr) / dpr - origin; return v < 0 ? v + 1 / dpr : v; }
+    var off = snap(up ? sr.top : sr.left, (longS - side) / 2), cross = snap(up ? sr.left : sr.top, (shortS - side) / 2);
+    var bw = Math.min(Math.floor(off), Math.max(12, Math.round(shortS * 0.06))), band = bw >= 12;
+    var gap = Math.max(4, Math.round(Math.max(bw, 12) / 3));
+    var t0 = off + side + gap, tl = longS - (band ? bw : 0) - gap - t0;
+    function box(el, a, b, along, across) {   // a/along on the long axis, b/across on the short axis
+      el.style.left = (up ? b : a) + 'px'; el.style.top = (up ? a : b) + 'px';
+      el.style.width = (up ? across : along) + 'px'; el.style.height = (up ? along : across) + 'px';
+    }
+    box(vtTag, off, cross, side, side);
+    var strips = vtBand.children;
+    box(strips[0], 0, 0, bw, shortS); box(strips[1], longS - bw, 0, bw, shortS);
+    strips[0].style.display = strips[1].style.display = band ? '' : 'none';
+    var tx = $('stageText').style;
+    tx.setProperty('--vt-tx', (up ? 0 : t0) + 'px'); tx.setProperty('--vt-ty', (up ? t0 : 0) + 'px');
+    tx.setProperty('--vt-tw', (up ? W : Math.max(0, tl)) + 'px'); tx.setProperty('--vt-th', (up ? Math.max(0, tl) : H) + 'px');
+    // In a thinner box the digit line would shrink below about 8 px and can't be read, so it is left out;
+    // the tag itself still carries the time.
+    tx.setProperty('--vt-tv', tl >= (up ? 24 : 64) ? 'visible' : 'hidden');
+    // Check both sides: a fresh canvas is 300 x 150, so a 300 px tag would otherwise keep a height of 150.
+    if (vtTag.width !== cell * 12 || vtTag.height !== cell * 12) { vtTag.width = vtTag.height = cell * 12; if (tagId >= 0) drawTag(tagId); }
+  }
   function renderPalette() {
     if (state.palette === 'default') document.documentElement.removeAttribute('data-palette');
     else document.documentElement.setAttribute('data-palette', state.palette);
@@ -1146,14 +1228,17 @@
   var lastFw = 0, lastNeg = false;
   function fit() {
     clockEl.style.setProperty('--k', '1');
-    var avail = $('stage').clientWidth * 0.94, w = 0;
+    var oneLine = document.body.classList.contains('atag');   // AprilTag: both rows sit on one line, so widths add up
+    var avail = (oneLine ? $('stageText') : $('stage')).clientWidth * 0.94, w = 0;
     var rows = clockEl.children;
-    for (var i = 0; i < rows.length; i++) w = Math.max(w, rows[i].getBoundingClientRect().width);
+    for (var i = 0; i < rows.length; i++) { var rw = rows[i].getBoundingClientRect().width; w = oneLine ? w + rw : Math.max(w, rw); }
     clockEl.style.setProperty('--k', w > avail ? (avail / w).toFixed(3) : '1');
   }
-  window.addEventListener('resize', fit);
-  if (window.ResizeObserver) new ResizeObserver(function () { fit(); }).observe($('stage'));
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+  // The digits are fitted after the tag, because with AprilTag their box is the space the tag leaves.
+  function relayout() { layoutTag(); fit(); }
+  window.addEventListener('resize', relayout);
+  if (window.ResizeObserver) new ResizeObserver(relayout).observe($('stage'));
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(relayout);
 
   // ---- Main loop ----
   // Each frame is drawn for the instant it reaches the screen: vsync time + one refresh interval + user offset.
@@ -1220,13 +1305,22 @@
     if (ltc.on ? ts - ltcShownAt >= 100 : cache.ltc) { ltcShownAt = ts; setText(elLtc, 'ltc', ltcNowText(now)); }
 
     var realPart = ((now % 1000) + 1000) % 1000;
-    var wOn = active && realPart < 500;
-    var fOn = state.flashStyle === 'square' ? wOn : active && realPart < FLASH_MS;
+    var wOn = active && realPart < 500, vt = state.flashStyle === 'tag';
+    var fOn = vt ? false : state.flashStyle === 'square' ? wOn : active && realPart < FLASH_MS;
     if (fOn !== flashOn) {
       flashOn = fOn; flashEl.style.opacity = fOn ? '1' : '0';
       stageEl.classList.toggle('inv', fOn); headerEl.classList.toggle('inv', fOn);
     }
     if (wOn !== waveOn) { waveOn = wOn; wave.style.transform = wOn ? 'scaleX(1)' : 'scaleX(0)'; }
+    // AprilTag: the band's black-to-white and the new tag ID come from this same `now`, so they are one event with
+    // the square wave and the waveform code. Both follow the real clock in every mode, idle and waiting included.
+    if (vt) {
+      var bOn = realPart < 500;
+      if (bOn !== bandOn) { bandOn = bOn; vtBand.style.opacity = bOn ? '1' : '0'; }
+      var dv = new Date(Math.floor(now / 1000) * 1000);
+      var id = (dv.getHours() * 3600 + dv.getMinutes() * 60 + dv.getSeconds()) % 540;
+      if (id !== tagId) drawTag(id);
+    }
 
     requestAnimationFrame(frame);
   }
