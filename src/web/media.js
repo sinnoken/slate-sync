@@ -184,7 +184,9 @@ async function openMp4(file) {
   const hasVid = !!(vid && vid.stts);
   if ((!aud || !aud.entry) && !hasVid) throw fail('err.noAudio');
   // A file without an audio track can still be timed from the visual code.
-  const created = m.created ? m.created - 2082844800 : null;   // mvhd counts seconds from 1904; the core takes Unix time
+  // mvhd counts seconds from 1904; the core takes Unix time. 0 (not set) or a time before 1970 counts as none, as in
+  // the command line (cli/media.mjs).
+  const created = m.created > 2082844800 ? m.created - 2082844800 : null;
   const media = aud && aud.entry ? mp4Audio(file, m, aud) : { kind: 'mp4', file, hasAudio: false, aStartAbs: null };
   media.created = created;
   // The movie header's duration (what ffprobe reports as the format duration): the visual-code reads plan from it,
