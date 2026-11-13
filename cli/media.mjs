@@ -27,7 +27,7 @@ const input = path => 'file:' + resolve(path);
 async function ffprobe(src) {
   const p = await run('ffprobe', ['-v', 'error', '-show_entries',
     'format=duration,start_time:format_tags=creation_time,time_reference:' +
-    'stream=codec_type,avg_frame_rate,r_frame_rate,channels,sample_rate,nb_frames,duration,start_time:stream_disposition=attached_pic',
+    'stream=index,codec_type,width,height,avg_frame_rate,r_frame_rate,channels,sample_rate,nb_frames,duration,start_time:stream_disposition=attached_pic',
     '-of', 'json', '-i', src]);
   if (p.code) throw new Error(p.stderr.toString('utf8').trim() || 'ffprobe 執行失敗');
   return JSON.parse(p.stdout.toString('utf8'));
@@ -39,8 +39,12 @@ export async function openMedia(path, { fps = null, hwaccel = true } = {}) {
   const fStart = num(fmt.start_time) || 0, D = num(fmt.duration);
   if (D === null) throw new Error('ffprobe 讀不到檔案長度');
   const streams = j.streams || [];
+  // Every read maps these streams by index. The video is the one ffmpeg itself would pick: cover art left out, then the
+  // highest resolution (the first on a tie), so a still image stored as the first video stream is not read as the picture.
   const a = streams.find(s => s.codec_type === 'audio');
-  const v = streams.find(s => s.codec_type === 'video' && !(s.disposition && s.disposition.attached_pic));
+  const area = s => (Number(s.width) || 0) * (Number(s.height) || 0);
+  const v = streams.filter(s => s.codec_type === 'video' && !(s.disposition && s.disposition.attached_pic))
+    .reduce((best, s) => (!best || area(s) > area(best) ? s : best), null);
   if (!a && !v) throw Object.assign(new Error('err.noAudio'), { i18n: { key: 'err.noAudio' } });
   const off = s => num(s.start_time) === null ? 0 : num(s.start_time) - fStart;
   const m = { name: path, modified: statSync(path).mtimeMs, movieDuration: D, hasAudio: !!a, hasVideo: !!v,
@@ -62,10 +66,11 @@ export async function openMedia(path, { fps = null, hwaccel = true } = {}) {
   m.duration = Math.max(a ? m.aOff + m.aDur : 0, v ? m.vOff + m.vDur : 0) || D;
   if (tags.creation_time) { const t = Date.parse(tags.creation_time); if (Number.isFinite(t) && t > 0) m.created = t / 1000; }
   if (a && tags.time_reference && Number(tags.time_reference) > 0) m.bextSec = Number(tags.time_reference) / m.sr;
+  if (a) m.aIndex = a.index;
   m.readWindow = (x, y) => readAudio(src, m, x, y);
   m.openVideo = async () => {
     if (!v) return { unsupported: { why: 'why.codec', codec: '?' } };
-    const vr = new FfmpegVideo(src, fStart, hwaccel);
+    const vr = new FfmpegVideo(src, v.index, fStart, hwaccel);
     await vr.index();
     return vr;
   };
@@ -83,7 +88,7 @@ async function readAudio(src, m, a, b) {
   if (b <= t0) return { chans: [], t0, sr };
   const cut = Math.max(0, t0 - 0.25 / sr), pre = cut >= 1.1 ? cut - 1.0 : 0;
   const p = await run('ffmpeg', ['-v', 'error', ...(pre ? ['-ss', pre.toFixed(6)] : []), '-i', src,
-    '-ss', (cut - pre).toFixed(6), '-t', (b - t0).toFixed(6), '-vn', '-map', '0:a:0', '-f', 'f32le', '-']);
+    '-ss', (cut - pre).toFixed(6), '-t', (b - t0).toFixed(6), '-vn', '-map', `0:${m.aIndex}`, '-f', 'f32le', '-']);
   if (p.code) throw new Error('ffmpeg 解碼失敗：' + p.stderr.toString('utf8').trim().slice(-300));
   const n = Math.floor(p.stdout.length / 4 / ch);
   const all = new Float32Array(p.stdout.buffer.slice(p.stdout.byteOffset, p.stdout.byteOffset + n * ch * 4));
@@ -99,13 +104,13 @@ const SHOWINFO = /pts_time:\s*(\S+).*?\bs:(\d+)x(\d+)/;
 // Hardware decoding: the first of cuda, d3d11va that decodes a short piece of the file cleanly (tried once); if a read
 // fails or its output does not add up, it is repeated in software and the file stays on software.
 class FfmpegVideo {
-  constructor(path, fStart, hwaccel) {
-    Object.assign(this, { path, fStart, hwaccel, decoders: new Set(), fallback: null, packets: null, keys: [], hw: undefined });
+  constructor(path, stream, fStart, hwaccel) {
+    Object.assign(this, { path, stream, fStart, hwaccel, decoders: new Set(), fallback: null, packets: null, keys: [], hw: undefined });
     this.fallbackKey = 'rep.hwFallbackSw';
   }
   // Every video packet (file time, size, keyframe): demuxing only, no decoding.
   async index() {
-    const p = await run('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time,size,flags',
+    const p = await run('ffprobe', ['-v', 'error', '-select_streams', String(this.stream), '-show_entries', 'packet=pts_time,size,flags',
       '-of', 'csv=p=0', '-i', this.path]);
     this.packets = [];
     for (const line of p.stdout.toString('utf8').split(/\r?\n/)) {
@@ -123,7 +128,7 @@ class FfmpegVideo {
     if (!this.hwaccel) return null;
     for (const hw of HWACCELS) {
       const p = await run('ffmpeg', ['-hide_banner', '-nostats', '-v', 'error', '-hwaccel', hw, '-t', '0.2', '-i', this.path,
-        '-map', '0:v:0', '-an', '-vf', 'scale=w=-2:h=64,format=gray', '-f', 'rawvideo', '-']);
+        '-map', `0:${this.stream}`, '-an', '-vf', 'scale=w=-2:h=64,format=gray', '-f', 'rawvideo', '-']);
       if (p.code === 0 && p.stdout.length && !p.stderr.toString().trim()) { this.hw = hw; break; }
     }
     return this.hw;
@@ -144,10 +149,12 @@ class FfmpegVideo {
   // ffmpeg seeks to the keyframe before a and drops earlier frames; -copyts keeps the file's own timestamps and
   // showinfo prints each output frame's PTS (rawvideo carries none). passthrough keeps one output frame per decoded
   // frame, so the showinfo lines and the frames line up one to one.
+  // The head is read without -ss: a seek to 0 in a Matroska file whose first stream is a still image lands on a later
+  // keyframe (6.76 s in the test file) and the first frames are lost.
   async decode(a, b, hw) {
     const vf = `scale=w='if(gt(iw,ih),-2,min(${VIS_SHORT},iw))':h='if(gt(iw,ih),min(${VIS_SHORT},ih),-2)':flags=area,format=gray,showinfo`;
     const p = await run('ffmpeg', ['-hide_banner', '-nostats', '-v', 'info', ...(hw ? ['-hwaccel', hw] : []),
-      '-copyts', '-ss', Math.max(a, 0).toFixed(6), '-t', (b - a).toFixed(6), '-i', this.path, '-map', '0:v:0', '-an',
+      '-copyts', ...(a > 0 ? ['-ss', a.toFixed(6)] : []), '-t', (b - a).toFixed(6), '-i', this.path, '-map', `0:${this.stream}`, '-an',
       '-vf', vf, '-fps_mode', 'passthrough', '-f', 'rawvideo', '-']);
     if (p.code) throw new Error('ffmpeg 解碼畫面失敗：' + p.stderr.toString('utf8').trim().slice(-300));
     const out = [];
