@@ -10,15 +10,16 @@
   "has_video": true,
   "clock_type": null,
   "ltc": null,
+  "df": false,
   "tz": null,
   "mod": 540,
   "pitch_rejected": 0,
   "max_unc_ppm": 1090,
   "max_worst_ms": 43.7,
-  "fps": 25.0,
+  "fps": 25,
   "frames": 2000,
   "av_offset_ms": null,
-  "media_length": 80.0,
+  "media_length": 80,
   "corrected_length": 80.09611533840608,
   "generator_args": [
     "picture.mp4",
@@ -38,11 +39,11 @@
     "--encoder",
     "cpu",
     "--av-offset",
-    "0.0",
+    "0",
     "--audio",
     "none",
     "--gop",
     "8"
   ],
-  "sha256": "fa955414f54da203bb72bd1f21180f526110cc7051314206bb166397d57bd961"
+  "sha256": "30a2f7961dd521ab062b7a6807938a546e9b764bc0a23695bd76321cbb785587"
 }

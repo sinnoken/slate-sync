@@ -19,7 +19,7 @@ import { FIXTURES, fixture, hasFfmpeg, tempDir } from '../lib/tools.mjs';
 import { run } from './run-analyzer.mjs';
 import { Checker, checkCli, checkPair, checkTimezone, checkTruth, normalize } from './checks.mjs';
 
-const ORDER = ['wave.wav', 'aac.m4a', 'cam.mp4', 'picture.mp4', 'ltc.wav'];
+const ORDER = ['wave.wav', 'aac.m4a', 'cam.mp4', 'picture.mp4', 'ltc.wav', 'bwf.wav', 'ltcdf.m4a'];
 const PAIR = ['cam.mp4', 'picture.mp4'];          // 起點相差 2 分鐘、都有畫面碼的一組
 const SNAPSHOT = path.join(ROOT, 'tests', 'web', 'snapshots', 'report.zh-Hant.txt');
 const UPDATE = process.argv.includes('--update');

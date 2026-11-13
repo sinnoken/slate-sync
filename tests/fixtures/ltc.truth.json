@@ -10,6 +10,7 @@
   "has_video": false,
   "clock_type": null,
   "ltc": "25",
+  "df": false,
   "tz": null,
   "mod": 86400,
   "pitch_rejected": 0,

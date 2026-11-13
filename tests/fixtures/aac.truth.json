@@ -10,6 +10,7 @@
   "has_video": false,
   "clock_type": null,
   "ltc": null,
+  "df": false,
   "tz": null,
   "mod": 540,
   "pitch_rejected": 0,
@@ -28,5 +29,5 @@
     "--plug",
     "7"
   ],
-  "sha256": "3cf9b2787806067946eb65c7acc988ddb8d0bcccde503f9bd2bdaaffa6498f27"
+  "sha256": "1ac2a3e168c6066146881adbbed1f939b05d254495d54af0ffe1b1cae3f13cc0"
 }

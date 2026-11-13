@@ -10,6 +10,7 @@
   "has_video": true,
   "clock_type": "end",
   "ltc": null,
+  "df": false,
   "tz": "+08:00",
   "mod": 540,
   "pitch_rejected": 0,
@@ -17,7 +18,7 @@
   "max_worst_ms": 0.0122,
   "fps": 29.97002997002997,
   "frames": 450,
-  "av_offset_ms": 25.0,
+  "av_offset_ms": 25,
   "media_length": 15.015,
   "corrected_length": 15.011997600479905,
   "clock_r": -0.265,
@@ -43,11 +44,11 @@
     "--encoder",
     "cpu",
     "--av-offset",
-    "25.0",
+    "25",
     "--audio",
     "code",
     "--gop",
     "1"
   ],
-  "sha256": "53d1f0430cf1fdb682a5f3e0d431e554a8191d0d43bee3e0ba3db0c33800dfbf"
+  "sha256": "b6b7f600463cc29c077dd0b80cba913d04cf49a65b7a876271a2a0190cf6205b"
 }
