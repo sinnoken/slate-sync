@@ -183,7 +183,7 @@ function readStats(r, sc) {
   r.visualReadS = sc.ends.reduce((a, e) => a + e.decoded, 0);
   r.visualReadMb = sc.ends.reduce((a, e) => a + e.bytes, 0) / 1e6;
   r.videoDecoder = [...sc.vr.decoders].sort().join('+') || null;
-  if (sc.vr.fallback) r.hwFallback = sc.vr.fallback;
+  if (sc.vr.fallback) { r.hwFallback = sc.vr.fallback; if (sc.vr.fallbackKey) r.hwFallbackKey = sc.vr.fallbackKey; }
 }
 
 // Consistent visual edges per end: [[name, [[file_t, ID]], Map file_t -> half width]].
@@ -341,7 +341,7 @@ export async function analyze(m, opts, tick) {
   if (opts.av) {
     try { await avCheck(r, m, await video(), opts, tick); }
     catch (e) {                                          // the timing result from the audio still stands
-      for (const k of ['source', 'visualReadS', 'visualReadMb', 'videoDecoder', 'hwFallback', 'visualEdges', 'label540']) delete r[k];
+      for (const k of ['source', 'visualReadS', 'visualReadMb', 'videoDecoder', 'hwFallback', 'hwFallbackKey', 'visualEdges', 'label540']) delete r[k];
       r.avError = { key: 'av.codec', vars: { why: 'why.decode', msg: String((e && e.message) || e).slice(0, 200) } };
     }
   }

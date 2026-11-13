@@ -5,14 +5,14 @@ check_analyzer.py — 回歸測試：以 headless 瀏覽器跑網頁分析器，
 1. 與真值（<名稱>.truth.json）比對：速度比例、起點、校正後長度、聲畫偏移的誤差須在報告自己的預估誤差內；
    模式（頭尾／僅開頭）須與預期相同。
 2. 跨檔案：cam.mp4 與 picture.mp4 的起點差（兩者都有畫面碼，9 分鐘一輪）須為 2 分鐘。
-3. 與 Python 命令列版（python/slate_sync.py --json --av）交叉比對；沒有 ffmpeg 時略過。
+3. 與 Node 命令列版（cli/slate-sync.mjs --json --av）交叉比對；沒有 ffmpeg 時略過。
 4. 文字報告快照（tests/web/snapshots/）：數字與解碼方式遮掉後逐字比對，報告文字一改就看得出來。
    報告措辭是刻意修改時，以 --update 更新快照並一起 commit。
 
 用法：
   python tests/web/check_analyzer.py              # 瀏覽器見 run_analyzer.py（環境變數 BROWSER 可指定）
   python tests/web/check_analyzer.py --update     # 重寫快照
-需求：Chrome 或 Edge；交叉比對另需 numpy、ffmpeg／ffprobe、pupil-apriltags
+需求：Chrome 或 Edge、node（建置）；交叉比對另需 ffmpeg／ffprobe
 """
 import argparse
 import difflib
@@ -41,14 +41,14 @@ PAIR = ("cam.mp4", "picture.mp4")          # 起點相差 2 分鐘、都有畫�
 # 真值因此有 ±半個取樣（48 kHz 時 0.0104 ms）的誤差，分析器再準也只能貼近這個值。
 GEN_Q_MS = 0.5 / 48000 * 1000
 
-# 網頁版與 Python 版的容許值。兩者用同一套演算法，差異只來自解碼器（瀏覽器的 AAC／H.264 解碼器 vs ffmpeg）
-# 與浮點運算順序；docs/testing.md 記錄的 16 個檔案交叉比對最大為 0.02 ppm、起點 0.0005 ms、長度 0.005 ms。
+# 網頁版與命令列版的容許值。兩者用同一份分析核心（src/core/），差異只來自解碼器（瀏覽器的 AAC／H.264 解碼器
+# vs ffmpeg）；docs/testing.md 記錄的 16 個檔案交叉比對最大為 0.02 ppm、起點 0.0005 ms、長度 0.005 ms。
 # 這裡各放寬約 2 倍，留給不同平台的解碼器差異，仍遠小於任何一項的預估誤差。
 CLI_TOL = {
     "ppm": 0.05,          # ppm
     "start_ms": 0.001,    # ms，起點（模數取兩者較小者）
     "length_ms": 0.01,    # ms，校正後長度
-    # 聲畫偏移：畫面碼的偵測器不同（網頁內嵌的 JS 版 vs pupil-apriltags），每個邊緣的次格估計可略有出入；
+    # 聲畫偏移：偵測器相同，但縮小影格的方式不同（瀏覽器的 canvas vs ffmpeg 的 scale），轉換格的判讀可略有出入；
     # 0.05 ms 仍不到 29.97 fps 一格（33 ms）的千分之二。
     "av_ms": 0.05,
 }
@@ -167,17 +167,16 @@ def check_pair(c, by_name, truths):
 def run_cli(paths):
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         return None
-    p = subprocess.run([sys.executable, os.path.join(ROOT, "python", "slate_sync.py"), *paths, "--av", "--json"],
-                       capture_output=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+    p = subprocess.run(["node", os.path.join(ROOT, "cli", "slate-sync.mjs"), *paths, "--av", "--json"], capture_output=True)
     if p.returncode:
-        raise SystemExit("Python 版執行失敗：\n" + p.stderr.decode("utf-8", "replace")[-2000:])
+        raise SystemExit("命令列版執行失敗：\n" + p.stderr.decode("utf-8", "replace")[-2000:])
     return {os.path.basename(r["file"]): r for r in json.loads(p.stdout.decode("utf-8"))}
 
 
 def check_cli(c, web, cli):
     name = web["file"]
     if web.get("error") or "rate" not in cli:
-        c.check(name, "CLI 有結果", not web.get("error") and "rate" in cli, "網頁版或 Python 版沒有結果")
+        c.check(name, "CLI 有結果", not web.get("error") and "rate" in cli, "網頁版或命令列版沒有結果")
         return
     d = web["ppm"] - cli["ppm"]
     c.check(name, "CLI 速度比例", abs(d) <= CLI_TOL["ppm"], f"差 {d:+.4f} ppm（容許 ±{CLI_TOL['ppm']}）")
@@ -189,7 +188,7 @@ def check_cli(c, web, cli):
     wo, co = web.get("avOffsetMs") or {}, cli.get("av_offset_ms") or {}
     for k in ("head", "tail"):
         if bool(wo.get(k)) != bool(co.get(k)):
-            c.check(name, f"CLI 聲畫偏移（{k}）", False, f"只有一邊量到（網頁 {bool(wo.get(k))}，Python {bool(co.get(k))}）")
+            c.check(name, f"CLI 聲畫偏移（{k}）", False, f"只有一邊量到（網頁 {bool(wo.get(k))}，命令列 {bool(co.get(k))}）")
         elif wo.get(k):
             d = wo[k]["mean"] - co[k]["mean"]
             c.check(name, f"CLI 聲畫偏移（{k}）", abs(d) <= CLI_TOL["av_ms"], f"差 {d:+.4f} ms（容許 ±{CLI_TOL['av_ms']}）")
@@ -226,7 +225,7 @@ def check_snapshot(c, report, update):
 def main():
     ap = argparse.ArgumentParser(description="網頁分析器的回歸測試")
     ap.add_argument("--update", action="store_true", help="重寫文字報告快照")
-    ap.add_argument("--no-cli", action="store_true", help="不與 Python 版交叉比對")
+    ap.add_argument("--no-cli", action="store_true", help="不與命令列版交叉比對")
     ap.add_argument("-v", "--verbose", action="store_true", help="列出每一項檢查的數值")
     ap.add_argument("--keep", help="把網頁版結果 JSON 存到這個路徑（除錯用）")
     args = ap.parse_args()
@@ -258,12 +257,10 @@ def main():
         check_snapshot(c, res.get("report"), args.update)
         cli = None if args.no_cli else run_cli(paths)
         if cli is None:
-            print("略過與 Python 版的交叉比對" + ("" if args.no_cli else "（找不到 ffmpeg／ffprobe）"))
+            print("略過與命令列版的交叉比對" + ("" if args.no_cli else "（找不到 ffmpeg／ffprobe）"))
         else:
-            print(f"Python 版：{time.monotonic() - t0 - t_web:.1f} 秒")
+            print(f"命令列版：{time.monotonic() - t0 - t_web:.1f} 秒")
             for name in ORDER:
-                if truths[name].get("ltc"):       # 命令列版尚未支援 LTC（ADR-0001 的 Node 版會支援）
-                    continue
                 if name in by_name and name in cli:
                     check_cli(c, by_name[name], cli[name])
     finally:

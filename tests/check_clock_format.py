@@ -2,7 +2,7 @@
 """
 check_clock_format.py — 回歸測試：起點時鐘的顯示先四捨五入到毫秒再拆成時分秒，秒數不會出現 60.000。
 
-同時檢查命令列版的 fmt_clock() 與分析核心的 fmtClock()（以 node 執行 src/core/report.js）。
+檢查網頁與命令列共用的分析核心 fmtClock()（以 node 執行 src/core/report.js）。
 用法：python tests/check_clock_format.py
 """
 import json
@@ -12,8 +12,6 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-sys.path.insert(0, os.path.join(ROOT, "python"))
-import slate_sync as s  # noqa: E402
 
 # (秒, 循環) → 期望的時:分:秒部分（註記文字不比對）
 CASES = [
@@ -42,11 +40,9 @@ def main():
     web = web_fmt([[v, m] for v, m, _ in CASES])
     bad = 0
     for (v, m, want), w in zip(CASES, web):
-        py = s.fmt_clock(v, m)
-        for name, got in (("命令列", py), ("網頁", w)):
-            if not got.startswith(want):
-                bad += 1
-                print(f"✗ {name}：{v} mod {m} → {got}（應為 {want}）")
+        if not w.startswith(want):
+            bad += 1
+            print(f"✗ {v} mod {m} → {w}（應為 {want}）")
     print("結果：全部通過" if not bad else f"結果：{bad} 項不符")
     return 1 if bad else 0
 

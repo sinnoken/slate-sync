@@ -4,6 +4,9 @@
   "description": "Sync clock for multicam shoots, and an analyzer that reads it back from the recordings.",
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "slate-sync": "cli/slate-sync.mjs"
+  },
   "engines": {
     "node": ">=20"
   },
@@ -14,5 +17,6 @@
   },
   "devDependencies": {
     "esbuild": "0.28.2"
-  }
+  },
+  "version": ""
 }

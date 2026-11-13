@@ -79,7 +79,9 @@ export function createReport(t) {
 
   // ---- visual code / A/V sync check parts of a result (present only when the video track was decoded)
   const floorNote = r => r.visFloorMs ? t('card.floor', { ms: r.visFloorMs.toFixed(3) }) : '';
-  const decText = r => (r.videoDecoder || '').split('+').filter(Boolean).map(d => t('dec.' + d)).join(t('dec.sep'));
+  // 'hardware' / 'software' (the page), or the name of ffmpeg's hardware decoder (the command line: cuda, d3d11va).
+  const decText = r => (r.videoDecoder || '').split('+').filter(Boolean)
+    .map(d => d === 'hardware' || d === 'software' ? t('dec.' + d) : t('dec.hwName', { name: d })).join(t('dec.sep'));
   const visText = r => t('card.visV', { s: r.visualReadS.toFixed(1), mb: r.visualReadMb.toFixed(1), n: r.visualEdges, dec: decText(r) });
   const avOffText = r => ['head', 'tail'].filter(k => r.avOffsetMs[k]).map(k => { const o = r.avOffsetMs[k];
     return t('av.part', { end: t('av.' + k), ms: sgn(o.mean, 3), half: o.half.toFixed(3), n: o.pairs }); }).join(t('av.sep'));
@@ -128,7 +130,7 @@ export function createReport(t) {
   function reportAv(L, r, results, avRef) {
     if (r.visualReadS !== undefined) {
       L.push(t('rep.vis', { v: visText(r) }));
-      if (r.hwFallback) L.push(t('rep.hwFallback', { why: r.hwFallback }));
+      if (r.hwFallback) L.push(t(r.hwFallbackKey || 'rep.hwFallback', { why: r.hwFallback }));
     }
     if (r.avError) L.push(t('rep.avErr', { v: errText(r.avError) }));
     if (!r.avOffsetMs) return;
