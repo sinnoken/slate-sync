@@ -8,6 +8,7 @@
 | [visual-code.md](visual-code.md) | 畫面碼（AprilTag）：碼表與繪製、ID 對應、切換時序、版面、畫面解讀流程、聲畫同步檢查的欄位與選項 |
 | [start-time.md](start-time.md) | 循環長度與跨檔案比對範圍、用檔案建立時間推定起點時鐘 |
 | [ltc.md](ltc.md) | 場記板的 LTC 輸出與分析器的 LTC 解讀 |
+| [precision.md](precision.md) | 精度理論：誤差模型與 σ 假設、頭尾／只錄一端的預期誤差、每端最少秒數 |
 | [testing.md](testing.md) | 驗證方式（各測試的比對對象、測試產生器的選項）、測試條件與實測結果、尚未驗證的項目 |
 
 架構決策紀錄（ADR）放在 [adr/](adr/)：[0001 分析器只保留一份 JS 分析核心](adr/0001-shared-analysis-core.md)。
