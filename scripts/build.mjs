@@ -6,7 +6,8 @@
 //   node scripts/build.mjs            # 建置一次
 //   node scripts/build.mjs --serve    # 開發：改 src/ 或 web/ 後自動重建，並在 http://localhost:8000/ 提供 dist/
 import * as esbuild from 'esbuild';
-import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -36,7 +37,18 @@ const watchExtras = {
   },
 };
 
-// After every bundle: copy web/ as is and write the analyzer page with the bundle inlined.
+// Writes a file through a temporary name, so the server never hands out half a file.
+async function put(file, data) {
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file + '.tmp', data);
+  await rename(file + '.tmp', file);
+}
+
+// After every bundle: copy web/ as is and write the analyzer page with the bundle inlined. The esbuild server rebuilds
+// on requests too, so dist/ is written only when the output differs from the last write: changed files are replaced
+// in place and only the ones no longer in web/ are removed (dist/ is never emptied while it is being served).
+let written = new Map();          // dist path -> sha256 of what was last written
+const sha = data => createHash('sha256').update(data).digest('hex');
 const writePages = {
   name: 'write-pages',
   setup(build) {
@@ -46,11 +58,16 @@ const writePages = {
       if (/<\/script/i.test(js)) throw new Error('打包結果含有 </script，無法內嵌');
       const html = await readFile(TEMPLATE, 'utf8');
       if (html.split(SLOT).length !== 2) throw new Error(`${path.relative(ROOT, TEMPLATE)} 必須正好有一個 ${SLOT}`);
-      await rm(DIST, { recursive: true, force: true });
-      await mkdir(DIST, { recursive: true });
-      await cp(WEB, DIST, { recursive: true });
+      const files = new Map();       // dist path -> contents
+      for (const f of await filesUnder(WEB)) files.set(path.join(DIST, path.relative(WEB, f)), await readFile(f));
       // A replacer function, so "$&" and the like in the bundle are not read as replacement patterns.
-      await writeFile(path.join(DIST, 'sync-analyzer.html'), html.replace(SLOT, () => `<script>\n${js}</script>`));
+      files.set(path.join(DIST, 'sync-analyzer.html'), Buffer.from(html.replace(SLOT, () => `<script>\n${js}</script>`)));
+      const next = new Map([...files].map(([f, d]) => [f, sha(d)]));
+      if (next.size === written.size && [...next].every(([f, h]) => written.get(f) === h)) return;
+      if (!written.size) await rm(DIST, { recursive: true, force: true });   // the first write: clear what an earlier run left
+      for (const [f, d] of files) if (written.get(f) !== next.get(f)) await put(f, d);
+      for (const f of written.keys()) if (!next.has(f)) await rm(f, { force: true });
+      written = next;
       console.log(`已建置 ${path.relative(ROOT, DIST)}${path.sep}（${new Date().toLocaleTimeString()}）`);
     });
   },
