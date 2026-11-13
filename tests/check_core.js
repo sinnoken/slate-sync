@@ -100,5 +100,24 @@ for (const name of ['wave.wav', 'ltc.wav']) {
   for (const [name, ok, detail] of cases) if (ok) console.log(`✓ 建立時間：${name}`); else fail(`建立時間：${name}（${detail}）`);
 }
 
+// Minute markers (docs/waveform-code.md rule 6): several must agree, or none is used.
+{
+  const { label } = await import(pathToFileURL(path.join(CORE, 'wave.js')));
+  // Seconds 10:59:58 .. 11:02:05 local (k from the slate's formula), with minute markers whose minute can be misread.
+  const secs = (minutes, pitch) => Array.from({ length: 128 }, (_, i) => {
+    const T = 39598 + i, sec = T % 60, k = T % 540, d = { t: 100 + i * 1.0005, val: sec, isMin: sec === 0 };
+    if (d.isMin) d.val = minutes.shift();
+    if (pitch) d.pitch = (Math.floor(k / 60) + 4 * (k % 60)) % 11;
+    return d;
+  });
+  const cases = [
+    ['只有秒數、兩個分鐘標記一致', label(secs([0, 1, 2])).mod === 3600],
+    ['只有秒數、分鐘標記不一致：捨棄', label(secs([0, 5, 2])).mod === 60],
+    ['音高、兩個分鐘標記一致：3 小時', label(secs([0, 1, 2], true)).mod === 10800],
+    ['音高、分鐘標記不一致：捨棄、維持 9 分鐘', label(secs([0, 4, 2], true)).mod === 540],
+  ];
+  for (const [name, ok] of cases) if (ok) console.log(`✓ 分鐘標記：${name}`); else fail(`分鐘標記：${name}`);
+}
+
 console.log(failed ? `結果：${failed} 項不符` : '結果：全部通過');
 process.exit(failed ? 1 : 0);

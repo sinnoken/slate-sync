@@ -104,6 +104,15 @@ export function decode(x, t0, sr) {
   return out;
 }
 
+// The minute marker of these seconds, or null: none, or several that do not agree (each, carried back to the first
+// second, must give the same time mod 3600); a misread minute number then cannot pass as the hour position.
+function minuteMarker(secs) {
+  const ms = secs.filter(s => s.isMin);
+  if (!ms.length) return null;
+  const at = m => mod(m.val * 60 - Math.round(m.t - secs[0].t), 3600);
+  return ms.every(m => at(m) === at(ms[0])) ? ms[0] : null;
+}
+
 export function label(seconds) {
   if (!seconds.length) return null;
   seconds = seconds.slice().sort((p, q) => p.t - q.t);
@@ -126,7 +135,7 @@ export function label(seconds) {
   for (const [k, n] of votes) if (n > nk) { k0 = k; nk = n; }
   if (nk >= 3 && nk > good.length / 2) {
     const kAt = s => mod(k0 + Math.round(s.t - g0.t), VIS_MOD), kept = good.filter(s => kOf(s) === kAt(s));
-    const lab = kept.map(s => [s.t, kAt(s)]), pitchRejected = good.length - kept.length, marker = kept.find(s => s.isMin);
+    const lab = kept.map(s => [s.t, kAt(s)]), pitchRejected = good.length - kept.length, marker = minuteMarker(kept);
     if (marker) {
       // The minute marker gives the time mod 3600 and k mod 540; both give it mod 180 (their gcd). Only when they
       // agree are they merged into seconds mod 10800 (3 hours).
@@ -138,7 +147,7 @@ export function label(seconds) {
     }
     return { lab, mod: VIS_MOD, pitchRejected };
   }
-  const marker = good.find(s => s.isMin);
+  const marker = minuteMarker(good);
   if (marker) return { lab: good.map(s => [s.t, mod(marker.val * 60 + Math.round(s.t - marker.t), 3600)]), mod: 3600, pitchRejected: 0 };
   return { lab: good.map(s => [s.t, mod(rRef + Math.round(s.t - ref.t), 60)]), mod: 60, pitchRejected: 0 };
 }
