@@ -12,6 +12,7 @@ python tests/check_visual_code.py      # 各處內嵌的 tag 碼表一致、每�
 python tests/check_wave_pitch.py       # 波形碼音高：場記板、產生器、分析器的公式一致（需要 node）
 python tests/check_ltc_bits.py         # 產生器的 LTC 與場記板逐格、逐取樣相同（需要 node）
 node tests/check_web.js               # 網頁語法正確、四種語言的字串 key 一致
+python tests/web/check_analyzer.py    # 以 headless Chrome／Edge 跑網頁分析器，與真值、命令列版、報告快照比對
 ```
 
 測試產生器的其他選項：`--old-pitch`（舊版場記板的載波，不帶 9 分鐘循環）；`--ltc 24|25|29.97|30|23.976`（`--df`、`--ltc-channel`、`--ltc-with code|scene`、`--ltc-noise`、`--ltc-invert`，搭配 `--ppm`、`--start` 與 .m4a／.mp4 輸出的 AAC）；`--created start|end`、`--created-offset`、`--date`、`--tz`（MP4／MOV／M4A 寫 creation_time，WAV 寫 BWF time_reference）。產生器會印出 LTC 第一格的時間碼與位置、建立時間與 r 的真值。
@@ -211,6 +212,16 @@ H.264／H.265 × AAC、MOV 的 sowt／twos／in24（大小端）／fl32、MP4 �
 |---|---|---|---|---|
 | 1920×1080 30 fps H.264，3 分鐘 | 18.4 秒 | 11.1 MB | 16.0 秒 | −9.4 ppm／−4.3 ms |
 | 3840×2160 59.94 fps H.265，3 分鐘 | 17.8 秒 | 57.9 MB | 26.2 秒 | −6.8 ppm／−1.5 ms |
+
+### 網頁分析器自動測試
+
+`tests/web/run_analyzer.py` 在本機伺服器以外框頁（`tests/web/harness.html`）載入 `web/sync-analyzer.html`，把 `tests/fixtures/` 的測試檔交給分析器並收回結果；分析器本身不為測試修改。`tests/web/check_analyzer.py` 檢查：
+
+- 與真值的誤差在報告自己的預估誤差內（另加半個取樣 0.0104 ms，產生器把每秒取整到取樣點）；
+- 與命令列版的差異在容許值內（速度比例 0.05 ppm、起點 0.001 ms、長度 0.01 ms，約為兩版實測最大差異的 2 倍；聲畫偏移 0.05 ms，因兩版偵測器不同）；
+- 繁中文字報告與快照（`tests/web/snapshots/`）相同，數字以 `#` 取代後比對。
+
+測試檔由 `tests/fixtures/make_fixtures.py` 以固定參數產生（640×360、libx264，不含 HEVC，合計約 3 MB）；頭尾模式要求兩端相隔 60 秒以上，所以長檔為 80 秒。本機 Edge 全部約 40 秒。
 
 ## 尚未驗證
 

@@ -1,0 +1,27 @@
+{
+  "file": "wave.wav",
+  "note": "WAV，頭尾各 8 秒有波形碼，兩端分開計算；只留波形碼聲道，以 gzip 存檔",
+  "mode": "both",
+  "ppm": 833,
+  "rate": 1.000833,
+  "start": 45296.789,
+  "start_text": "12:34:56.789",
+  "has_audio": true,
+  "has_video": false,
+  "clock_type": null,
+  "ltc": null,
+  "media_length": 80,
+  "corrected_length": 79.93341546491772,
+  "generator_args": [
+    "wave.wav",
+    "--minutes",
+    "1.3333333333333333",
+    "--ppm",
+    "833",
+    "--start",
+    "12:34:56.789",
+    "--plug",
+    "8"
+  ],
+  "sha256": "a42d31eac428e06023d9e3a42fa5c910a5b180502f62c159a73beb2a3ab20de7"
+}

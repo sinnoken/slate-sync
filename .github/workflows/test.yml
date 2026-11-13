@@ -44,7 +44,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends ffmpeg
           pip install -r python/requirements.txt pupil-apriltags pyflakes
       - name: Static check
-        run: python -m pyflakes python/slate_sync.py tests/*.py
+        run: python -m pyflakes python/slate_sync.py tests/*.py tests/web/*.py tests/fixtures/*.py
       - name: Web pages (syntax, four-language strings)
         run: node tests/check_web.js
       - name: Visual code tables
@@ -59,3 +59,9 @@ jobs:
         run: python tests/check_cli_encoding.py
       - name: Start clock never shows 60 seconds
         run: python tests/check_clock_format.py
+      # Headless Chrome (preinstalled on the ubuntu runner) runs web/sync-analyzer.html on tests/fixtures/ and the
+      # results are compared with the truth, the CLI and the text-report snapshot. The fixtures avoid HEVC, which
+      # Linux Chrome cannot decode with WebCodecs.
+      - name: Web analyzer in headless Chrome (truth, CLI, report snapshot)
+        timeout-minutes: 5
+        run: python tests/web/check_analyzer.py

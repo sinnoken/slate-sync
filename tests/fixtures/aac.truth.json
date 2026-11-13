@@ -1,0 +1,27 @@
+{
+  "file": "aac.m4a",
+  "note": "AAC（M4A），只有頭尾各 7 秒有波形碼",
+  "mode": "head",
+  "ppm": -694,
+  "rate": 0.999306,
+  "start": 45300.039,
+  "start_text": "12:35:00.039",
+  "has_audio": true,
+  "has_video": false,
+  "clock_type": null,
+  "ltc": null,
+  "media_length": 20,
+  "corrected_length": 20.01388963940975,
+  "generator_args": [
+    "aac.m4a",
+    "--minutes",
+    "0.3333333333333333",
+    "--ppm",
+    "-694",
+    "--start",
+    "12:35:00.039",
+    "--plug",
+    "7"
+  ],
+  "sha256": "3cf9b2787806067946eb65c7acc988ddb8d0bcccde503f9bd2bdaaffa6498f27"
+}

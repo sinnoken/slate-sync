@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>Analyzer harness</title>
+</head>
+<body>
+<!--
+  網頁分析器的測試外框（由 tests/web/run_analyzer.py 開啟）。分析器本身不為測試修改：
+  這頁在同源 iframe 載入 web/sync-analyzer.html，依網址參數 fetch 測試檔、組成 File，
+  以 DataTransfer 交給分析器的 #pick 並觸發 change，等 window.__done 達到檔案數後
+  把 window.__results 與文字報告 POST 回 /__result。
+
+  參數：f（測試檔網址，可重複）、lang、av、full、minute、only（head／tail）、dist（公尺）、timeout（秒）。
+-->
+<iframe id="app" src="/web/sync-analyzer.html" style="width:1200px;height:900px"></iframe>
+<script>
+(() => {
+const q = new URLSearchParams(location.search);
+const files = q.getAll('f');
+const errors = [];
+const t0 = performance.now();
+let sent = false;
+
+function send(extra) {
+  if (sent) return;
+  sent = true;
+  const w = document.getElementById('app').contentWindow;
+  let report = null, results = null;
+  try { report = w.document.getElementById('report').value; } catch (e) { errors.push('report: ' + e); }
+  try { results = JSON.parse(JSON.stringify(w.__results || null)); } catch (e) { errors.push('results: ' + e); }
+  const body = { results, report, errors, elapsedS: (performance.now() - t0) / 1000, userAgent: navigator.userAgent,
+    webcodecs: { audio: typeof w.AudioDecoder !== 'undefined', video: typeof w.VideoDecoder !== 'undefined' }, ...extra };
+  fetch('/__result', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+}
+
+// 固定 File.lastModified 為當地 12:30（分析器以它推算整點，報告才不隨時區或檔案時間改變）。
+const MTIME = new Date(2026, 0, 1, 12, 30, 0).getTime();
+
+async function start() {
+  const frame = document.getElementById('app');
+  const w = frame.contentWindow, d = w.document;
+  w.addEventListener('error', e => errors.push('error: ' + e.message));
+  w.addEventListener('unhandledrejection', e => errors.push('unhandledrejection: ' + (e.reason && e.reason.message || e.reason)));
+  w.alert = msg => errors.push('alert: ' + msg);           // 分析器缺 WebCodecs 時會 alert，不讓它卡住
+  const set = (id, fn) => { const el = d.getElementById(id); fn(el); el.dispatchEvent(new w.Event('change')); };
+  if (q.has('lang')) set('lang', el => { el.value = q.get('lang'); });
+  set('optAv', el => { el.checked = q.get('av') === '1'; });
+  set('optFull', el => { el.checked = q.get('full') === '1'; });
+  set('optMinute', el => { el.checked = q.get('minute') === '1'; });
+  set('optOnly', el => { el.value = q.get('only') || ''; });
+  set('optDist', el => { el.value = q.get('dist') || '0'; });
+
+  const list = [];
+  for (const url of files) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`fetch ${url}: ${res.status}`);
+    const blob = await res.blob();
+    list.push(new w.File([blob], decodeURIComponent(url.split('/').pop()), { type: blob.type, lastModified: MTIME }));
+  }
+  const dt = new w.DataTransfer();
+  for (const f of list) dt.items.add(f);
+  const pick = d.getElementById('pick');
+  pick.files = dt.files;
+  pick.dispatchEvent(new w.Event('change'));
+
+  const limit = (parseFloat(q.get('timeout')) || 300) * 1000;
+  const poll = setInterval(() => {
+    if ((w.__done || 0) >= list.length) { clearInterval(poll); send({ ok: true }); }
+    else if (performance.now() - t0 > limit) { clearInterval(poll); errors.push('timeout'); send({ ok: false }); }
+  }, 100);
+}
+
+document.getElementById('app').addEventListener('load', () => {
+  start().catch(e => { errors.push('harness: ' + (e && e.stack || e)); send({ ok: false }); });
+});
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "file": "ltc.wav",
+  "note": "WAV，25 fps LTC；只留 LTC 聲道，以 gzip 存檔",
+  "mode": "head",
+  "ppm": 300,
+  "rate": 1.0003,
+  "start": 48005.4,
+  "start_text": "13:20:05.400",
+  "has_audio": true,
+  "has_video": false,
+  "clock_type": null,
+  "ltc": "25",
+  "media_length": 20,
+  "corrected_length": 19.99400179946016,
+  "generator_args": [
+    "ltc.wav",
+    "--minutes",
+    "0.3333333333333333",
+    "--ppm",
+    "300",
+    "--start",
+    "13:20:05.400",
+    "--ltc",
+    "25"
+  ],
+  "sha256": "100af770071bcd31fdeb22c2cb2763fb9dc0ece53f73f6747f6133ea21144425"
+}
