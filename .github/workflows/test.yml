@@ -52,6 +52,8 @@ jobs:
         run: python -m pyflakes python/slate_sync.py tests/*.py tests/web/*.py tests/fixtures/*.py
       - name: Web pages (syntax, four-language strings)
         run: node tests/check_web.js
+      - name: Analysis core runs in node without browser APIs
+        run: node tests/check_core.js
       - name: Visual code tables
         run: python tests/check_visual_code.py
       - name: Waveform pitch matches the slate

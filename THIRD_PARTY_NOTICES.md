@@ -2,7 +2,7 @@
 
 ## AprilTag (tag36h11 code table)
 
-`web/sync-slate.html`, the analyzer (`src/web/main.js`, built into `sync-analyzer.html`) and `tests/make_test_media.py` embed the tag36h11 code table and bit layout from [AprilRobotics/apriltag](https://github.com/AprilRobotics/apriltag) (`tag36h11.c`, commit `b7c0ebe9aa20f82ec7a828579004f9e706bfecd9`). The optional Python dependency [pupil-apriltags](https://github.com/pupil-labs/apriltags) wraps the same library.
+`web/sync-slate.html`, the analysis core (`src/core/visual.js`, built into `sync-analyzer.html`) and `tests/make_test_media.py` embed the tag36h11 code table and bit layout from [AprilRobotics/apriltag](https://github.com/AprilRobotics/apriltag) (`tag36h11.c`, commit `b7c0ebe9aa20f82ec7a828579004f9e706bfecd9`). The optional Python dependency [pupil-apriltags](https://github.com/pupil-labs/apriltags) wraps the same library.
 
 ```
 BSD 2-Clause License
@@ -38,7 +38,7 @@ either expressed or implied, of the Regents of The University of Michigan.
 
 ## js-aruco2 (marker detector)
 
-The analyzer (`src/web/main.js`, built into `sync-analyzer.html`) embeds `src/aruco.js` and `src/cv.js` from [damianofalcioni/js-aruco2](https://github.com/damianofalcioni/js-aruco2) (commit `0491d5d228746411d0e9dd602b98f48636a644ba`), modified: unused parts removed (built-in dictionaries, streaming, SVG, blur), the tag36h11 dictionary generated at run time from the code table above, and the per-candidate threshold changed from Otsu to the midpoint of the 5th and 95th percentiles. The pose-estimation files (`posit*.js`, `svd.js`) are not used.
+The analysis core embeds `src/aruco.js` and `src/cv.js` (as `src/core/aruco.js`, built into `sync-analyzer.html`) from [damianofalcioni/js-aruco2](https://github.com/damianofalcioni/js-aruco2) (commit `0491d5d228746411d0e9dd602b98f48636a644ba`), modified: unused parts removed (built-in dictionaries, streaming, SVG, blur), the tag36h11 dictionary generated at run time from the code table above, and the per-candidate threshold changed from Otsu to the midpoint of the 5th and 95th percentiles. The pose-estimation files (`posit*.js`, `svd.js`) are not used.
 
 ```
 Copyright (c) 2020 Damiano Falcioni

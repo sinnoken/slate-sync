@@ -2,7 +2,7 @@
 """
 check_clock_format.py — 回歸測試：起點時鐘的顯示先四捨五入到毫秒再拆成時分秒，秒數不會出現 60.000。
 
-同時檢查命令列版的 fmt_clock() 與網頁分析器的 fmtClock()（以 node 執行頁面中的函式）。
+同時檢查命令列版的 fmt_clock() 與分析核心的 fmtClock()（以 node 執行 src/core/report.js）。
 用法：python tests/check_clock_format.py
 """
 import json
@@ -27,12 +27,12 @@ CASES = [
 
 
 def web_fmt(cases):
-    html = open(os.path.join(ROOT, "src", "web", "main.js"), encoding="utf-8").read()
-    a = html.index("const fmtClock = ")
-    b = html.index("\n};", a) + 3
-    js = ("const VIS_MOD = 540; const mod = (v, m) => ((v % m) + m) % m; const t = () => '';\n" + html[a:b] +
-          "\nprocess.stdout.write(JSON.stringify(" + json.dumps(cases) + ".map(([v, m]) => fmtClock(v, m))));")
-    out = subprocess.run(["node", "-"], input=js.encode("utf-8"), capture_output=True, check=True).stdout
+    """分析核心（src/core/report.js）的 fmtClock()，以 node 執行。"""
+    url = "file:///" + os.path.join(ROOT, "src", "core", "report.js").replace(os.sep, "/").lstrip("/")
+    js = (f"import {{ createReport }} from {json.dumps(url)};\nconst {{ fmtClock }} = createReport(() => '');\n"
+          "process.stdout.write(JSON.stringify(" + json.dumps(cases) + ".map(([v, m]) => fmtClock(v, m))));")
+    out = subprocess.run(["node", "--input-type=module", "-"], input=js.encode("utf-8"), capture_output=True,
+                         check=True).stdout
     return json.loads(out)
 
 

@@ -12,6 +12,7 @@ python tests/check_visual_code.py      # 各處內嵌的 tag 碼表一致、每�
 python tests/check_wave_pitch.py       # 波形碼音高：場記板、產生器、分析器的公式一致（需要 node）
 python tests/check_ltc_bits.py         # 產生器的 LTC 與場記板逐格、逐取樣相同（需要 node）
 node tests/check_web.js               # 網頁語法正確、四種語言的字串 key 一致
+node tests/check_core.js              # 分析核心不用瀏覽器 API，node 可直接執行
 python tests/web/check_analyzer.py    # 以 headless Chrome／Edge 跑網頁分析器，與真值、命令列版、報告快照比對
 ```
 
