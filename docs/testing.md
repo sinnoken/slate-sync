@@ -6,15 +6,25 @@
 python tests/make_test_media.py test-media/a.wav --minutes 4 --ppm 833
 python tests/make_test_media.py test-media/b.mp4 --minutes 4 --ppm -694 --start 12:35:00.039 --plug 70
 node cli/slate-sync.mjs test-media/a.wav test-media/b.mp4    # 命令列分析器（需 ffmpeg／ffprobe；--json、--lang en 等）
-python tests/check_read_audio.py       # 命令列從任何位置讀取音訊都不錯位（AAC 與 WAV）
-python tests/check_cli_encoding.py     # 主控台不是 UTF-8（如 cp950）時報告仍完整印出
-python tests/check_visual_code.py      # 各處內嵌的 tag 碼表一致、每個 ID 都偵測得到
-python tests/check_wave_pitch.py       # 波形碼音高：場記板、產生器、分析核心的公式一致（需要 node）
-python tests/check_ltc_bits.py         # 產生器的 LTC 與場記板逐格、逐取樣相同（需要 node）
-node tests/check_web.js               # 網頁語法正確、四種語言的字串 key 一致
-node tests/check_core.js              # 分析核心不用瀏覽器 API，node 可直接執行
-python tests/web/check_analyzer.py    # 建置後以 headless Chrome／Edge 跑網頁分析器，與真值、命令列版、報告快照比對
+npm test                              # 全部：npm run check 加上 node --test（需 ffmpeg／ffprobe、Chrome 或 Edge）
 ```
+
+測試都用 Node 內建的 `node --test`，可單獨執行：
+
+| 測試 | 檢查的事 | 比對對象 |
+|---|---|---|
+| `node tests/check_web.js` | 網頁語法正確、四種語言的字串 key 一致 | — |
+| `node tests/check_core.js` | 分析核心不用瀏覽器 API；node 直接分析 WAV 測試檔 | 真值（週期固定） |
+| `tests/visual-code.test.mjs` | 場記板與分析核心的 tag 碼表、場記板畫的 ID 0–539（四種旋轉）、ID 公式 | 官方 `tag36h11.c`（`tests/data/tag36h11.json`）、固定期望值 |
+| `tests/wave-pitch.test.mjs` | 場記板的 `cycleK()`／`waveHz()` 兩天逐秒（UTC、UTC+8）、分析核心的 `WAVE_HZ`／`cycleK()` | 獨立寫的規格公式與抽查值 |
+| `tests/ltc-bits.test.mjs` | 場記板的 `countToTC()`／`ltcBits()`／`ltcChunk()` | 獨立的參考實作、DF 固定期望值、分析核心的解碼器 |
+| `tests/read-audio.test.mjs` | 命令列從任何位置讀取音訊都不錯位（AAC 與 WAV） | ffmpeg 整段解碼 |
+| `tests/cli-encoding.test.mjs` | 主控台不是 UTF-8（如 cp950）時報告仍完整印出 | — |
+| `tests/clock-format.test.mjs` | 起點時鐘不出現 60 秒（五種週期） | 固定字串 |
+| `tests/web/checks.test.mjs` | 網頁測試的每項檢查遇到錯的結果都會失敗 | 人工改壞的結果 |
+| `tests/web/analyzer.test.mjs` | 建置後以 headless Chrome／Edge 跑網頁分析器 | 真值、命令列版、報告快照 |
+
+場記板 `web/sync-slate.html` 的程式內嵌在頁面裡，測試以 `tests/lib/slate.mjs` 取出指定的函式，在 node 的 `vm` 執行。網頁測試的瀏覽器時區須與 `cam.mp4` 的真值相同（UTC+8）：Linux 以 `TZ=Asia/Taipei` 執行，Windows 的 Edge 不理會 `TZ`，用系統時區；不符時測試明確報錯。單獨執行網頁分析器：`node tests/web/run-analyzer.mjs 檔案… --av --out result.json --report report.txt`；報告措辭刻意修改時以 `node tests/web/analyzer.test.mjs --update` 更新快照。
 
 測試產生器的其他選項：`--old-pitch`（舊版場記板的載波，不帶 9 分鐘循環）；`--ltc 24|25|29.97|30|23.976`（`--df`、`--ltc-channel`、`--ltc-with code|scene`、`--ltc-noise`、`--ltc-invert`，搭配 `--ppm`、`--start` 與 .m4a／.mp4 輸出的 AAC）；`--created start|end`、`--created-offset`、`--date`、`--tz`（MP4／MOV／M4A 寫 creation_time，WAV 寫 BWF time_reference）。產生器會印出 LTC 第一格的時間碼與位置、建立時間與 r 的真值。
 
@@ -26,10 +36,9 @@ npm run build                   # 建置到 dist/
 npm run dev                     # 開發：改檔後自動重建，開啟 http://localhost:8000/sync-analyzer.html
 ```
 
-Python 只用於測試產生器與測試工具（`pip install numpy pillow pupil-apriltags`；pupil-apriltags 只有 `check_visual_code.py` 用）。畫面碼（AprilTag，規格見 [visual-code.md](visual-code.md)）：
+測試產生器需要 Python（`pip install numpy pillow`）。畫面碼（AprilTag，規格見 [visual-code.md](visual-code.md)）：
 
 ```bash
-python tests/check_visual_code.py          # 三處碼表一致、ID 0–539 繪製後讀回、ID 公式
 python tests/make_test_media.py test-media/v.mp4 --visual --minutes 3 --plug 60 --fps 29.97 --av-offset 25
 python tests/make_test_media.py test-media/w.mp4 --visual --minutes 3 --plug 60 --fps 25 --audio none --start 12:38:00.5
 node cli/slate-sync.mjs test-media/v.mp4 test-media/w.mp4 --av
@@ -134,7 +143,7 @@ H.264／H.265 × AAC、MOV 的 sowt／twos／in24（大小端）／fl32、MP4 �
 
 ### 波形碼音高的 9 分鐘循環（Python 版）
 
-`tests/check_wave_pitch.py`：以 node 執行場記板的 `cycleK()`／`waveHz()`，連續兩天逐秒（UTC 與 UTC+8，含跨午夜，另抽查整秒內的毫秒）與產生器的 `wave_hz()`、分析器的 `pitch_index()` 比對，172800 秒全部一致；三處的 11 個音高相同；相鄰兩秒都不同音；分析器由秒數與音高解回全部 540 個 k，其餘 120 種組合判為讀錯。
+`tests/wave-pitch.test.mjs`：以 vm 執行場記板的 `cycleK()`／`waveHz()`，連續兩天逐秒（UTC 與 UTC+8，含跨午夜，另抽查整秒內的毫秒）與獨立寫的規格公式（與產生器相同）比對，172800 秒全部一致；場記板與分析核心的 11 個音高與固定的音高表相同；相鄰兩秒都不同音；分析核心的 `cycleK()` 由秒數與音高解回全部 540 個 k（都在 0–539、各一次），其餘 120 種組合判為讀錯。
 
 回歸：5 個 WAV（4 分鐘 +833 ppm；−694 ppm 頭尾各 70 秒；10 分鐘 +200 ppm 頭尾各 30 秒；20 分鐘 +800 → +900 ppm `--full`；跨午夜 −300 ppm），各以預設、`--minute`、`--only head` 與三檔對齊執行，與修改前的分析器讀舊公式檔比較：
 
@@ -150,7 +159,7 @@ H.264／H.265 × AAC、MOV 的 sowt／twos／in24（大小端）／fl32、MP4 �
 
 ### 測試產生器的 LTC
 
-`tests/check_ltc_bits.py`：以 node 執行場記板的 `countToTC()`／`ltcBits()`，與產生器逐格比對 24、25、29.97 DF、29.97 NDF、30、23.976 各約 5400 格（午夜前後、每分鐘與每 10 分鐘邊界、全天隨機 3000 格），時間碼與 80 個位元全部相同；再以模擬的 AudioContext 執行場記板的 `ltcChunk()`（4 個區塊、32 格、跨午夜），輸出的 51200–64064 個取樣與產生器逐點相同（位元、極性、振幅 0.5、格起點、跨區塊連續）。DF 抽查：每分鐘跳過 ;00、;01，每 10 分鐘不跳，一天 2589408 格。
+`tests/ltc-bits.test.mjs`：以 vm 執行場記板的 `countToTC()`／`ltcBits()`，與獨立的參考實作（與產生器相同的算法）逐格比對 24、25、29.97 DF、29.97 NDF、30、23.976 各約 5400 格（午夜前後、每分鐘與每 10 分鐘邊界、全天隨機 3000 格），時間碼與 80 個位元全部相同；再以模擬的 AudioContext 執行場記板的 `ltcChunk()`（4 個區塊、32 格、跨午夜），輸出的 51200–64064 個取樣與參考實作逐點相同（位元、極性、振幅 0.5、格起點、跨區塊連續），分析核心的 `ltcDecode()` 從這些取樣解回連續的格數，`tcToCount()` 把每個時間碼換回同一個格數。DF 抽查（固定期望值）：每分鐘跳過 ;00、;01，每 10 分鐘不跳，一天 2589408 格。
 
 錄音端以錄音設備的時鐘、每個取樣取前後半個取樣間隔的平均值合成。以零交越檢查：25 fps +833 ppm 的第一個交越在 30.2752 ms（理論 30.2752），半位元間隔擬合為 +833.000 ppm；29.97 NDF −694 ppm 為 −694.000 ppm；AAC、反相、訊雜比 20 dB 時 −500 ppm 擬合為 −499.943 ppm。
 
@@ -176,7 +185,7 @@ H.264／H.265 × AAC、MOV 的 sowt／twos／in24（大小端）／fl32、MP4 �
 
 以 ffmpeg N-126303-g9f35e220ff（2026-08-27 建置）實測：AAC 音訊以輸入端 `-ss s` 讀取時，輸出的第一個取樣落在下一個 AAC 封包邊界，晚 `1024 − round(s × 48000) mod 1024` 個取樣（0–21.3 ms，s = 0 時晚 1024），讀到的秒前緣因此提早；WAV 不受影響。現在輸入端先跳到目標前 1 秒（目標小於 1.1 秒時從頭解碼），再以輸出端 `-ss` 依時間戳精確裁切。
 
-`tests/check_read_audio.py` 以掃頻音訊（AAC 的 .m4a、.mp4 與 WAV）在 16 個位置（0、1 秒內、封包邊界附近、檔尾附近）讀取，與整段解碼比對：修正前 AAC 16 個位置全部錯位（+2～+1024 取樣），修正後全部 0 取樣；WAV 修正前後都是 0。
+`tests/read-audio.test.mjs` 以掃頻音訊（AAC 的 .m4a、.mp4 與 WAV）在 16 個位置（0、1 秒內、封包邊界附近、檔尾附近）讀取，與整段解碼比對：修正前 AAC 16 個位置全部錯位（+2～+1024 取樣），修正後全部 0 取樣；WAV 修正前後都是 0。
 
 | 檔案（產生指令見「自行驗證」等） | 修正前 | 修正後 |
 |---|---|---|
@@ -191,7 +200,7 @@ H.264／H.265 × AAC、MOV 的 sowt／twos／in24（大小端）／fl32、MP4 �
 
 測試影片以 `--visual` 產生：720p、3 分鐘、頭尾各 60 秒有場記板，H.264（libx264，GOP 1 秒），聲音軌為波形碼；另有只有畫面與 H.265 各一組。分析器以硬體解碼（cuda）。
 
-- `tests/check_visual_code.py`：場記板與測試產生器的碼表、位元位置與 pupil-apriltags 內建的官方 tag36h11 及官方 `tag36h11.c` 相同；ID 0–539 以每格 4 像素、1 格靜區繪製後全部讀對；ID 公式抽查 10 個時間（含 10:59:59→11:00:00、23:59:59→00:00:00），連續兩天逐秒連續。
+- `tests/visual-code.test.mjs`：場記板與分析核心的碼表、位元位置與官方 `tag36h11.c`（存成 `tests/data/tag36h11.json`）相同，官方碼表任兩碼（含旋轉）至少相差 11 位元；以模擬的 canvas 執行場記板的 `drawTag()`，ID 0–539 以每格 1 與 4 像素、1 格靜區繪製，依格子取樣成位元後，四種旋轉都只在轉回正確方向時與官方的同一個 ID 完全相符；ID 公式抽查 10 個時間（含 10:59:59→11:00:00、23:59:59→00:00:00），連續兩天逐秒連續。
 - 19 組（23.976、24、25、29.97、50、59.94 fps 各有、無聲畫偏移；另加模糊 2.5 px、曝光起伏 ±50%、透視 35°、快門 360°（每格都混合）、只有畫面、H.265、tag 佔短邊 15%；時鐘 −833～+833 ppm，起點含跨整點與跨午夜）：
 
 | 項目 | 結果 |
@@ -218,11 +227,13 @@ H.264／H.265 × AAC、MOV 的 sowt／twos／in24（大小端）／fl32、MP4 �
 
 ### 網頁分析器自動測試
 
-`tests/web/run_analyzer.py` 先建置，再在本機伺服器以外框頁（`tests/web/harness.html`）載入 `dist/sync-analyzer.html`，把 `tests/fixtures/` 的測試檔交給分析器並收回結果；分析器本身不為測試修改。`tests/web/check_analyzer.py` 檢查：
+`tests/web/run-analyzer.mjs` 先建置，再在本機伺服器以外框頁（`tests/web/harness.html`）載入 `dist/sync-analyzer.html`，把 `tests/fixtures/` 的測試檔交給分析器並收回結果；分析器本身不為測試修改。`tests/web/analyzer.test.mjs` 檢查（檢查邏輯在 `tests/web/checks.mjs`，`checks.test.mjs` 以改壞的結果確認每項都會失敗）：
 
 - 與真值的誤差在報告自己的預估誤差內（另加半個取樣 0.0104 ms，產生器把每秒取整到取樣點）；
 - 與命令列版的差異在容許值內（速度比例 0.05 ppm、起點 0.001 ms、長度 0.01 ms，約為兩版實測最大差異的 2 倍；聲畫偏移 0.05 ms，因兩版縮小影格的方式不同）；
-- 繁中文字報告與快照（`tests/web/snapshots/`）相同，數字以 `#` 取代後比對。
+- 週期（wave 10800、aac／cam／picture 540、ltc 86400）與音高排除數 0 是真值裡固定的期望值，起點以真值的週期換算；預估誤差（`uncPpm`、`worstMs`）不超過真值的上限（產生時實測值的 2 倍）；cam.mp4 建立時間推定的 r 與真值（以影片長 nfr / fps 算，−0.265 秒）相差 ≤ 0.02 秒；
+- 瀏覽器的時區與真值記錄的時區（cam.mp4 的建立時間以 UTC+8 寫入）相同；
+- 繁中文字報告與快照（`tests/web/snapshots/`）相同，數字以 `#` 取代、「硬體解碼失敗」那一行拿掉後比對。
 
 測試檔由 `tests/fixtures/make_fixtures.py` 以固定參數產生（640×360、libx264，不含 HEVC，合計約 3 MB）；頭尾模式要求兩端相隔 60 秒以上，所以長檔為 80 秒。本機 Edge 全部約 40 秒。
 
@@ -259,7 +270,7 @@ AAC 與 `--full` 的差異來自讀取位置：Python 版把讀取起點當作�
 - 可變影格率（手機錄影）、長 GOP 或全 I 格編碼、直拿（旋轉中繼資料）的畫面碼讀取與成本
 - 畫面碼的 `--full` 抽查中段、`--only`（程式已接上，未以測試影片驗證）
 - cuda 以外的硬體解碼（d3d11va，以及沒有 NVIDIA 顯示卡的機器）
-- Node 命令列在真的 cp950 主控台視窗中的輸出（`check_cli_encoding.py` 只測導向管線的輸出）
+- Node 命令列在真的 cp950 主控台視窗中的輸出（`cli-encoding.test.mjs` 只測導向管線的輸出）
 - 網頁版分析器的畫面碼解讀
 - 波形碼音高循環：網頁版分析器、以新版場記板實際錄音（只以合成檔驗證）
 - 分析器讀 LTC 與檔案建立時間（[ltc.md](ltc.md)、[start-time.md](start-time.md)）：測試產生器已能產生，分析器尚未實作

@@ -23,7 +23,8 @@ cli/           Node 命令列：ffmpeg／ffprobe 解碼成 PCM 與灰階影格�
 
 - 建置用 esbuild（單一執行檔、無設定），GitHub Pages 的 workflow 先建置再部署；建置結果維持離線可用（PWA）。
 - 命令列改為 `node cli/slate-sync.mjs`，選項與 `--json` 欄位與現行 Python 版相同。偵測器統一為 js-aruco2，不再需要 pupil-apriltags。
-- 測試產生器（`tests/make_test_media.py`）與以 ffmpeg 為主的測試工具維持 Python：它們是產生測試資料的工具，不是要和網頁一致的分析邏輯。
+- 整個 repo 不用 Python：測試工具改用 Node 內建的 `node --test`，測試產生器（`tests/make_test_media.mjs`）與測試檔產生器（`tests/fixtures/make_fixtures.mjs`）也改成 Node，音訊與畫面直接在 JS 合成、交給 ffmpeg 編碼。開發與 CI 只需要 Node＋ffmpeg（網頁測試另需 Chrome 或 Edge），不另加 npm 相依。
+- 原本以 pupil-apriltags 做的畫面碼獨立驗證，改為把場記板畫出的 tag 依格子取樣成位元，與官方 `tag36h11.c` 的碼表（`tests/data/tag36h11.json`）比對；場記板的編碼（音高、LTC 位元）與測試裡獨立寫的參考實作或固定期望值比對，不讓程式跟自己比。
 
 ## 考慮過的選項
 

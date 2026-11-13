@@ -40,34 +40,20 @@ jobs:
           node-version: '24'
       - name: Install npm packages and build the web pages
         run: npm ci && npm run build
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-      # Python only runs the test-media generator and the test tools written in Python; the analyzer is Node.
-      - name: Install ffmpeg and the Python test tools' packages
+      # ffmpeg is used by the command-line analyzer and by the tests that read audio through it.
+      - name: Install ffmpeg
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg
-          pip install numpy pupil-apriltags pyflakes
-      - name: Static check of the Python test tools
-        run: python -m pyflakes tests/*.py tests/web/*.py tests/fixtures/*.py
       - name: Web pages and analysis core (npm run check)
         run: npm run check
-      - name: Visual code tables
-        run: python tests/check_visual_code.py
-      - name: Waveform pitch matches the slate
-        run: python tests/check_wave_pitch.py
-      - name: LTC bits match the slate
-        run: python tests/check_ltc_bits.py
-      - name: Command line - audio reads land on the exact sample
-        run: python tests/check_read_audio.py
-      - name: Command line - report prints on a non-UTF-8 console
-        run: python tests/check_cli_encoding.py
-      - name: Start clock never shows 60 seconds
-        run: python tests/check_clock_format.py
+      - name: Slate, generator and command-line tests (node --test)
+        run: node --test tests/*.test.mjs tests/web/checks.test.mjs
       # Headless Chrome (preinstalled on the ubuntu runner) runs the built dist/sync-analyzer.html on tests/fixtures/ and the
       # results are compared with the truth, the Node command line and the text-report snapshot. The fixtures avoid HEVC, which
-      # Linux Chrome cannot decode with WebCodecs.
+      # Linux Chrome cannot decode with WebCodecs. cam.mp4's creation time was written for UTC+8, so the browser runs in it.
       - name: Web analyzer in headless Chrome (truth, command line, report snapshot)
         timeout-minutes: 5
-        run: python tests/web/check_analyzer.py
+        env:
+          TZ: Asia/Taipei
+        run: node --test tests/web/analyzer.test.mjs

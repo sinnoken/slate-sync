@@ -6,7 +6,7 @@
 </head>
 <body>
 <!--
-  網頁分析器的測試外框（由 tests/web/run_analyzer.py 開啟）。分析器本身不為測試修改：
+  網頁分析器的測試外框（由 tests/web/run-analyzer.mjs 開啟）。分析器本身不為測試修改：
   這頁在同源 iframe 載入建置後的 dist/sync-analyzer.html，依網址參數 fetch 測試檔、組成 File，
   以 DataTransfer 交給分析器的 #pick 並觸發 change，等 window.__done 達到檔案數後
   把 window.__results 與文字報告 POST 回 /__result。
@@ -30,7 +30,9 @@ function send(extra) {
   try { report = w.document.getElementById('report').value; } catch (e) { errors.push('report: ' + e); }
   try { results = JSON.parse(JSON.stringify(w.__results || null)); } catch (e) { errors.push('results: ' + e); }
   const body = { results, report, errors, elapsedS: (performance.now() - t0) / 1000, userAgent: navigator.userAgent,
-    webcodecs: { audio: typeof w.AudioDecoder !== 'undefined', video: typeof w.VideoDecoder !== 'undefined' }, ...extra };
+    webcodecs: { audio: typeof w.AudioDecoder !== 'undefined', video: typeof w.VideoDecoder !== 'undefined' },
+    // 瀏覽器的時區（分鐘，UTC+8 為 −480）：建立時間的推定依時區而定，與 truth 的時區不同時測試明確報錯。
+    tzOffsetMin: new w.Date(2026, 10, 12).getTimezoneOffset(), ...extra };
   fetch('/__result', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 }
 
