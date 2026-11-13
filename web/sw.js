@@ -1,5 +1,6 @@
 // Offline support for the slate: cache the app shell on install, serve from cache first and refresh in the
-// background, so the app opens instantly and works on set without a network. Bump VERSION on each release.
+// background, so the app opens instantly and works on set without a network. Content updates need no VERSION bump;
+// bump it only when the service worker itself changes or old caches must be cleared.
 const VERSION = 'slate-v4';
 const SHELL = ['./', './index.html', './sync-slate.html', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png'];
