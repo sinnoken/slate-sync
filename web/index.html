@@ -135,8 +135,6 @@
     document.title = t('title');
     var els = document.querySelectorAll('[data-i18n]'), i, j;
     for (i = 0; i < els.length; i++) els[i].textContent = t(els[i].getAttribute('data-i18n'));
-    els = document.querySelectorAll('[data-i18n-html]');   // own strings only, never user input
-    for (i = 0; i < els.length; i++) els[i].innerHTML = t(els[i].getAttribute('data-i18n-html'));
     els = document.querySelectorAll('[data-i18n-attr]');
     for (i = 0; i < els.length; i++) {
       var pairs = els[i].getAttribute('data-i18n-attr').split(';');
