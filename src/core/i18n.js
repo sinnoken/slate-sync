@@ -653,10 +653,20 @@ export const I18N = {
 export const LANGS = ['zh-Hant', 'en', 'ja', 'ko'];
 
 // t(key, vars) for one language. Missing keys fall back to English, then Chinese; {name} is replaced from vars.
+// Chinese and Japanese strings put a space between CJK text and Latin letters or digits. A {var} right next to CJK text
+// (「依{src}」) gets that space only when its value starts or ends with a Latin letter or digit (「依 BWF 時間參考」).
+const CJK = /[぀-ヿ㐀-鿿]/, LATIN = /[A-Za-z0-9]/;
 export function translator(lang) {
+  const spaced = lang === 'zh-Hant' || lang === 'ja';
   return (key, vars) => {
     const s = [I18N[lang], I18N.en, I18N['zh-Hant']].map(d => d && d[key]).find(v => v !== undefined);
     if (s === undefined) return key;
-    return vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : s;
+    return vars ? s.replace(/\{(\w+)\}/g, (m, k, i) => {
+      if (!(k in vars)) return m;
+      const v = String(vars[k]);
+      if (!spaced || !v) return v;
+      return (CJK.test(s[i - 1] || '') && LATIN.test(v[0]) ? ' ' : '') + v +
+        (CJK.test(s[i + m.length] || '') && LATIN.test(v[v.length - 1]) ? ' ' : '');
+    }) : s;
   };
 }

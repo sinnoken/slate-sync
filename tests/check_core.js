@@ -158,5 +158,16 @@ for (const name of ['wave.wav', 'ltc.wav']) {
   else console.log(`✓ 比對範圍註記：${cases.length} 種循環組合`);
 }
 
+// A Latin value next to Chinese or Japanese text gets a space (「依 BWF 時間參考」), a CJK one none; Korean and English as written.
+{
+  const { translator } = await import(pathToFileURL(path.join(CORE, 'i18n.js')));
+  const note = (l, src) => { const t = translator(l); return t('hintNote', { src: t(src) }); };
+  const cases = [['zh-Hant', 'hint.bext', '（「時」依 BWF 時間參考推定）'], ['zh-Hant', 'hint.created', '（「時」依檔案建立時間推定）'],
+    ['ja', 'hint.bext', '（「時」は BWF のタイムリファレンスから推定）'], ['ko', 'hint.bext', ' (“시”는 BWF 타임 레퍼런스 기준 추정)']];
+  const bad = cases.filter(([l, k, want]) => note(l, k) !== want);
+  if (bad.length) fail(`中日文與拉丁字母的空格：${bad.map(([l, k]) => `${l} ${k} → ${note(l, k)}`).join('；')}`);
+  else console.log(`✓ 中日文與拉丁字母的空格：${cases.length} 個案例`);
+}
+
 console.log(failed ? `結果：${failed} 項不符` : '結果：全部通過');
 process.exit(failed ? 1 : 0);
