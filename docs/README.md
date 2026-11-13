@@ -4,6 +4,7 @@
 
 | 文件 | 負責的規格 |
 |---|---|
+| [slate-ui.md](slate-ui.md) | 場記板：五種模式的畫面與聲音、主畫面控制列、設定頁的排版規則與分組 |
 | [waveform-code.md](waveform-code.md) | 音訊波形碼：每秒結構、載波、解讀規則、產生端與解碼端計時 |
 | [visual-code.md](visual-code.md) | 畫面碼（AprilTag）：碼表與繪製、ID 對應、切換時序、版面、畫面解讀流程、聲畫同步檢查的欄位與選項 |
 | [start-time.md](start-time.md) | 循環長度與跨檔案比對範圍、用檔案建立時間推定起點時鐘 |
