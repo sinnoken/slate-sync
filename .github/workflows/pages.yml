@@ -1,9 +1,10 @@
-# Publish the web/ folder to GitHub Pages on every push to main.
+# Publish the web/ folder to GitHub Pages when a push to main changes it (or this workflow), and on demand.
 # One-time setup: repo Settings → Pages → Build and deployment → Source: "GitHub Actions".
 name: Deploy web to GitHub Pages
 on:
   push:
     branches: [main]
+    paths: ['web/**', '.github/workflows/pages.yml']
   workflow_dispatch:
 permissions:
   contents: read
