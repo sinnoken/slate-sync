@@ -41,7 +41,9 @@ const HELP = `用法：node cli/slate-sync.mjs 檔案 ... [選項]
   --no-hwaccel      畫面碼改用軟體解碼（預設依序試 cuda、d3d11va 硬體解碼，失敗時自動改用軟體）
   --json            以 JSON 輸出
   --lang L          報告語言：zh-Hant（預設）、en、ja、ko
-  -h, --help        顯示這段說明`;
+  -h, --help        顯示這段說明
+
+結束代碼：0 全部檔案都分析成功；1 有檔案分析失敗（其餘檔案照樣輸出）；2 選項錯誤`;
 
 // A broken pipe (e.g. piped into head) ends the program quietly instead of with an error.
 process.stdout.on('error', e => { if (e.code === 'EPIPE') process.exit(0); else throw e; });
@@ -139,6 +141,7 @@ async function main() {
     results.push(r);
   }
   const ok = results.filter(r => !r.error);
+  if (ok.length < results.length) process.exitCode = 1;   // set, not exit: the report is still written in full
   const ref = byName(ok, args.ref), refFile = ref ? ref.file : null;
   let avRef = null;
   if (args.avRef !== null) {
