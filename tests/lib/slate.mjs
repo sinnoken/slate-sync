@@ -22,7 +22,7 @@ function blockEnd(src, start) {
 export function extract(names) {
   const html = fs.readFileSync(SLATE, 'utf8');
   return names.map(name => {
-    const esc = name.replace(/[$]/g, '\\$');
+    const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     let m = new RegExp(`\\bfunction ${esc}\\(`).exec(html);
     if (m) return html.slice(m.index, blockEnd(html, m.index));
     m = new RegExp(`\\bvar ${esc}\\s*=`).exec(html);
