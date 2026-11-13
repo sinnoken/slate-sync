@@ -111,7 +111,7 @@ ID = (手機本地時間自午夜起的秒數) mod 540
 
 ## 產生端與參考實作
 
-- `web/sync-slate.html`：碼表、繪製與切換（參考實作）。
+- `web/sync-slate.html`：碼表、繪製與切換（參考實作）；ID 由與波形碼載波共用的 `cycleK()` 算出。
 - `tests/make_test_media.py`：產生含畫面碼與波形碼的測試影片，繪製方式與場記板相同。
 - `tests/check_visual_code.py`：比對三處內嵌碼表（場記板、分析器、測試產生器）與官方 `tag36h11.c` 一致，並以 pupil-apriltags 偵測繪製結果驗證全部 540 個 ID。
 - `python/slate_sync.py`：以 ffmpeg 解出縮小灰階影格，pupil-apriltags 偵測（選用相依；未安裝時畫面功能停用並提示）。

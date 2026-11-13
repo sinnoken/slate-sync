@@ -1070,10 +1070,19 @@
   // ---- Waveform code: readable by eye in an editor's waveform view ----
   // Each second: tall sync burst whose leading edge is the whole second, then two groups of short
   // pulses counting the tens and units of the second. At :00 the sync burst is long and the pulses
-  // give the minute instead. Each second also uses its own carrier pitch (600–2040 Hz, never the same
-  // twice in a row): invisible in a waveform view, but it stops audio auto-sync from locking one second off.
-  var WAVE_HZ = 1000, WAVE_HI = 0.9, WAVE_LO = 0.45;
-  function waveHz(minute, sec) { return 600 + (((minute * 60 + sec) * 7919) % 19) * 80; }
+  // give the minute instead. Each second also uses its own carrier pitch (one of eleven pentatonic notes, never
+  // the same twice in a row): invisible in a waveform view, but it stops audio auto-sync from locking one second off.
+  var WAVE_HI = 0.9, WAVE_LO = 0.45;
+  // Position in the 9-minute cycle shared by the waveform carrier and the visual tag: k = seconds since local
+  // midnight mod 540 for the whole second containing `ms`. Both derive from this one function, so a second's
+  // tag ID and its carrier pitch always encode the same k. See docs/waveform-code.md and docs/visual-code.md.
+  function cycleK(ms) {
+    var d = new Date(Math.floor(ms / 1000) * 1000);
+    return (d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds()) % 540;
+  }
+  // Eleven pentatonic pitches (D5–D7); with the second, the pitch gives back k. Neighbouring seconds never share one.
+  var WAVE_PITCHES = [587.33, 659.26, 783.99, 880.00, 987.77, 1174.66, 1318.51, 1567.98, 1760.00, 1975.53, 2349.32];
+  function waveHz(k) { return WAVE_PITCHES[(Math.floor(k / 60) + 4 * (k % 60)) % 11]; }
   // Burst list for one second: [start s, end s, amplitude]. See docs/waveform-code.md.
   function waveBursts(val, isMin) {
     var out = [[0, isMin ? 0.25 : 0.04, WAVE_HI]];
@@ -1102,7 +1111,7 @@
     var when = ctxTimeForWall(targetMs) - state.audOfs / 1000;
     if (when < ctx.currentTime) return;
     var d = new Date(targetMs), sec = d.getSeconds(), isMin = sec === 0;
-    track(wavePlay(ctx, ctx.destination, when, isMin ? d.getMinutes() : sec, isMin, waveHz(d.getMinutes(), sec)), when, when + 0.96);
+    track(wavePlay(ctx, ctx.destination, when, isMin ? d.getMinutes() : sec, isMin, waveHz(cycleK(targetMs))), when, when + 0.96);
   }
   function renderWave() { /* output selection lives in the main screen's four-way switch */ }
   function renderFlashStyle() {
@@ -1317,8 +1326,7 @@
     if (vt) {
       var bOn = realPart < 500;
       if (bOn !== bandOn) { bandOn = bOn; vtBand.style.opacity = bOn ? '1' : '0'; }
-      var dv = new Date(Math.floor(now / 1000) * 1000);
-      var id = (dv.getHours() * 3600 + dv.getMinutes() * 60 + dv.getSeconds()) % 540;
+      var id = cycleK(now);
       if (id !== tagId) drawTag(id);
     }
 
