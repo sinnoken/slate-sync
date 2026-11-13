@@ -1,5 +1,6 @@
-# Run the regression tests on every push to main and on pull requests (documentation-only changes are skipped),
-# and on demand. A push whose commit was already tested successfully, or is being tested, is skipped.
+# Build the web pages once, run the regression tests and, on main, publish that same build to GitHub Pages. Runs on
+# every push to main and on pull requests (documentation-only changes are skipped), and on demand. A push whose
+# commit was already tested successfully, or is being tested, is skipped.
 name: Test
 on:
   push:
@@ -57,3 +58,27 @@ jobs:
         env:
           TZ: Asia/Taipei
         run: node --test tests/web/analyzer.test.mjs
+      # The pages are built once, above; the deploy job publishes this same dist/ only after every test passed.
+      - name: Keep the tested pages for deployment
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+  # Publish to GitHub Pages (one-time setup: Settings → Pages → Source: "GitHub Actions"). Documentation-only pushes
+  # skip the tests and therefore the deployment; the pages do not include docs/.
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

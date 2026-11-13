@@ -1,4 +1,4 @@
-# Monthly update PRs for the GitHub Actions used by the workflows and for the Python requirements.
+# Monthly update PRs for the GitHub Actions used by the workflows and for the npm build tools.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -8,10 +8,10 @@ updates:
     groups:
       actions:                 # one PR for all action updates
         patterns: ['*']
-  - package-ecosystem: pip
-    directory: /python
+  - package-ecosystem: npm
+    directory: /
     schedule:
       interval: monthly
-    # requirements.txt states a minimum supported version, not a pin: only raise it when the current range
-    # excludes a new release, never just to follow the latest version.
-    versioning-strategy: increase-if-necessary
+    groups:
+      npm:                     # one PR for all npm updates
+        patterns: ['*']
