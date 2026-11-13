@@ -286,11 +286,12 @@ function parseMoov(dv) {
   return m;
 }
 
-// Track presentation start in seconds, following the edit list the way ffmpeg does.
+// Track presentation start in seconds, following the edit list the way ffmpeg does. dur: the length of the first
+// non-empty edit in seconds (null without one), which cuts off e.g. the AAC encoder's padding at the end.
 function editStart(tr, movieTs) {
-  let empty = 0, mt = 0;
-  for (const e of tr.elst) { if (e.mt === -1) empty += e.dur / movieTs; else { mt = e.mt; break; } }
-  return { empty, mt };
+  let empty = 0, mt = 0, dur = null;
+  for (const e of tr.elst) { if (e.mt === -1) empty += e.dur / movieTs; else { mt = e.mt; dur = e.dur > 0 ? e.dur / movieTs : null; break; } }
+  return { empty, mt, dur };
 }
 
 function pcmSpec(en) {
@@ -388,6 +389,7 @@ function mp4Audio(file, m, aud) {
   }
   const aStart = isAac ? media.timeOf(0) : media.frameTime(0);
   media.aStartAbs = Math.max(aStart, ed.empty);   // samples before the edit's media_time are not presented
+  if (ed.dur !== null) media.endTime = Math.min(media.endTime, ed.empty + ed.dur);   // nor those after its end
   return media;
 }
 
@@ -608,7 +610,11 @@ function percentile(arr, q) {
   return s[lo] + (s[hi] - s[lo]) * (pos - lo);
 }
 
-const WAVE_HZ = Array.from({ length: 19 }, (_, k) => 600 + 80 * k);   // the 19 legal carrier pitches
+// The 11 legal carrier pitches (pentatonic D5–D7, docs/waveform-code.md); same values as the slate's WAVE_PITCHES.
+const WAVE_HZ = [587.33, 659.26, 783.99, 880.00, 987.77, 1174.66, 1318.51, 1567.98, 1760.00, 1975.53, 2349.32];
+// k (position in the 9-minute cycle, 0–539) from a second's number and its pitch number; null when the minute part
+// comes out as 9 or 10, i.e. the second's number or its pitch was misread. Inverse of the slate's waveHz().
+const cycleK = (sec, pitch) => { const q = mod(pitch - 4 * sec, 11); return q <= 8 ? 60 * q + sec : null; };
 // Leading edge of a burst whose carrier is at `phase` (rad) when its gate opens: first sample above 40 % of
 // the burst amplitude, interpolated, minus the time the sine needs from `phase` to first reach |sin| = 0.4.
 function edgeTime(a, s, e, hz, phase, sr) {
@@ -620,18 +626,18 @@ function edgeTime(a, s, e, hz, phase, sr) {
   const wait = ph >= lo && ph <= hi ? 0 : mod(lo - ph, Math.PI);
   return (i0 + frac) / sr - wait / (2 * Math.PI * hz);
 }
-// Which legal pitch a burst carries (Hann-windowed match against all 19).
+// Which legal pitch a burst carries (Hann-windowed match against all 11): its number 0–10.
 function burstPitch(x, s, e, sr) {
   let best = 0, bestM = -1;
   const n = e - s;
-  for (const f of WAVE_HZ) {
+  for (const [p, f] of WAVE_HZ.entries()) {
     let re = 0, im = 0;
     for (let i = 0; i < n; i++) {
       const w = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1)), v = x[s + i] * w, ang = 2 * Math.PI * f * i / sr;
       re += v * Math.cos(ang); im -= v * Math.sin(ang);
     }
     const m = re * re + im * im;
-    if (m > bestM) { bestM = m; best = f; }
+    if (m > bestM) { bestM = m; best = p; }
   }
   return best;
 }
@@ -661,7 +667,7 @@ function decode(x, t0, sr) {
     const [s, e] = on[i], dur = (e - s) / sr;
     let isMin;
     if (dur >= 0.025 && dur <= 0.07) isMin = false; else if (dur >= 0.2 && dur <= 0.3) isMin = true; else continue;
-    const hz = burstPitch(x, s, e, sr);                     // one oscillator per second, phase 0 at the sync
+    const pitch = burstPitch(x, s, e, sr), hz = WAVE_HZ[pitch];   // one oscillator per second, phase 0 at the sync
     const onset = edgeTime(a, s, e, hz, 0, sr);
     if (onset + 0.95 > N / sr) continue;
     const pulses = bursts.slice(i + 1).filter(q => q[0] < onset + 0.97);
@@ -687,12 +693,13 @@ function decode(x, t0, sr) {
     if (!digits || digits[0] > 5 || digits[1] > 9) continue;
     const val = digits[0] * 10 + digits[1];
     if (!isMin && val === 0) continue;
-    out.push({ t: t0 + onset, val, isMin, pulses: timed.map(([tp, off]) => [t0 + tp, off]) });
+    out.push({ t: t0 + onset, val, isMin, pitch, pulses: timed.map(([tp, off]) => [t0 + tp, off]) });
   }
   return out;
 }
 
 const mod = (v, m) => ((v % m) + m) % m;
+const gcd = (a, b) => b ? gcd(b, a % b) : a;
 const wrap = (v, m) => mod(v + m / 2, m) - m / 2;
 
 function label(seconds) {
@@ -704,9 +711,161 @@ function label(seconds) {
     return mod(rRef + k, 60) === (s.isMin ? 0 : s.val) && Math.abs(dt - k) <= 0.01 * Math.abs(k) + 0.005;
   });
   if (good.length < Math.max(1, Math.floor(seconds.length / 2))) return null;
+  // Rules 5 and 6 of docs/waveform-code.md. Each second's k, carried back to the first good second, is a vote; most
+  // seconds agreeing (at least 3, so one or two seconds of an old-slate recording cannot pass by chance) means the
+  // pitch carries the 9-minute cycle. Seconds whose pitch disagrees are dropped and counted (pitchRejected).
+  const g0 = good[0], kOf = s => s.pitch === undefined ? null : cycleK(s.isMin ? 0 : s.val, s.pitch);
+  const votes = new Map();
+  for (const s of good) {
+    const k = kOf(s);
+    if (k !== null) { const k0 = mod(k - Math.round(s.t - g0.t), VIS_MOD); votes.set(k0, (votes.get(k0) || 0) + 1); }
+  }
+  let k0 = null, nk = 0;
+  for (const [k, n] of votes) if (n > nk) { k0 = k; nk = n; }
+  if (nk >= 3 && nk > good.length / 2) {
+    const kAt = s => mod(k0 + Math.round(s.t - g0.t), VIS_MOD), kept = good.filter(s => kOf(s) === kAt(s));
+    const lab = kept.map(s => [s.t, kAt(s)]), pitchRejected = good.length - kept.length, marker = kept.find(s => s.isMin);
+    if (marker) {
+      // The minute marker gives the time mod 3600 and k mod 540; both give it mod 180 (their gcd). Only when they
+      // agree are they merged into seconds mod 10800 (3 hours).
+      const km = kAt(marker), hm = marker.val * 60;
+      if (mod(hm - km, 180) === 0) {
+        const x = [0, 1, 2].map(j => hm + 3600 * j).find(v => v % VIS_MOD === km);
+        return { lab: kept.map(s => [s.t, mod(x + Math.round(s.t - marker.t), 10800)]), mod: 10800, pitchRejected };
+      }
+    }
+    return { lab, mod: VIS_MOD, pitchRejected };
+  }
   const marker = good.find(s => s.isMin);
-  if (marker) return { lab: good.map(s => [s.t, mod(marker.val * 60 + Math.round(s.t - marker.t), 3600)]), mod: 3600 };
-  return { lab: good.map(s => [s.t, mod(rRef + Math.round(s.t - ref.t), 60)]), mod: 60 };
+  if (marker) return { lab: good.map(s => [s.t, mod(marker.val * 60 + Math.round(s.t - marker.t), 3600)]), mod: 3600, pitchRejected: 0 };
+  return { lab: good.map(s => [s.t, mod(rRef + Math.round(s.t - ref.t), 60)]), mod: 60, pitchRejected: 0 };
+}
+
+// =========================================================== LTC decoding (docs/ltc.md)
+const LTC_SYNC = [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1];
+const LTC_DF_DAY = 2589408;                      // frames in a day at 29.97 DF
+const ltcDay = (nominal, df) => df ? LTC_DF_DAY : nominal * 86400;
+// Real frame rates of each time-code frame count (23.976 and 29.97 count 24 and 30 frames a second).
+const ltcRates = (nominal, df) => df ? [30000 / 1001] : nominal === 25 ? [25] : [nominal * 1000 / 1001, nominal];
+
+// Zero crossings, interpolated between samples. Hysteresis at 30 % of the level keeps noise near zero from adding
+// crossings: each crossing is the last sign change before the signal passes the opposite threshold.
+function zeroCrossings(x, t0, sr) {
+  const N = x.length, ab = new Float64Array(Math.ceil(N / 7)), out = [];
+  for (let i = 0, j = 0; i < N; i += 7, j++) ab[j] = Math.abs(x[i]);
+  const h = 0.3 * percentile(ab, 99);
+  if (!(h > 3e-5)) return out;
+  let st = 0, last = 0;
+  for (let i = 0; i < N; i++) {
+    const v = x[i];
+    if (!(st >= 0 && v < -h) && !(st <= 0 && v > h)) continue;
+    if (st) {
+      let k = i;
+      while (k > last + 1 && (st > 0 ? x[k - 1] < 0 : x[k - 1] > 0)) k--;
+      const a = x[k - 1], b = x[k];
+      out.push(t0 + (k - 1 + (a === b ? 0.5 : a / (a - b))) / sr);
+    }
+    st = v > 0 ? 1 : -1; last = i;
+  }
+  return out;
+}
+
+// Frame number since midnight from a time code (DF: the dropped frame numbers taken back out).
+function tcToCount(h, m, s, f, nominal, df) {
+  const n = ((h * 60 + m) * 60 + s) * nominal + f, tm = h * 60 + m;
+  return df ? n - 2 * (tm - Math.floor(tm / 10)) : n;
+}
+
+// Biphase-mark frames from the crossings, for bit period T: an interval of about T is a 0, two of about T/2 a 1.
+// A frame is the 64 bits before a sync word; its time is the crossing that starts bit 0. Polarity does not matter.
+function ltcFrames(cx, T, nominal) {
+  const bits = [], at = [], lo = 0.25 * T, mid = 0.75 * T, hi = 1.5 * T, out = [];
+  for (let i = 0; i + 1 < cx.length;) {
+    const d = cx[i + 1] - cx[i], d2 = i + 2 < cx.length ? cx[i + 2] - cx[i + 1] : 0;
+    at.push(cx[i]);
+    if (d >= mid && d < hi) { bits.push(0); i++; }
+    else if (d >= lo && d < mid && d2 >= lo && d2 < mid) { bits.push(1); i += 2; }
+    else { bits.push(-1); i++; }
+  }
+  for (let k = 64; k + 16 <= bits.length; k++) {
+    let ok = true;
+    for (let j = 0; j < 16 && ok; j++) ok = bits[k + j] === LTC_SYNC[j];
+    for (let j = k - 64; j < k && ok; j++) ok = bits[j] >= 0;
+    if (!ok) continue;
+    const v = (a, n) => { let r = 0; for (let j = 0; j < n; j++) r |= bits[k - 64 + a + j] << j; return r; };
+    const u = [v(0, 4), v(16, 4), v(32, 4), v(48, 4)], df = bits[k - 54];
+    if (u.some(x => x > 9)) continue;
+    const f = v(8, 2) * 10 + u[0], sec = v(24, 3) * 10 + u[1], m = v(40, 3) * 10 + u[2], h = v(56, 2) * 10 + u[3];
+    if (f >= nominal || sec > 59 || m > 59 || h > 23 || (df && (nominal !== 30 || (sec === 0 && f < 2 && m % 10)))) continue;
+    out.push({ t: at[k - 64], n: tcToCount(h, m, sec, f, nominal, df), nominal, df: !!df });
+  }
+  // Continuity: a frame is kept only when the frame decoded just before it is the previous frame, one frame earlier.
+  return out.filter((q, i) => i > 0 && q.df === out[i - 1].df && mod(q.n - out[i - 1].n, ltcDay(nominal, q.df)) === 1 &&
+    Math.abs((q.t - out[i - 1].t) * nominal - 1) < 0.05);
+}
+
+// LTC frames in one channel: [{ t, n, nominal, df }]. Each frame-count class (24, 25, 30) is tried at its bit rate and
+// the one giving the most frames is kept, if its measured frame rate is within 1 % of a legal LTC rate.
+function ltcDecode(x, t0, sr) {
+  const cx = zeroCrossings(x, t0, sr);
+  let best = [];
+  if (cx.length < 200) return best;
+  for (const nominal of [24, 25, 30]) { const F = ltcFrames(cx, 1 / (80 * nominal), nominal); if (F.length > best.length) best = F; }
+  if (best.length < 2) return [];
+  const gaps = best.slice(1).map((q, i) => q.t - best[i].t).filter(d => Math.abs(d * best[0].nominal - 1) < 0.05);
+  const fps = 1 / percentile(gaps, 50);
+  return ltcRates(best[0].nominal, false).some(r => Math.abs(fps / r - 1) <= 0.01) ? best : [];
+}
+
+// Fit file_t = c + rate * R over every LTC frame start (R: real seconds since the first frame, n / frame rate). Same
+// statistics as solve(). 23.976 and 24 (29.97 NDF and 30) count frames alike and differ by only 0.1 %: a video track
+// in the same file decides when its frame rate is a whole multiple of one of them (cameras record at the time-code
+// rate or a multiple); otherwise the rate giving a speed nearer 1 wins, flagged when the drift is large enough for
+// that guess to be wrong (docs/ltc.md).
+function ltcSolve(head, tail, probes, videoFps = null) {
+  const all = head.concat(tail, ...probes);
+  const count = f => all.filter(f).length;
+  const nominal = [24, 25, 30].reduce((a, b) => count(q => q.nominal === b) > count(q => q.nominal === a) ? b : a);
+  const df = count(q => q.nominal === nominal && q.df) * 2 > count(q => q.nominal === nominal);
+  const use = q => q.nominal === nominal && q.df === df;
+  const groups = [head, ...probes.slice().sort((x, y) => x[0].t - y[0].t), tail].map(g => g.filter(use).sort((x, y) => x.t - y.t)).filter(g => g.length);
+  const frames = groups.flat();
+  if (frames.length < 2) return { error: { key: 'err.inconsistent' } };
+  const day = ltcDay(nominal, df), n0 = groups[0][0].n;
+  const rates = ltcRates(nominal, df);
+  const byVideo = videoFps ? rates.filter(fr => { const k = Math.round(videoFps / fr); return k >= 1 && Math.abs(videoFps / (k * fr) - 1) < 1e-4; }) : [];
+  let best = null;
+  for (const fr of byVideo.length === 1 ? byVideo : rates) {
+    const pts = frames.map(q => [q.t, wrap(q.n - n0, day) / fr]), F = fitKeep(pts, 0.002, 4);
+    if (!best || Math.abs(F.rate - 1) < Math.abs(best.F.rate - 1)) best = { fr, pts, F };
+  }
+  const fromVideo = byVideo.length === 1;
+  const { fr, pts, F: { keep, rate, c } } = best;
+  const P = pts.filter((_, i) => keep[i]), n = P.length;
+  const res = P.map(p => p[0] - (c + rate * p[1])), ss = res.reduce((a, v) => a + v * v, 0), rms = Math.sqrt(ss / n);
+  if (Math.abs(rate - 1) > 0.01 || (!probes.length && rms > 0.005))
+    return { error: { key: 'err.badFit', vars: { pct: ((rate - 1) * 100).toFixed(3), ms: (rms * 1000).toFixed(1) } } };
+  const Rm = P.reduce((a, p) => a + p[1], 0) / n, sxx = P.reduce((a, p) => a + (p[1] - Rm) ** 2, 0);
+  const sigma = Math.max(n > 2 ? Math.sqrt(ss / (n - 2)) : 0.0003, 1e-5);
+  const predSe = Rx => sxx > 0 ? sigma * Math.sqrt(1 / n + (Rx - Rm) ** 2 / sxx) : Infinity;
+  // Piecewise model when the middle sits off the line (full-recording mode only), as in solve().
+  let segs = null, maxDev = null, i0 = 0;
+  if (probes.length && groups.length >= 3) {
+    const centers = groups.map(g => { const Q = pts.slice(i0, i0 += g.length);
+      return [Q.reduce((a, p) => a + p[0], 0) / Q.length, Q.reduce((a, p) => a + p[1], 0) / Q.length]; });
+    maxDev = Math.max(...centers.map(([tc, rc]) => Math.abs(tc - (c + rate * rc)))) * 1000;
+    if (maxDev > 2) segs = centers.slice(1).map(([t2, r2], i) => { const [t1, r1] = centers[i]; return { from: t1, to: t2, rate: (t2 - t1) / (r2 - r1) }; });
+  }
+  // DF and whole-number rates: n / rate is the slate's clock. 23.976 and 29.97 NDF: the time code itself (n / nominal),
+  // which runs 0.1 % slow; tcScale turns real seconds into time-code seconds.
+  const ndf = !df && fr !== nominal, label = nominal === 25 ? '25' : fr !== nominal ? (nominal === 24 ? '23.976' : df ? '29.97 DF' : '29.97 NDF') : String(nominal);
+  const hd = head.some(use), tl = tail.some(use);
+  return { rate, c, base: n0 / (ndf ? nominal : fr), M: 86400, ambiguous: false, n, rejected: pts.length - n, rms,
+    uncPpm: sxx > 0 ? sigma / Math.sqrt(sxx) * 1e6 : NaN, predSe, segs, maxDev, both: hd && tl, which: hd && tl ? 'both' : (hd ? 'head' : 'tail'),
+    usedPulses: false, pitchRejected: 0,
+    // 30 vs 29.97 NDF (24 vs 23.976) differ by only 0.1 %: the rate with the drift nearest zero was chosen, which
+    // can be wrong once the device drifts by several hundred ppm, so a drift above 100 ppm without a video track is flagged.
+    ltc: { label, tcScale: ndf ? fr / nominal : 1, rateGuess: rates.length > 1 && !fromVideo && Math.abs(rate - 1) > 100e-6 } };
 }
 
 const CHUNK = 8, STEP = 7;
@@ -715,7 +874,7 @@ const CHUNK = 8, STEP = 7;
 class End {
   constructor(m, start, dir, limit, maxRead, tick) {
     Object.assign(this, { m, pos: start, origin: start, dir, limit, maxRead, tick,
-      found: [], used: null, started: false, done: false, idle: 0, readSince: 0 });
+      found: [], used: null, ltc: [], ltcSeen: new Set(), ltcUsed: null, started: false, done: false, idle: 0, readSince: 0 });
   }
   async step() {
     if (this.done) return;
@@ -724,10 +883,17 @@ class End {
     if (b - a < 1) { this.done = true; return; }
     const w = await readWindow(this.m, a, b);
     if (!w.chans.length || !w.chans[0].length) { this.done = true; return; }
-    let best = [null, []];
-    w.chans.forEach((ch, c) => { const d = decode(ch, w.t0, w.sr); if (d.length > best[1].length) best = [c, d]; });
+    let best = [null, []], lbest = [null, []];
+    w.chans.forEach((ch, c) => {
+      const d = decode(ch, w.t0, w.sr), L = ltcDecode(ch, w.t0, w.sr);
+      if (d.length > best[1].length) best = [c, d];
+      if (L.length > lbest[1].length) lbest = [c, L];
+    });
     const fresh = best[1].filter(d => this.found.every(f => Math.abs(d.t - f.t) > 0.5));
-    if (fresh.length) { this.found.push(...fresh); this.used = best[0]; this.started = true; this.idle = 0; }
+    const lfresh = lbest[1].filter(q => !this.ltcSeen.has(q.n));
+    if (fresh.length) { this.found.push(...fresh); this.used = best[0]; }
+    if (lfresh.length) { lfresh.forEach(q => this.ltcSeen.add(q.n)); this.ltc.push(...lfresh); this.ltcUsed = lbest[0]; }
+    if (fresh.length || lfresh.length) { this.started = true; this.idle = 0; }
     else if (this.started && ++this.idle >= 2) this.done = true;          // the code region has ended
     if (this.started) { this.readSince += STEP; if (this.readSince >= this.maxRead) this.done = true; }
     else if (Math.abs(this.pos - this.origin) >= this.limit) this.done = true;   // this end was not recorded
@@ -749,14 +915,32 @@ function polyfit1(X, Y) {
 
 const NTSC = [24000 / 1001, 30000 / 1001, 60000 / 1001, 120000 / 1001];
 
+// Fit file_t = c + rate * R to points [file_t, R], refitting without the points farther than tol from the line.
+function fitKeep(P, tol, iters) {
+  let keep = P.map(() => true), rate, c;
+  for (let it = 0; it < iters; it++) {
+    const Q = P.filter((_, i) => keep[i]);
+    [rate, c] = polyfit1(Q.map(p => p[1]), Q.map(p => p[0]));
+    const nk = P.map(p => Math.abs(p[0] - (c + rate * p[1])) < tol);
+    if (nk.filter(Boolean).length < 2 || nk.every((v, i) => v === keep[i])) break;
+    keep = nk;
+  }
+  const Q = P.filter((_, i) => keep[i]);
+  [rate, c] = polyfit1(Q.map(p => p[1]), Q.map(p => p[0]));
+  return { keep, rate, c };
+}
+
 // Fit file_t = c + rate * R over every labelled second (R: real seconds since the first head second, or the
 // first second read in single-end mode). Middle probes are placed with the current line, then added.
 // vis: { fi: frame interval } when the seconds are visual-code edges (labels mod 540, frame-level timing).
 function solve(head, tail, probes, vis) {
   const fi = vis ? vis.fi : 0, labFn = vis ? s => labelVisual(s, fi) : label;
-  const step = vis ? VIS_MOD : 60, tol = vis ? 2 * fi : 0.002, maxRms = vis ? fi : 0.005;
+  const tol = vis ? 2 * fi : 0.002, maxRms = vis ? fi : 0.005;
   const LH = head.length ? labFn(head) : null, LT = tail.length ? labFn(tail) : null;
   if (!LH && !LT) return { error: { key: 'err.inconsistent' } };
+  // step: the cycle both ends know at least (540 when both read the pitch or the visual code, else 60).
+  const step = vis || (LH && LT && LH.mod % VIS_MOD === 0 && LT.mod % VIS_MOD === 0) ? VIS_MOD : 60;
+  let pitchRejected = [LH, LT].reduce((a, L) => a + (L && L.pitchRejected || 0), 0);
   let pts, base, M, ambiguous = false, clusters, tailCluster = null;
   if (LH && LT) {
     const lh = LH.lab, lt = LT.lab, [tH, rH] = lh[0], [tT, rT] = lt[lt.length - 1], fileDiff = tT - tH;
@@ -773,10 +957,12 @@ function solve(head, tail, probes, vis) {
     const pred = fileDiff / rho, rd = mod(rT - rH, step), realDiff = rd + step * Math.round((pred - rd) / step);
     if (realDiff <= 0) return { error: { key: 'err.headTail' } };
     ambiguous = (span ? 0.003 / span : 0.01) * pred > step / 4 || Math.abs(pred - realDiff) > step / 4;
+    // Labels both ends know beyond `step` must agree with the elapsed time, or neither is used.
     let mh = LH.mod, mt = LT.mod;
-    if (mh === 3600 && mt === 3600 && mod(rT - rH - realDiff, 3600) !== 0) mh = mt = 60;
-    if (mh === 3600) { base = mod(rH, 3600); M = 3600; }
-    else if (mt === 3600) { base = mod(rT - realDiff, 3600); M = 3600; }
+    const g = gcd(mh, mt);
+    if (g > step && mod(rT - rH - realDiff, g) !== 0) mh = mt = step;
+    if (Math.max(mh, mt) > step && mh >= mt) { base = mod(rH, mh); M = mh; }
+    else if (Math.max(mh, mt) > step) { base = mod(rT - realDiff, mt); M = mt; }
     else { base = mod(rH, step); M = step; }
     pts = lh.map(([t]) => [t, Math.round(t - tH)]).concat(lt.map(([t]) => [t, realDiff - Math.round(tT - t)]));
     clusters = [lh.map(([t]) => t)]; tailCluster = lt.map(([t]) => t);
@@ -786,19 +972,6 @@ function solve(head, tail, probes, vis) {
     pts = L.lab.map(([t]) => [t, Math.round(t - t0)]);
     clusters = [L.lab.map(([t]) => t)];
   }
-  const fitKeep = (P, tol, iters) => {
-    let keep = P.map(() => true), rate, c;
-    for (let it = 0; it < iters; it++) {
-      const Q = P.filter((_, i) => keep[i]);
-      [rate, c] = polyfit1(Q.map(p => p[1]), Q.map(p => p[0]));
-      const nk = P.map(p => Math.abs(p[0] - (c + rate * p[1])) < tol);
-      if (nk.filter(Boolean).length < 2 || nk.every((v, i) => v === keep[i])) break;
-      keep = nk;
-    }
-    const Q = P.filter((_, i) => keep[i]);
-    [rate, c] = polyfit1(Q.map(p => p[1]), Q.map(p => p[0]));
-    return { keep, rate, c };
-  };
   const iters = vis ? 3 : 4;   // slate_sync.py refits 3 times; the audio path keeps this page's original 4
   let { keep, rate, c } = fitKeep(pts, tol, iters);
   // Refine each second's start from ALL its pulses (pulse k at offset o_k sits at start + o_k * rate), with
@@ -827,8 +1000,10 @@ function solve(head, tail, probes, vis) {
   for (const secs of probes) {
     const L = labFn(secs);
     if (!L) continue;
-    const [tp0, rp0] = L.lab[0], rPred = (tp0 - c) / rate, rd = mod(rp0 - base, step);
-    const R0 = rd + step * Math.round((rPred - rd) / step);
+    pitchRejected += L.pitchRejected || 0;
+    const pstep = gcd(L.mod, step);                       // the cycle both the probe and the ends know
+    const [tp0, rp0] = L.lab[0], rPred = (tp0 - c) / rate, rd = mod(rp0 - base, pstep);
+    const R0 = rd + pstep * Math.round((rPred - rd) / pstep);
     const add = L.lab.map(([t]) => [usedPulses ? refine(t, rate) : t, R0 + Math.round(t - tp0)]);
     pts = pts.concat(add); probeClusters.push(add.map(([t]) => t));
   }
@@ -861,7 +1036,7 @@ function solve(head, tail, probes, vis) {
     if (maxDev > (vis ? Math.max(2, 1000 * fi) : 2)) segs = centers.slice(1).map(([t2, r2], i) => { const [t1, r1] = centers[i]; return { from: t1, to: t2, rate: (t2 - t1) / (r2 - r1) }; });
   }
   return { rate, c, base, M, ambiguous, n, rejected: pts.length - n, rms, uncPpm, predSe, segs, maxDev,
-    both: !!(LH && LT), which: LH && LT ? 'both' : (LH ? 'head' : 'tail'), usedPulses };
+    both: !!(LH && LT), which: LH && LT ? 'both' : (LH ? 'head' : 'tail'), usedPulses, pitchRejected };
 }
 
 // ============================================ 內嵌第三方程式碼：js-aruco2（四邊形偵測與位元讀取）
@@ -2363,6 +2538,7 @@ async function analyze(file, opts, tick) {
     if (!(tail.started || tail.done)) await tail.step();
     if (head.pos >= tail.pos) { if (!head.started) head.done = true; if (!tail.started) tail.done = true; break; }
   }
+  if (head.ltc.length || tail.ltc.length) return analyzeLtc(file, m, head, tail, opts, tick, video);
   if (!head.found.length && !tail.found.length) {
     if (!hasVideo) return { file: file.name, error: { key: 'err.noCode' } };
     const v = await video();                             // a camera that only saw the slate's screen
@@ -2419,11 +2595,73 @@ async function analyze(file, opts, tick) {
   return r;
 }
 
+// The file's own clock (docs/start-time.md): C = MP4 mvhd creation time (UTC, taken to local time) or the BWF time
+// reference (local), in seconds since local midnight. L: the measured start in its M-second cycle; D: the file length.
+// r_start = wrap(C - L, M) and r_end = wrap(C - D - L, M); exactly one within 2 s gives the full start clock (an end-type
+// file first takes off D). BWF is a start time by definition, so only r_start is checked. Returns {} without C;
+// { src, bad: { start, end } } when the creation time does not fit; { src, type, r, clock } when adopted.
+function createdClock(m, L, M, D) {
+  let C, src;
+  if (m.kind === 'mp4' && m.created) {
+    const d = new Date((m.created - 2082844800) * 1000);
+    C = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds(); src = 'created';
+  } else if (m.kind === 'wav' && m.bext && m.bext.timeRef) { C = m.bext.timeRef / m.sr; src = 'bext'; }
+  else return {};
+  const r = { start: wrap(C - L, M) };
+  if (src === 'created') r.end = wrap(C - D - L, M);
+  const fits = Object.keys(r).filter(k => Math.abs(r[k]) <= 2);
+  if (fits.length !== 1) return { src, bad: r };
+  const type = fits[0], c0 = C - (type === 'end' ? D : 0);
+  return { src, type, r: r[type], clock: Math.round((c0 - L) / M) * M + L };
+}
+
+// Time result from LTC (docs/ltc.md): the same steps as the waveform code in analyze(), on frame starts. When a file
+// carries both, LTC is used.
+async function analyzeLtc(file, m, head, tail, opts, tick, video) {
+  const D = m.duration, ts = e => e.ltc.map(q => q.t);
+  let singleFrom = null;
+  if (head.ltc.length && tail.ltc.length && Math.min(...ts(tail)) - Math.max(...ts(head)) < 60) {
+    for (const q of tail.ltc) if (!head.ltcSeen.has(q.n)) { head.ltcSeen.add(q.n); head.ltc.push(q); }
+    if (head.ltcUsed === null) head.ltcUsed = tail.ltcUsed;
+    tail.ltc = []; tail.done = true;
+    if (Math.min(...ts(head)) > D / 2) singleFrom = 'tail';
+  }
+  let fit;
+  for (;;) {
+    fit = ltcSolve(head.ltc, tail.ltc, [], m.fps);
+    if (fit.error) return { file: file.name, error: fit.error };
+    if (Math.max(fit.predSe((0 - fit.c) / fit.rate), fit.predSe((D - fit.c) / fit.rate)) * 1000 <= 1.0) break;
+    let progressed = false;
+    for (const e of [head, tail]) if (e.ltc.length && !e.done) { await e.step(); progressed = true; }
+    if (!progressed) break;
+  }
+  const probes = [];
+  if (opts.probe) {
+    const lo = (head.ltc.length ? Math.max(...ts(head)) : 0) + 30, hi = (tail.ltc.length ? Math.min(...ts(tail)) : D) - 30;
+    for (let k = 0; k < opts.probe && hi - lo >= 60; k++) {
+      const p0 = lo + (hi - lo) * (k + 1) / (opts.probe + 1), w = await readWindow(m, p0, p0 + 3 * CHUNK);
+      let best = [];
+      for (const ch of w.chans) { const L = ltcDecode(ch, w.t0, w.sr); if (L.length > best.length) best = L; }
+      if (best.length) probes.push(best);
+      if (tick) tick();
+    }
+    if (probes.length) { fit = ltcSolve(head.ltc, tail.ltc, probes, m.fps); if (fit.error) return { file: file.name, error: fit.error }; }
+  }
+  const used = [head, tail].filter(e => e.ltc.length).map(e => e.ltcUsed);
+  const r = buildResult(file, m, fit, probes, singleFrom, [used[0], used[used.length - 1]]);
+  if (opts.av) {
+    try { await avCheck(r, m, await video(), opts, tick); }
+    catch (e) { r.avError = { key: 'av.codec', vars: { why: 'why.decode', msg: String((e && e.message) || e).slice(0, 200) } }; }
+  }
+  r.source = 'ltc';
+  return r;
+}
+
 // Turn a fit into the per-file result (same fields for the waveform code and the visual code).
 // D: the duration the reads planned from (the visual code uses the movie header's, as slate_sync.py does).
 function buildResult(file, m, fit, probes, singleFrom, channel, D = m.duration) {
   const { rate, c, base, M } = fit;
-  const realAt = t => mod(base + (t - c) / rate, M);
+  const sc = fit.ltc ? fit.ltc.tcScale : 1, realAt = t => mod(base + (t - c) / rate * sc, M);
   let fps = m.fps || null;
   for (const e of NTSC) if (fps && Math.abs(fps - e) < 0.005) fps = e;
   const hasV = m.vOff !== null && m.vOff !== undefined;
@@ -2443,18 +2681,22 @@ function buildResult(file, m, fit, probes, singleFrom, channel, D = m.duration) 
     });
   }
   const startLabel = realAt(mOff);
-  let startClock = startLabel, clockMod = M, hintSrc = null, hint = null;
-  if (m.kind === 'mp4' && m.created) { const d = new Date((m.created - 2082844800) * 1000); hint = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds(); hintSrc = 'created'; }
-  else if (m.kind === 'wav' && m.bext && m.bext.timeRef) { hint = m.bext.timeRef / m.sr; hintSrc = 'bext'; }
-  else { const d = new Date(file.lastModified); hint = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds(); hintSrc = 'mtime'; }
-  if (M === 3600 && hint !== null) { startClock = Math.round((hint - startLabel) / 3600) * 3600 + startLabel; clockMod = 86400; }
-  else hintSrc = null;
+  const ck = fit.ltc ? {} : createdClock(m, startLabel, M, mLen);   // LTC already gives the clock
+  let startClock = startLabel, clockMod = M, hintSrc = null;
+  if (fit.ltc) clockMod = 86400;
+  else if (ck.clock !== undefined) { startClock = ck.clock; clockMod = 86400; }
+  else if (M === 3600 || M === 10800) {
+    // Display only: the hour guessed from the file's modification time (never used to match files).
+    const d = new Date(file.lastModified), hint = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
+    startClock = Math.round((hint - startLabel) / M) * M + startLabel; clockMod = 86400; hintSrc = 'mtime';
+  }
   // mode: 'full' (middle probed), 'both' (head and tail), or the single end read: 'head' / 'tail'
   const mode = probes.length ? 'full' : (fit.both ? 'both' : (singleFrom || fit.which));
   return { file: file.name, kind, mode, channel, startLabel, mod: M, startClock, clockMod, hintSrc,
+    ltc: fit.ltc || null, clockSrc: ck.src || null, clockType: ck.type || null, clockR: ck.r === undefined ? null : ck.r, clockBad: ck.bad || null,
     length: mLen, correctedLength: corrected, frames: hasV ? m.vFrames : null, fps: hasV ? fps : null,
     rate, ppm: (rate - 1) * 1e6, uncPpm: fit.uncPpm, worstMs, edgesUsed: fit.n, edgesRejected: fit.rejected,
-    fitRmsMs: fit.rms * 1000, segments, midDevMs: fit.maxDev, aOff: m.aOff, vOff: hasV ? m.vOff : null, ambiguous: fit.ambiguous };
+    fitRmsMs: fit.rms * 1000, pitchRejected: fit.pitchRejected || 0, segments, midDevMs: fit.maxDev, aOff: m.aOff, vOff: hasV ? m.vOff : null, ambiguous: fit.ambiguous };
 }
 
 // =========================================================== i18n
@@ -2481,6 +2723,10 @@ const I18N = {
     'mode.full': '全段', 'mode.both': '頭尾', 'mode.head': '僅開頭', 'mode.tail': '僅結尾',
     'hint.created': '檔案建立時間', 'hint.bext': 'BWF 時間參考', 'hint.mtime': '檔案修改時間（可能不準）',
     'hintNote': '（「時」依{src}推定）',
+    'clockNote': '（依{src}（{type}）推定，設備時鐘差 r = {r} 秒）',
+    'clockBad': '（{src}與量得的起點不一致，不採用：{rs}）',
+    'clockR': 'r（{type}）= {r} 秒',
+    'ctype.start': '開始', 'ctype.end': '結束',
     'sec': '{v} 秒',
     'card.rate': '速度比例', 'card.rateNote': '以此速度播放即對齊真實時間',
     'card.len': '校正後長度', 'card.orig': '{kind}原長 {len} 秒{frames}', 'card.frames': '（{n} 格）',
@@ -2495,6 +2741,7 @@ const I18N = {
     'card.offs': '軌道起點偏移', 'card.offsA': '音訊軌 {a} 秒', 'card.offsV': '，畫面軌 {v} 秒',
     'warn.seg': '非線性漂移：中段偏離直線最多 {ms} ms，建議依上列分段調速（抽查越多處、分段越細越準）',
     'warn.single': '只讀到單端：速率只代表那一小段時間，未涵蓋整段，機身溫度變化可能造成偏差',
+    'warn.ltcRate': 'LTC 的 30 與 29.97（24 與 23.976）只差 0.1%，影格率由時鐘偏差最接近 0 的一種推定；這台設備偏差超過 100 ppm，可能判錯，請確認影格率',
     'warn.amb': '頭尾之間的整分鐘數無法確定，請確認結果是否合理（可勾選「尋找分鐘標記」或實測中段）',
     'rep.rate':   '  ▶ 速度比例        : {v} %',
     'rep.len':    '  ▶ 校正後長度      : {v} 秒（{kind}原長 {len} 秒{frames}）',
@@ -2510,6 +2757,7 @@ const I18N = {
     'rep.seg':    '  第 {i} 段            : {a} ～ {b} 秒，播放速度 {v} %',
     'rep.mid':    '  中段實測偏差      : 最多 {ms} ms（線性）',
     'rep.single': '  ⚠ 只讀到單端：未涵蓋整段，機身溫度變化可能造成偏差',
+    'rep.ltcRate': '  ⚠ LTC 影格率由時鐘偏差推定：偏差超過 100 ppm，可能判錯（30 與 29.97、24 與 23.976 只差 0.1%）',
     'rep.relHead': '對齊到基準檔：{file}（以基準檔自己的時間軸計）',
     'rep.relRow': '  {file}{ref}：起點 {off} 秒，播放速度 {v} %，長度 {len} 秒',
     'prog.start': '分析中…', 'prog.n': '分析中…已讀取 {n} 個區塊',
@@ -2570,8 +2818,11 @@ const I18N = {
     'av.codec': '無法讀取畫面碼（{why}），只分析音訊',
     'av.note': '單一檔案的偏移 = 場記板本身的聲畫偏移 + 攝影機本身的聲畫偏移；同一場記板拍多台攝影機時，彼此的差值才是攝影機之間的相對偏移；絕對值需要已知同步的基準設備。量得的場記板偏移可填入場記板「設定 → 校準」。',
     'note.vis540': '畫面碼：起點時間只知道 9 分鐘週期內的位置，相對位置在 ±4.5 分鐘內有效',
+    'note.pitch540': '波形碼音高：起點時間只知道 9 分鐘週期內的位置，相對位置在 ±4.5 分鐘內有效',
+    'card.pitchRej': '，排除 {n} 秒音高不符（秒數或音高讀錯）',
     'clock.vis': '（9 分鐘週期第 {m} 分）',
-    'rel.note540': '起點位置以畫面碼判定，各檔案開始時間相差須在 ±4.5 分鐘內。',
+    'clock.c3h': '（3 小時週期第 {h} 時）',
+    'rel.note540': '起點位置以畫面碼或波形碼音高判定，各檔案開始時間相差須在 ±4.5 分鐘內。',
     'rel.note180': '起點位置以畫面碼與分鐘標記判定，各檔案開始時間相差須在 ±1.5 分鐘內。',
     'err.noCodeAny': '整個檔案都讀不到波形碼，也讀不到畫面碼',
     'err.vcodec': '檔案沒有音訊軌，且無法讀取畫面碼（{why}）',
@@ -2581,6 +2832,12 @@ const I18N = {
     'why.decode': '畫面解碼失敗：{msg}',
     'rep.avNoteHead': '聲畫偏移說明：',
     'rep.source': '  時間來源          : {v}',
+    'src.ltc': 'LTC（ltc）', 'card.ltc': 'LTC', 'card.ltcV': '{fps}，{ch}',
+    'card.fitLtc': '使用 {n} 個格起點，殘差 {ms} ms',
+    'rep.fitLtc': '  擬合              : {n} 個格起點，殘差 {ms} ms',
+    'rep.ltc':    '  LTC               : {fps}，{ch}',
+    'clock.ltcTc': '（LTC 時間，非真實時間）',
+    'rel.noteLtc': '「—」：LTC 時間（23.976、29.97 NDF）只和同一種 LTC 的檔案比對。',
     'rep.fitVis': '  擬合              : {n} 個畫面碼邊緣，殘差 {ms} ms',
     'rep.vis': '  畫面解碼          : {v}',
     'rep.avOff': '  聲畫偏移          : {v}',
@@ -2593,6 +2850,7 @@ const I18N = {
     'rep.hwFallback': '  ⚠ 硬體解碼失敗    : 已改用瀏覽器預設的解碼方式：{why}',
     'rep.avDist': '  （已扣除聲音傳播 {ms} ms：距離 {m} m）',
     'rep.vis540': '  （畫面碼：起點時間只知道 9 分鐘週期內的位置，相對位置在 ±4.5 分鐘內有效）',
+    'rep.pitch540': '  （波形碼音高：起點時間只知道 9 分鐘週期內的位置，相對位置在 ±4.5 分鐘內有效）',
   },
   en: {
     'title': 'Sync Analyzer',
@@ -2616,6 +2874,10 @@ const I18N = {
     'mode.full': 'Full length', 'mode.both': 'Head and tail', 'mode.head': 'Head only', 'mode.tail': 'Tail only',
     'hint.created': 'the file creation time', 'hint.bext': 'the BWF time reference', 'hint.mtime': 'the file’s modification time, which may be inaccurate',
     'hintNote': ' (hour inferred from {src})',
+    'clockNote': ' (from {src}, {type} type; device clock difference r = {r} s)',
+    'clockBad': ' ({src} does not match the measured start, not used: {rs})',
+    'clockR': 'r ({type}) = {r} s',
+    'ctype.start': 'start', 'ctype.end': 'end',
     'sec': '{v} s',
     'card.rate': 'Speed ratio', 'card.rateNote': 'Play at this speed to match real time',
     'card.len': 'Corrected length', 'card.orig': '{kind} length {len} s{frames}', 'card.frames': ' ({n} frames)',
@@ -2630,6 +2892,7 @@ const I18N = {
     'card.offs': 'Track start offset', 'card.offsA': 'audio track {a} s', 'card.offsV': ', video track {v} s',
     'warn.seg': 'Non-linear drift: the middle strays from a straight line by up to {ms} ms. Retime each segment to the speeds listed above (more spot checks and finer segments are more accurate).',
     'warn.single': 'Only one end was read: the rate reflects just that short stretch, not the whole recording, and temperature changes in the device may throw it off.',
+    'warn.ltcRate': 'LTC at 30 and 29.97 (24 and 23.976) differ by only 0.1 %, so the frame rate was inferred as the one with the smaller clock drift. This device drifts by more than 100 ppm, so the guess may be wrong: check the frame rate.',
     'warn.amb': 'The number of whole minutes between head and tail is uncertain. Check that the result makes sense (check “Look for minute markers” or measure the middle).',
     'rep.rate':   '  ▶ Speed ratio         : {v} %',
     'rep.len':    '  ▶ Corrected length    : {v} s ({kind} length {len} s{frames})',
@@ -2645,6 +2908,7 @@ const I18N = {
     'rep.seg':    '  Segment {i}             : {a} – {b} s, playback speed {v} %',
     'rep.mid':    '  Mid-file deviation    : at most {ms} ms (linear)',
     'rep.single': '  ⚠ Only one end was read: the whole recording is not covered; temperature changes in the device may throw the rate off',
+    'rep.ltcRate': '  ⚠ LTC frame rate inferred from the clock drift, which exceeds 100 ppm; it may be wrong (30 vs 29.97 and 24 vs 23.976 differ by 0.1 %)',
     'rep.relHead': 'Aligned to reference file: {file} (on the reference file’s own timeline)',
     'rep.relRow': '  {file}{ref}: start {off} s, playback speed {v} %, length {len} s',
     'prog.start': 'Analyzing…', 'prog.n': 'Analyzing… chunks read: {n}',
@@ -2705,8 +2969,11 @@ const I18N = {
     'av.codec': 'The visual code could not be read ({why}); only the audio was analyzed',
     'av.note': 'A single file’s offset = the slate’s own A/V offset + the camera’s own A/V offset. With one slate filmed by several cameras, only the differences between them are the cameras’ relative offsets; absolute values need reference equipment known to be in sync. The slate offset you measure can be entered in the slate under “Settings → Calibration”.',
     'note.vis540': 'Visual code: the start time is known only within the 9-minute cycle, so relative positions hold within ±4.5 minutes',
+    'note.pitch540': 'Waveform pitch: the start time is known only within the 9-minute cycle, so relative positions hold within ±4.5 minutes',
+    'card.pitchRej': '; seconds rejected for a mismatched pitch (second or pitch misread): {n}',
     'clock.vis': ' (minute {m} of the 9-minute cycle)',
-    'rel.note540': 'Start positions are worked out from the visual code, so the files must start within ±4.5 minutes of each other.',
+    'clock.c3h': ' (hour {h} of the 3-hour cycle)',
+    'rel.note540': 'Start positions are worked out from the visual code or the waveform pitch, so the files must start within ±4.5 minutes of each other.',
     'rel.note180': 'Start positions are worked out from the visual code and minute markers, so the files must start within ±1.5 minutes of each other.',
     'err.noCodeAny': 'Neither the waveform code nor the visual code could be read anywhere in the file',
     'err.vcodec': 'The file has no audio track, and the visual code could not be read ({why})',
@@ -2716,6 +2983,12 @@ const I18N = {
     'why.decode': 'video decoding failed: {msg}',
     'rep.avNoteHead': 'About the A/V offset: ',
     'rep.source': '  Time source           : {v}',
+    'src.ltc': 'LTC (ltc)', 'card.ltc': 'LTC', 'card.ltcV': '{fps}, {ch}',
+    'card.fitLtc': '{n} frame starts used, residual {ms} ms',
+    'rep.fitLtc': '  Fit                   : {n} frame starts, residual {ms} ms',
+    'rep.ltc':    '  LTC                   : {fps}, {ch}',
+    'clock.ltcTc': ' (LTC time, not real time)',
+    'rel.noteLtc': ' “—”: LTC time (23.976, 29.97 NDF) is matched only with files carrying the same kind of LTC.',
     'rep.fitVis': '  Fit                   : {n} visual-code edges, residual {ms} ms',
     'rep.vis': '  Video decoding        : {v}',
     'rep.avOff': '  A/V offset            : {v}',
@@ -2728,6 +3001,7 @@ const I18N = {
     'rep.hwFallback': '  ⚠ Hardware decoding   : failed; switched to the browser’s default decoder: {why}',
     'rep.avDist': '  (sound travel of {ms} ms subtracted: distance {m} m)',
     'rep.vis540': '  (Visual code: the start time is known only within the 9-minute cycle; relative positions hold within ±4.5 minutes)',
+    'rep.pitch540': '  (Waveform pitch: the start time is known only within the 9-minute cycle; relative positions hold within ±4.5 minutes)',
   },
   ja: {
     'title': '同期アナライザー',
@@ -2751,6 +3025,10 @@ const I18N = {
     'mode.full': '全編', 'mode.both': '先頭と末尾', 'mode.head': '先頭のみ', 'mode.tail': '末尾のみ',
     'hint.created': 'ファイルの作成日時', 'hint.bext': 'BWF のタイムリファレンス', 'hint.mtime': 'ファイルの更新日時（不正確な場合あり）',
     'hintNote': '（「時」は{src}から推定）',
+    'clockNote': '（{src}（{type}）から推定、機器の時計差 r = {r} 秒）',
+    'clockBad': '（{src}が測定した開始位置と一致しないため不使用：{rs}）',
+    'clockR': 'r（{type}）= {r} 秒',
+    'ctype.start': '開始', 'ctype.end': '終了',
     'sec': '{v} 秒',
     'card.rate': '速度比', 'card.rateNote': 'この速度で再生すると実時間に一致します',
     'card.len': '補正後の長さ', 'card.orig': '{kind}の元の長さ {len} 秒{frames}', 'card.frames': '（{n} フレーム）',
@@ -2765,6 +3043,7 @@ const I18N = {
     'card.offs': 'トラック開始オフセット', 'card.offsA': '音声トラック {a} 秒', 'card.offsV': '、映像トラック {v} 秒',
     'warn.seg': '非線形ドリフト：中盤が直線から最大 {ms} ms ずれています。上記の区間ごとに速度を合わせてください（チェック箇所が多く、区間が細かいほど正確です）。',
     'warn.single': '片端しか読み取れませんでした。速度はその短い区間だけのもので全体をカバーしていないため、機材の温度変化でずれる可能性があります。',
+    'warn.ltcRate': 'LTC の 30 と 29.97（24 と 23.976）は 0.1% しか違わないため、クロックのずれが小さい方のフレームレートと推定しました。この機材のずれは 100 ppm を超えているため推定が誤っている可能性があります。フレームレートを確認してください。',
     'warn.amb': '先頭と末尾の間が何分あるか確定できません。結果が妥当か確認してください（「分マーカーを探す」をオンにするか、中盤を実測してください）。',
     'rep.rate':   '  ▶ 速度比              : {v} %',
     'rep.len':    '  ▶ 補正後の長さ        : {v} 秒（{kind}の元の長さ {len} 秒{frames}）',
@@ -2780,6 +3059,7 @@ const I18N = {
     'rep.seg':    '  区間 {i}                : {a}～{b} 秒、再生速度 {v} %',
     'rep.mid':    '  中盤の実測ずれ        : 最大 {ms} ms（線形）',
     'rep.single': '  ⚠ 片端しか読み取れていません：全体をカバーしていないため、機材の温度変化でずれる可能性があります',
+    'rep.ltcRate': '  ⚠ LTC のフレームレートはクロックのずれから推定：100 ppm を超えているため誤りの可能性あり（30／29.97、24／23.976 は 0.1% 差）',
     'rep.relHead': '基準ファイルに揃える：{file}（基準ファイル自身のタイムライン）',
     'rep.relRow': '  {file}{ref}：開始 {off} 秒、再生速度 {v} %、長さ {len} 秒',
     'prog.start': '解析中…', 'prog.n': '解析中…{n} ブロック読み込み済み',
@@ -2840,8 +3120,11 @@ const I18N = {
     'av.codec': '映像コードを読み取れないため（{why}）、音声のみ解析しました',
     'av.note': '1 つのファイルのオフセット ＝ スレート自体の A/V オフセット ＋ カメラ自体の A/V オフセットです。同じスレートを複数のカメラで撮った場合、互いの差がカメラ間の相対オフセットになります。絶対値には同期が確認済みの基準機材が必要です。測定したスレートのオフセットは、スレートの「設定 → キャリブレーション」に入力できます。',
     'note.vis540': '映像コード：開始時刻は 9 分周期内の位置しかわからないため、相対位置は ±4.5 分以内で有効です',
+    'note.pitch540': '波形コードの音高：開始時刻は 9 分周期内の位置しかわからないため、相対位置は ±4.5 分以内で有効です',
+    'card.pitchRej': '、音高が合わない秒 {n} 個を除外（秒の値か音高の読み誤り）',
     'clock.vis': '（9 分周期の {m} 分目）',
-    'rel.note540': '開始位置は映像コードで判定するため、各ファイルの開始時刻の差は ±4.5 分以内である必要があります。',
+    'clock.c3h': '（3 時間周期の {h} 時目）',
+    'rel.note540': '開始位置は映像コードまたは波形コードの音高で判定するため、各ファイルの開始時刻の差は ±4.5 分以内である必要があります。',
     'rel.note180': '開始位置は映像コードと分マーカーで判定するため、各ファイルの開始時刻の差は ±1.5 分以内である必要があります。',
     'err.noCodeAny': 'ファイルのどこからも波形コードと映像コードを読み取れません',
     'err.vcodec': 'ファイルに音声トラックがなく、映像コードも読み取れません（{why}）',
@@ -2851,6 +3134,12 @@ const I18N = {
     'why.decode': '映像のデコードに失敗：{msg}',
     'rep.avNoteHead': 'A/V オフセットについて：',
     'rep.source': '  時刻の取得元          : {v}',
+    'src.ltc': 'LTC（ltc）', 'card.ltc': 'LTC', 'card.ltcV': '{fps}、{ch}',
+    'card.fitLtc': 'フレーム開始 {n} 個を使用、残差 {ms} ms',
+    'rep.fitLtc': '  フィッティング        : フレーム開始 {n} 個、残差 {ms} ms',
+    'rep.ltc':    '  LTC                   : {fps}、{ch}',
+    'clock.ltcTc': '（LTC 時刻、実時刻ではありません）',
+    'rel.noteLtc': '「—」：LTC 時刻（23.976、29.97 NDF）は同じ種類の LTC のファイルとだけ比較します。',
     'rep.fitVis': '  フィッティング        : 映像コードのエッジ {n} 個、残差 {ms} ms',
     'rep.vis': '  映像のデコード        : {v}',
     'rep.avOff': '  A/V オフセット        : {v}',
@@ -2863,6 +3152,7 @@ const I18N = {
     'rep.hwFallback': '  ⚠ HW デコード失敗     : ブラウザー既定のデコード方式に切り替え：{why}',
     'rep.avDist': '  （音の伝搬 {ms} ms を差し引き済み：距離 {m} m）',
     'rep.vis540': '  （映像コード：開始時刻は 9 分周期内の位置しかわからないため、相対位置は ±4.5 分以内で有効）',
+    'rep.pitch540': '  （波形コードの音高：開始時刻は 9 分周期内の位置しかわからないため、相対位置は ±4.5 分以内で有効）',
   },
   ko: {
     'title': '싱크 분석기',
@@ -2886,6 +3176,10 @@ const I18N = {
     'mode.full': '전체 구간', 'mode.both': '시작과 끝', 'mode.head': '시작만', 'mode.tail': '끝만',
     'hint.created': '파일 생성 시각', 'hint.bext': 'BWF 타임 레퍼런스', 'hint.mtime': '파일 수정 시각(부정확할 수 있음)',
     'hintNote': ' (“시”는 {src} 기준 추정)',
+    'clockNote': ' ({src}({type}) 기준 추정, 기기 시계 차이 r = {r}초)',
+    'clockBad': ' ({src}이(가) 측정한 시작 위치와 맞지 않아 사용하지 않음: {rs})',
+    'clockR': 'r({type}) = {r}초',
+    'ctype.start': '시작', 'ctype.end': '종료',
     'sec': '{v}초',
     'card.rate': '속도 비율', 'card.rateNote': '이 속도로 재생하면 실제 시간과 맞습니다',
     'card.len': '보정 후 길이', 'card.orig': '{kind} 원본 길이 {len}초{frames}', 'card.frames': ' ({n}프레임)',
@@ -2900,6 +3194,7 @@ const I18N = {
     'card.offs': '트랙 시작 오프셋', 'card.offsA': '오디오 트랙 {a}초', 'card.offsV': ', 영상 트랙 {v}초',
     'warn.seg': '비선형 드리프트: 중간이 직선에서 최대 {ms} ms 벗어납니다. 위의 구간별 속도로 맞추세요(확인 지점이 많고 구간이 촘촘할수록 정확합니다).',
     'warn.single': '한쪽 끝만 읽었습니다. 속도는 그 짧은 구간만 반영하고 전체를 포함하지 않으므로 기기 온도 변화로 오차가 생길 수 있습니다.',
+    'warn.ltcRate': 'LTC의 30과 29.97(24와 23.976)은 0.1%밖에 차이 나지 않아 클럭 드리프트가 더 작은 쪽의 프레임 레이트로 추정했습니다. 이 기기의 드리프트가 100 ppm을 넘어 추정이 틀렸을 수 있으니 프레임 레이트를 확인하세요.',
     'warn.amb': '시작과 끝 사이가 몇 분인지 확정할 수 없습니다. 결과가 타당한지 확인하세요(‘분 마커 찾기’를 켜거나 중간을 실측하세요).',
     'rep.rate':   '  ▶ 속도 비율           : {v} %',
     'rep.len':    '  ▶ 보정 후 길이        : {v}초 ({kind} 원본 길이 {len}초{frames})',
@@ -2915,6 +3210,7 @@ const I18N = {
     'rep.seg':    '  구간 {i}                : {a}~{b}초, 재생 속도 {v} %',
     'rep.mid':    '  중간 실측 편차        : 최대 {ms} ms (선형)',
     'rep.single': '  ⚠ 한쪽 끝만 읽음: 전체를 포함하지 않으므로 기기 온도 변화로 오차가 생길 수 있습니다',
+    'rep.ltcRate': '  ⚠ LTC 프레임 레이트를 클럭 드리프트로 추정: 100 ppm을 넘어 틀렸을 수 있음(30/29.97, 24/23.976은 0.1% 차이)',
     'rep.relHead': '기준 파일에 맞춤: {file} (기준 파일 자체의 타임라인 기준)',
     'rep.relRow': '  {file}{ref}: 시작 {off}초, 재생 속도 {v} %, 길이 {len}초',
     'prog.start': '분석 중…', 'prog.n': '분석 중… {n}개 블록 읽음',
@@ -2975,8 +3271,11 @@ const I18N = {
     'av.codec': '화면 코드를 읽을 수 없어({why}) 오디오만 분석했습니다',
     'av.note': '한 파일의 오프셋 = 슬레이트 자체의 A/V 오프셋 + 카메라 자체의 A/V 오프셋입니다. 슬레이트 하나를 여러 카메라로 찍은 경우 서로의 차이가 카메라 간 상대 오프셋입니다. 절댓값을 알려면 싱크가 확인된 기준 장비가 필요합니다. 측정한 슬레이트 오프셋은 슬레이트의 ‘설정 → 보정’에 입력할 수 있습니다.',
     'note.vis540': '화면 코드: 시작 시각은 9분 주기 안의 위치만 알 수 있으므로 상대 위치는 ±4.5분 이내에서만 유효합니다',
+    'note.pitch540': '파형 코드 음높이: 시작 시각은 9분 주기 안의 위치만 알 수 있으므로 상대 위치는 ±4.5분 이내에서만 유효합니다',
+    'card.pitchRej': ', 음높이가 맞지 않는 초 {n}개 제외(초 값 또는 음높이 오독)',
     'clock.vis': ' (9분 주기의 {m}분째)',
-    'rel.note540': '시작 위치는 화면 코드로 판정하므로 파일 간 시작 시각 차이가 ±4.5분 이내여야 합니다.',
+    'clock.c3h': ' (3시간 주기의 {h}시째)',
+    'rel.note540': '시작 위치는 화면 코드 또는 파형 코드 음높이로 판정하므로 파일 간 시작 시각 차이가 ±4.5분 이내여야 합니다.',
     'rel.note180': '시작 위치는 화면 코드와 분 마커로 판정하므로 파일 간 시작 시각 차이가 ±1.5분 이내여야 합니다.',
     'err.noCodeAny': '파일 어디에서도 파형 코드와 화면 코드를 읽을 수 없습니다',
     'err.vcodec': '파일에 오디오 트랙이 없고 화면 코드도 읽을 수 없습니다({why})',
@@ -2986,6 +3285,12 @@ const I18N = {
     'why.decode': '영상 디코딩 실패: {msg}',
     'rep.avNoteHead': 'A/V 오프셋 안내: ',
     'rep.source': '  시간 기준             : {v}',
+    'src.ltc': 'LTC(ltc)', 'card.ltc': 'LTC', 'card.ltcV': '{fps}, {ch}',
+    'card.fitLtc': '프레임 시작 {n}개 사용, 잔차 {ms} ms',
+    'rep.fitLtc': '  피팅                  : 프레임 시작 {n}개, 잔차 {ms} ms',
+    'rep.ltc':    '  LTC                   : {fps}, {ch}',
+    'clock.ltcTc': ' (LTC 시각, 실제 시각 아님)',
+    'rel.noteLtc': ' “—”: LTC 시각(23.976, 29.97 NDF)은 같은 종류의 LTC 파일과만 비교합니다.',
     'rep.fitVis': '  피팅                  : 화면 코드 에지 {n}개, 잔차 {ms} ms',
     'rep.vis': '  화면 디코딩           : {v}',
     'rep.avOff': '  A/V 오프셋            : {v}',
@@ -2998,6 +3303,7 @@ const I18N = {
     'rep.hwFallback': '  ⚠ HW 디코딩 실패      : 브라우저 기본 디코딩 방식으로 전환: {why}',
     'rep.avDist': '  (소리 전파 {ms} ms 차감됨: 거리 {m} m)',
     'rep.vis540': '  (화면 코드: 시작 시각은 9분 주기 안의 위치만 알 수 있어 상대 위치는 ±4.5분 이내에서 유효)',
+    'rep.pitch540': '  (파형 코드 음높이: 시작 시각은 9분 주기 안의 위치만 알 수 있어 상대 위치는 ±4.5분 이내에서 유효)',
   },
 };
 
@@ -3050,6 +3356,7 @@ const fmtClock = (sec, m) => {
   if (m === 60) return `??:??:${ss}`;
   if (m === 3600) return `??:${p2(mi)}:${ss}`;
   if (m === VIS_MOD) return `??:??:${ss}` + t('clock.vis', { m: mi });
+  if (m === 10800) return `??:${p2(mi)}:${ss}` + t('clock.c3h', { h });
   return `${p2(h)}:${p2(mi)}:${ss}`;
 };
 const sgn = (v, d) => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(d);
@@ -3060,7 +3367,18 @@ window.__results = results;
 const errText = e => e.key ? t(e.key, e.vars && e.vars.why ? { ...e.vars, why: t(e.vars.why, e.vars) } : e.vars) : e.raw;
 const kindOf = r => t('kind.' + r.kind);
 const isSingle = r => r.mode === 'head' || r.mode === 'tail';
-const hintNote = r => r.hintSrc ? t('hintNote', { src: t('hint.' + r.hintSrc) }) : '';
+// 23.976 / 29.97 NDF LTC: the clock is time code, which runs 0.1 % slower than real time.
+const endClock = r => r.startClock + r.correctedLength * (r.ltc ? r.ltc.tcScale : 1);
+const chanText = r => r.channel[0] === r.channel[1] ? t('card.chan1', { n: r.channel[0] + 1 }) : t('card.chan2', { a: r.channel[0] + 1, b: r.channel[1] + 1 });
+const fitKey = r => ({ video: 'Vis', ltc: 'Ltc' }[r.source] || '');
+// After the start clock: where its hour came from, or why the file's creation time was not used.
+function hintNote(r) {
+  if (r.ltc && r.ltc.tcScale !== 1) return t('clock.ltcTc');
+  if (r.clockSrc && r.clockType) return t('clockNote', { src: t('hint.' + r.clockSrc), type: t('ctype.' + r.clockType), r: sgn(r.clockR, 3) });
+  const bad = r.clockBad ? t('clockBad', { src: t('hint.' + r.clockSrc),
+    rs: Object.keys(r.clockBad).map(k => t('clockR', { type: t('ctype.' + k), r: sgn(r.clockBad[k], 3) })).join(t('av.sep')) }) : '';
+  return bad + (r.hintSrc ? t('hintNote', { src: t('hint.' + r.hintSrc) }) : '');
+}
 
 // ---- visual code / A/V sync check parts of a result (present only when the video track was decoded)
 const floorNote = r => r.visFloorMs ? t('card.floor', { ms: r.visFloorMs.toFixed(3) }) : '';
@@ -3111,21 +3429,23 @@ function cardHtml(r) {
     ...(r.segments ? r.segments.map((g, i) => [t('card.seg', { i: i + 1 }),
       t('card.segV', { a: g.fileFrom.toFixed(3), b: g.fileTo.toFixed(3), v: (g.speed * 100).toFixed(6) })]) : []),
     ...(!r.segments && r.midDevMs !== null ? [[t('card.mid'), t('card.midV', { ms: r.midDevMs.toFixed(3) })]] : []),
-    [t('card.end', { kind }), fmtClock(r.startClock + r.correctedLength, r.clockMod)],
-    [t('card.fit'), t(video ? 'card.fitVis' : 'card.fitV', { n: r.edgesUsed, ms: r.fitRmsMs.toFixed(3) }) + (r.edgesRejected ? t('card.rejected', { n: r.edgesRejected }) : '')],
-    ...(video ? [] : [[t('card.chan'), r.channel[0] === r.channel[1] ? t('card.chan1', { n: r.channel[0] + 1 }) : t('card.chan2', { a: r.channel[0] + 1, b: r.channel[1] + 1 })]]),
+    [t('card.end', { kind }), fmtClock(endClock(r), r.clockMod)],
+    [t('card.fit'), t(fitKey(r) ? 'card.fit' + fitKey(r) : 'card.fitV', { n: r.edgesUsed, ms: r.fitRmsMs.toFixed(3) }) + (r.edgesRejected ? t('card.rejected', { n: r.edgesRejected }) : '') +
+      (r.pitchRejected ? t('card.pitchRej', { n: r.pitchRejected }) : '')],
+    ...(video ? [] : r.ltc ? [[t('card.ltc'), t('card.ltcV', { fps: r.ltc.label, ch: chanText(r) })]] : [[t('card.chan'), chanText(r)]]),
     [t('card.offs'), t('card.offsA', { a: sgn(r.aOff, 6) }) + (r.vOff !== null ? t('card.offsV', { v: sgn(r.vOff, 6) }) : '')],
     ...avRows(r),
   ];
   const warns = [], notes = [];
   if (r.hwFallback) warns.push(t('warn.hwFallback', { why: esc(r.hwFallback) }));
   if (r.avOffsetMs && r.avDriftPpm !== null && driftBad(r)) warns.push(t('warn.avDrift', { ppm: sgn(r.avDriftPpm, 1), unc: r.avDriftUncPpm.toFixed(1) }));
-  if (r.mod === VIS_MOD) notes.push(t('note.vis540'));
+  if (r.mod === VIS_MOD) notes.push(t(video ? 'note.vis540' : 'note.pitch540'));
   if (r.avOffsetMs) notes.push(t('av.note'));
 
   if (r.segments) warns.push(t('warn.seg', { ms: r.midDevMs.toFixed(1) }));
   if (isSingle(r)) warns.push(t('warn.single'));
   if (r.ambiguous) warns.push(t('warn.amb'));
+  if (r.ltc && r.ltc.rateGuess) warns.push(t('warn.ltcRate'));
   return `<h2 class="name">${esc(r.file)}</h2>
     <div class="headline">
       <div><div class="k">${t('card.rate')}</div><div class="v num">${(r.rate * 100).toFixed(6)} %</div>
@@ -3148,18 +3468,21 @@ function textReport() {
     L.push(t('rep.rate', { v: (r.rate * 100).toFixed(6) }));
     L.push(t('rep.len', { v: r.correctedLength.toFixed(6), kind, len: r.length.toFixed(6), frames: r.frames ? t('rep.frames', { n: r.frames }) : '' }));
     L.push(t('rep.start', { kind, clock: fmtClock(r.startClock, r.clockMod), hint: hintNote(r) }));
-    L.push(t('rep.end', { kind, clock: fmtClock(r.startClock + r.correctedLength, r.clockMod) }));
+    L.push(t('rep.end', { kind, clock: fmtClock(endClock(r), r.clockMod) }));
     if (r.fps) L.push(t('rep.fps', { a: r.fps.toFixed(6), b: (r.fps * r.rate).toFixed(6) }));
     L.push(t('rep.drift', { ppm: sgn(r.ppm, 3), unc: r.uncPpm.toFixed(3) }));
-    L.push(t(r.source === 'video' ? 'rep.fitVis' : 'rep.fit', { n: r.edgesUsed, ms: r.fitRmsMs.toFixed(3) }));
+    L.push(t('rep.fit' + fitKey(r), { n: r.edgesUsed, ms: r.fitRmsMs.toFixed(3) }) +
+      (r.pitchRejected ? t('card.pitchRej', { n: r.pitchRejected }) : ''));
     L.push(t('rep.offs', { a: sgn(r.aOff, 6), vid: r.vOff !== null ? t('card.offsV', { v: sgn(r.vOff, 6) }) : '' }));
     L.push(t('rep.mode', { mode: t('mode.' + r.mode) }));
     if (r.source) L.push(t('rep.source', { v: t('src.' + r.source) }));
+    if (r.ltc) L.push(t('rep.ltc', { fps: r.ltc.label, ch: chanText(r) }));
     L.push(t('rep.err', { ms: r.worstMs.toFixed(3), seg: r.segments ? t('card.afterSeg') : '' }) + floorNote(r));
     if (r.segments) r.segments.forEach((g, i) => L.push(t('rep.seg', { i: i + 1, a: g.fileFrom.toFixed(3), b: g.fileTo.toFixed(3), v: (g.speed * 100).toFixed(6) })));
     else if (r.midDevMs !== null) L.push(t('rep.mid', { ms: r.midDevMs.toFixed(3) }));
     if (isSingle(r)) L.push(t('rep.single'));
-    if (r.mod === VIS_MOD) L.push(t('rep.vis540'));
+    if (r.ltc && r.ltc.rateGuess) L.push(t('rep.ltcRate'));
+    if (r.mod === VIS_MOD) L.push(t(r.source === 'video' ? 'rep.vis540' : 'rep.pitch540'));
     reportAv(L, r);
   }
   if (results.some(r => !r.error && r.avOffsetMs)) L.push('='.repeat(64), t('rep.avNoteHead') + t('av.note'));
@@ -3167,8 +3490,9 @@ function textReport() {
   if (rel) {
     L.push('='.repeat(64), t('rep.relHead', { file: rel.ref.file }));
     for (const x of rel.rows) L.push(t('rep.relRow', { file: x.file, ref: x.r === rel.ref ? t('refMark') : '',
-      off: sgn(x.offset, 6), v: (x.speed * 100).toFixed(6), len: x.length.toFixed(6) }));
+      off: offText(x.offset), v: (x.speed * 100).toFixed(6), len: x.length.toFixed(6) }));
     if (rel.M === VIS_MOD || rel.M === 180) L.push('  ' + t(rel.M === VIS_MOD ? 'rel.note540' : 'rel.note180'));
+    if (rel.unmatched) L.push('  ' + t('rel.noteLtc'));
   }
   return L.join('\n');
 }
@@ -3191,33 +3515,49 @@ function reportAv(L, r) {
   if (d) L.push(t('rep.avRef', { v: avRefText(d) }));
 }
 
-// A file's start label usable modulo M, or null. Waveform code: seconds in the minute (or hour, with a minute
-// marker); visual code: seconds in the 9-minute cycle, so files with it can be matched over ±4.5 minutes.
-function startLabelFor(r, M) {
-  if (r.mod % M === 0) return r.startLabel;
-  if (r.label540 !== undefined && VIS_MOD % M === 0) return r.label540;
-  return null;
+// [[M, start label mod M]]: the cycles a file's start is known in (docs/start-time.md). The visual code read by the
+// A/V sync check adds the 9-minute cycle to a waveform result that only knows the seconds or the minute marker.
+// A start clock set from the file's own clock is known over the whole day: two such files are simply subtracted.
+// LTC time code that is not real time (23.976, 29.97 NDF) is matched only with the same kind ([M, label, kind]).
+const cycles = r => r.ltc && r.ltc.tcScale !== 1 ? [[86400, r.startLabel, r.ltc.label]] :
+  [[r.mod, r.startLabel]].concat(r.label540 !== undefined && r.mod % VIS_MOD ? [[VIS_MOD, r.label540]] : [],
+    r.clockType ? [[86400, r.startClock]] : []);
+// [M, label of a, label of b]: the longest cycle both files know, the gcd of their cycle lengths; null when none.
+function pairCycle(a, b) {
+  let best = null;
+  for (const [ma, la, ka] of cycles(a)) for (const [mb, lb, kb] of cycles(b)) {
+    const g = gcd(ma, mb);
+    if (ka === kb && (!best || g > best[0])) best = [g, la, lb];
+  }
+  return best;
 }
+// Real seconds from b's start to a's start, matched modulo the cycle both know (null when they cannot be matched).
+const startDiff = (a, b) => {
+  const pc = pairCycle(a, b);
+  return pc ? wrap(pc[1] - pc[2], pc[0]) / (a.ltc ? a.ltc.tcScale : 1) : null;
+};
 // Every file on the reference file's own timeline: real(t) = start + t / rate;  t_ref = (real - start_ref) * rate_ref.
-// Start positions are matched modulo the longest cycle every file knows: 3600 s (minute markers), 540 s (visual
-// code), 180 s (both kinds mixed) or 60 s.
+// Each file is matched to the reference modulo the gcd of their cycle lengths: 10800 s (minute marker + pitch),
+// 3600 s (minute markers), 540 s (pitch or visual code), 180 s (both kinds mixed) or 60 s. M: the shortest of them.
 function relRows() {
   const ok = results.filter(r => !r.error);
   if (ok.length < 2) return null;
   const ref = ok.find(r => r.file === $('refSel').value) || ok[0];
-  const M = [3600, VIS_MOD, 180, 60].find(m => ok.every(r => startLabelFor(r, m) !== null));
-  return { ref, M, ok, rows: ok.map(r => ({ file: r.file, r,
-    offset: wrap(startLabelFor(r, M) - startLabelFor(ref, M), M) * ref.rate, speed: r.rate / ref.rate, length: r.length * ref.rate / r.rate })) };
+  const pcs = ok.filter(r => r !== ref).map(r => pairCycle(r, ref)), M = Math.min(...pcs.filter(Boolean).map(p => p[0]));
+  return { ref, M, ok, unmatched: pcs.some(p => !p), rows: ok.map(r => { const d = startDiff(r, ref); return { file: r.file, r,
+    offset: d === null ? null : d * ref.rate, speed: r.rate / ref.rate, length: r.length * ref.rate / r.rate }; }) };
 }
-function convertT(rel, src, t, dst) { return (wrap(startLabelFor(src, rel.M) - startLabelFor(dst, rel.M), rel.M) + t / src.rate) * dst.rate; }
+function convertT(rel, src, t, dst) { const d = startDiff(src, dst); return d === null ? null : (d + t / src.rate) * dst.rate; }
+const offText = v => v === null ? '—' : sgn(v, 6);
 
 function renderRel() {
   const rel = relRows();
   $('relSec').hidden = !rel;
   if (rel) {
     $('relTable').innerHTML = `<tr><th>${t('th.file')}</th><th style="text-align:right">${t('th.start')}</th><th style="text-align:right">${t('th.speed')}</th><th style="text-align:right">${t('th.len')}</th></tr>` +
-      rel.rows.map(x => `<tr><td>${esc(x.file)}${x.r === rel.ref ? t('refMark') : ''}</td><td class="n num">${sgn(x.offset, 6)}</td><td class="n num">${(x.speed * 100).toFixed(6)} %</td><td class="n num">${x.length.toFixed(6)}</td></tr>`).join('');
-    $('relNote').textContent = rel.M === 3600 ? '' : t({ [VIS_MOD]: 'rel.note540', 180: 'rel.note180' }[rel.M] || 'rel.note60');
+      rel.rows.map(x => `<tr><td>${esc(x.file)}${x.r === rel.ref ? t('refMark') : ''}</td><td class="n num">${offText(x.offset)}</td><td class="n num">${(x.speed * 100).toFixed(6)} %</td><td class="n num">${x.length.toFixed(6)}</td></tr>`).join('');
+    $('relNote').textContent = (!isFinite(rel.M) || rel.M % 3600 === 0 ? '' : t({ [VIS_MOD]: 'rel.note540', 180: 'rel.note180' }[rel.M] || 'rel.note60')) +
+      (rel.unmatched ? t('rel.noteLtc') : '');
     const cur = $('convSrc').value;
     $('convSrc').innerHTML = rel.ok.map(r => `<option${r.file === cur ? ' selected' : ''}>${esc(r.file)}</option>`).join('');
     renderConv();
@@ -3231,7 +3571,7 @@ function renderConv() {
   const src = rel.ok.find(r => r.file === $('convSrc').value) || rel.ok[0], v = parseFloat($('convT').value);
   if (!isFinite(v)) { $('convTable').innerHTML = `<tr><td class="err">${t('conv.need')}</td></tr>`; return; }
   $('convTable').innerHTML = `<tr><th>${t('th.file')}</th><th style="text-align:right">${t('th.same')}</th></tr>` +
-    rel.ok.filter(r => r !== src).map(r => `<tr><td>${esc(r.file)}${r === rel.ref ? t('refMark') : ''}</td><td class="n num">${convertT(rel, src, v, r).toFixed(6)}</td></tr>`).join('');
+    rel.ok.filter(r => r !== src).map(r => `<tr><td>${esc(r.file)}${r === rel.ref ? t('refMark') : ''}</td><td class="n num">${(d => d === null ? '—' : d.toFixed(6))(convertT(rel, src, v, r))}</td></tr>`).join('');
 }
 $('convSrc').addEventListener('change', renderConv);
 $('convT').addEventListener('input', renderConv);
