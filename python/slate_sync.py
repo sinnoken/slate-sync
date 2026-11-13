@@ -29,6 +29,7 @@ slate_sync.py — 讀取「同步場記板」波形碼，算出每個錄音／�
 import argparse
 import datetime as dt
 import json
+import math
 import os
 import re
 import subprocess
@@ -132,7 +133,20 @@ def runs(mask, min_len=int(0.006 * SR), max_gap=int(0.006 * SR)):
     return [(s, e) for s, e in out if e - s >= min_len]
 
 
-WAVE_HZ = 600.0 + 80.0 * np.arange(19)          # the 19 legal carrier pitches
+# The 11 legal carrier pitches (pentatonic D5-D7, docs/waveform-code.md); same values as the slate's WAVE_PITCHES.
+WAVE_HZ = np.array([587.33, 659.26, 783.99, 880.00, 987.77, 1174.66, 1318.51, 1567.98, 1760.00, 1975.53, 2349.32])
+
+
+def pitch_index(k):
+    """Carrier pitch number for k = seconds since local midnight mod 540 (the slate's waveHz())."""
+    return (k // 60 + 4 * (k % 60)) % 11
+
+
+def cycle_k(sec, pitch):
+    """k (position in the 9-minute cycle) from a second's number and its pitch number, or None when the minute part
+    comes out as 9 or 10: the second's number or its pitch was misread."""
+    m = (pitch - 4 * sec) % 11
+    return 60 * m + sec if m <= 8 else None
 
 
 def edge_time(x, a, s, e, hz, phase):
@@ -153,14 +167,14 @@ def edge_time(x, a, s, e, hz, phase):
 
 def decode(x, t0):
     """Find every complete second in mono signal x (x[0] is at file time t0).
-    Returns a list of {t: leading-edge file time, val, is_min}.
+    Returns a list of {t: leading-edge file time, val, is_min, pitch: pitch number 0-10, pulses}.
 
     Bursts are told apart by DURATION and POSITION only, never by loudness, so clipping, limiting and
     automatic gain control do not matter: sync 40 ms, minute sync 250 ms, digit pulse 20 ms, zero 100 ms."""
     if len(x) < SR:
         return []
     a = np.abs(x.astype(np.float64))
-    k = 192  # 4 ms moving average: longer than two periods of the lowest carrier (600 Hz)
+    k = 192  # 4 ms moving average: longer than two periods of the lowest carrier (587 Hz)
     c = np.cumsum(np.concatenate(([0.0], a)))
     env = np.empty_like(a)
     env[k - 1:] = (c[k:] - c[:-k]) / k
@@ -190,14 +204,14 @@ def decode(x, t0):
             is_min = True
         else:
             continue
-        # Carrier pitch from the sync burst, snapped to the nearest legal pitch (they are 80 Hz apart; a
-        # recorder's clock error moves them by under 1 %). The oscillator starts at phase 0 with the sync.
-        # Which of the 19 legal pitches the sync burst carries (matched directly, so noise does not bias it;
-        # a recorder's clock moves pitch by under 1 %, far less than the 80 Hz spacing). The exact pitch
-        # then drives the edge corrections.
+        # Which of the 11 legal pitches the sync burst carries (matched directly, so noise does not bias it;
+        # a recorder's clock moves pitch by under 1 %, far less than the 72 Hz smallest spacing). The exact pitch
+        # then drives the edge corrections (the oscillator starts at phase 0 with the sync), and its number
+        # gives the position in the 9-minute cycle (label()).
         seg = x[s:e] * np.hanning(e - s)
         tt = np.arange(e - s) / SR
-        hz = float(WAVE_HZ[np.argmax([abs(np.dot(seg, np.exp(-2j * np.pi * f * tt))) for f in WAVE_HZ])])
+        pitch = int(np.argmax([abs(np.dot(seg, np.exp(-2j * np.pi * f * tt))) for f in WAVE_HZ]))
+        hz = float(WAVE_HZ[pitch])
         onset = edge_time(x, a, s, e, hz, 0.0)
         if onset + 0.95 > len(x) / SR:
             continue  # second not complete inside this chunk
@@ -247,14 +261,16 @@ def decode(x, t0):
         val = digits[0] * 10 + digits[1]
         if not is_min and val == 0:
             continue
-        out.append({"t": t0 + onset, "val": val, "is_min": is_min,
+        out.append({"t": t0 + onset, "val": val, "is_min": is_min, "pitch": pitch,
                     "pulses": [(t0 + tp, off) for tp, off in timed]})
     return out
 
 
 def label(seconds):
-    """Give each consistent decoded second a real-time label.
-    Returns ([(file_t, real_label), ...], modulus): seconds-in-hour if a minute marker was seen, else seconds-in-minute."""
+    """Give each consistent decoded second a real-time label (docs/waveform-code.md, rules 5 and 6).
+    Returns ([(file_t, real_label), ...], modulus, pitch_rejected), or None. The modulus is the longest cycle read:
+    10800 (minute marker + pitch), 3600 (minute marker), 540 (pitch) or 60 (seconds only, e.g. the old slate).
+    pitch_rejected counts the seconds dropped because their pitch gives no k or a k out of step with the others."""
     if not seconds:
         return None
     seconds = sorted(seconds, key=lambda s: s["t"])
@@ -267,11 +283,38 @@ def label(seconds):
     good = [s for s in seconds if consistent(s)]
     if len(good) < max(1, len(seconds) // 2):
         return None
+    g0 = good[0]
+
+    def k_of(s):
+        return cycle_k(0 if s["is_min"] else s["val"], s["pitch"]) if "pitch" in s else None
+
+    # The k each second implies for the first good second; most seconds agreeing (at least 3, so one or two
+    # seconds of an old-slate recording cannot pass by chance) means the pitch carries the 9-minute cycle.
+    votes = {}
+    for s in good:
+        k = k_of(s)
+        if k is not None:
+            k0 = (k - round(s["t"] - g0["t"])) % VIS_MOD
+            votes[k0] = votes.get(k0, 0) + 1
+    k0, nk = max(votes.items(), key=lambda kv: kv[1], default=(None, 0))
+    if nk >= 3 and nk > len(good) / 2:
+        kept = [s for s in good if k_of(s) == (k0 + round(s["t"] - g0["t"])) % VIS_MOD]
+        rejected = len(good) - len(kept)
+        lab = [(s["t"], (k0 + round(s["t"] - g0["t"])) % VIS_MOD) for s in kept]
+        marker = next((s for s in kept if s["is_min"]), None)
+        if marker:
+            km = (k0 + round(marker["t"] - g0["t"])) % VIS_MOD
+            hm = marker["val"] * 60                      # seconds in the hour at the marker
+            # Both give the time mod 180 (gcd of 3600 and 540): use the marker only when they agree.
+            if hm % 180 == km % 180:
+                x = next(hm + 3600 * j for j in range(3) if (hm + 3600 * j) % VIS_MOD == km)
+                return [(t, (x + round(t - marker["t"])) % 10800) for t, _ in lab], 10800, rejected
+        return lab, VIS_MOD, rejected
     marker = next((s for s in good if s["is_min"]), None)
     if marker:
         base = marker["val"] * 60
-        return [(s["t"], (base + round(s["t"] - marker["t"])) % 3600) for s in good], 3600
-    return [(s["t"], (r_ref + round(s["t"] - ref["t"])) % 60) for s in good], 60
+        return [(s["t"], (base + round(s["t"] - marker["t"])) % 3600) for s in good], 3600, 0
+    return [(s["t"], (r_ref + round(s["t"] - ref["t"])) % 60) for s in good], 60, 0
 
 
 class End:
@@ -456,7 +499,7 @@ def frame_edges(frames, fi):
 
 def label_visual(edges, fi):
     """Visual counterpart of label(): keep the edges that step up by one ID per second (about 1 s apart).
-    The reference edge is the one most others agree with. Returns ([(file_t, ID), ...], 540)."""
+    The reference edge is the one most others agree with. Returns ([(file_t, ID), ...], 540, 0) like label()."""
     if not edges:
         return None
     edges = sorted(edges, key=lambda e: e["t"])
@@ -472,7 +515,7 @@ def label_visual(edges, fi):
     good = max((agree(r) for r in edges), key=len)
     if len(good) < max(1, len(edges) // 2):
         return None
-    return good, VIS_MOD
+    return good, VIS_MOD, 0
 
 
 class VEnd:
@@ -715,6 +758,8 @@ def fmt_clock(sec, mod):
         return f"??:{m:02d}:{s:06.3f}"
     if mod == VIS_MOD:
         return f"??:??:{s:06.3f}（9 分鐘週期第 {m} 分）"
+    if mod == 10800:
+        return f"??:{m:02d}:{s:06.3f}（3 小時週期第 {h} 時）"
     return f"{h:02d}:{m:02d}:{s:06.3f}"
 
 
@@ -750,8 +795,11 @@ def solve(head, tail, probes, vis=None):
     lab_t = lab_fn(tail) if tail else None
     if not lab_h and not lab_t:
         return {"error": "讀到的秒數彼此不一致，無法判讀"}
+    pitch_rejected = sum(lab[2] for lab in (lab_h, lab_t) if lab)
     if lab_h and lab_t:
-        (lh, mod_h), (lt, mod_t) = lab_h, lab_t
+        (lh, mod_h, _), (lt, mod_t, _) = lab_h, lab_t
+        if vis is None and mod_h % VIS_MOD == 0 and mod_t % VIS_MOD == 0:
+            step = VIS_MOD                              # both ends know the 9-minute cycle from the pitch
         t_h, r_h = lh[0]
         t_t, r_t = lt[-1]
         file_diff = t_t - t_h
@@ -775,19 +823,21 @@ def solve(head, tail, probes, vis=None):
         if real_diff <= 0:
             return {"error": "頭尾讀到的時間不合理"}
         ambiguous = (0.003 / span if span else 0.01) * pred > step / 4 or abs(pred - real_diff) > step / 4
-        if mod_h == 3600 and mod_t == 3600 and (r_t - r_h - real_diff) % 3600 != 0:
-            mod_h = mod_t = 60
-        if mod_h == 3600:
-            base, mod = r_h % 3600, 3600
-        elif mod_t == 3600:
-            base, mod = (r_t - real_diff) % 3600, 3600
+        # Labels both ends know beyond `step` must agree with the elapsed time, or neither is used.
+        g = math.gcd(mod_h, mod_t)
+        if g > step and (r_t - r_h - real_diff) % g != 0:
+            mod_h = mod_t = step
+        if max(mod_h, mod_t) > step and mod_h >= mod_t:
+            base, mod = r_h % mod_h, mod_h
+        elif max(mod_h, mod_t) > step:
+            base, mod = (r_t - real_diff) % mod_t, mod_t
         else:
             base, mod = r_h % step, step
         pts = [(t, float(round(t - t_h))) for t, _ in lh] + [(t, real_diff - float(round(t_t - t))) for t, _ in lt]
         clusters = [("開頭", [p[0] for p in pts[:len(lh)]])]
         tail_cluster = ("結尾", [t for t, _ in lt])
     else:
-        lab, mod = lab_h or lab_t
+        lab, mod, _ = lab_h or lab_t
         t0, r0 = lab[0]
         base = r0 % mod
         ambiguous = False
@@ -850,11 +900,13 @@ def solve(head, tail, probes, vis=None):
         lab = lab_fn(secs)
         if not lab:
             continue
-        (lp, _m) = lab
+        (lp, pm, pbad) = lab
+        pitch_rejected += pbad
+        pstep = math.gcd(pm, step)                      # the cycle both the probe and the ends know
         tp0, rp0 = lp[0]
         r_pred = (tp0 - c) / rate                       # real seconds since R = 0, from the fit so far
-        rd = (rp0 - base) % step
-        R0 = rd + step * round((r_pred - rd) / step)
+        rd = (rp0 - base) % pstep
+        R0 = rd + pstep * round((r_pred - rd) / pstep)
         add = [(refine(t, rate) if used_pulses else t, R0 + float(round(t - tp0))) for t, _ in lp]
         pts += add
         probe_clusters.append(("中段", [t for t, _ in add]))
@@ -902,7 +954,7 @@ def solve(head, tail, probes, vis=None):
     return {"rate": float(rate), "c": float(c), "base": base, "mod": mod, "ambiguous": bool(ambiguous),
             "n": n, "rejected": len(pts) - n, "rms": rms, "unc_ppm": unc_ppm, "pred_se": pred_se,
             "segs": segs, "max_dev_ms": max_dev, "both": bool(lab_h and lab_t), "used_pulses": bool(used_pulses),
-            "which": "頭尾" if (lab_h and lab_t) else ("開頭" if lab_h else "結尾")}
+            "which": "頭尾" if (lab_h and lab_t) else ("開頭" if lab_h else "結尾"), "pitch_rejected": pitch_rejected}
 
 
 def analyze(path, args):
@@ -1042,8 +1094,8 @@ def result(path, info, args, fit, probes, single_from, channel):
     start_mod = real_at(m_off)
     start_clock, clock_mod, hint_src = start_mod, mod, None
     hint, src = hour_hint(info, path)
-    if mod == 3600 and hint is not None:
-        start_clock = round((hint - start_mod) / 3600) * 3600 + start_mod
+    if mod in (3600, 10800) and hint is not None:
+        start_clock = round((hint - start_mod) / mod) * mod + start_mod
         clock_mod, hint_src = 86400, src
     return {"file": path, "kind": kind, "mode": mode, "channel": channel,
             "start_label": start_mod, "mod": mod, "start_clock": start_clock, "clock_mod": clock_mod,
@@ -1051,6 +1103,7 @@ def result(path, info, args, fit, probes, single_from, channel):
             "frames": info["v_frames"] if v else None, "fps": fps,
             "rate": rate, "ppm": (rate - 1) * 1e6, "unc_ppm": fit["unc_ppm"], "worst_ms": worst_ms,
             "edges_used": fit["n"], "edges_rejected": fit["rejected"], "fit_rms_ms": fit["rms"] * 1000,
+            "pitch_rejected": fit.get("pitch_rejected", 0),
             "segments": seg_out, "mid_dev_ms": fit["max_dev_ms"],
             "a_off": info["a_off"], "v_off": info["v_off"], "ambiguous": fit["ambiguous"]}
 
@@ -1227,7 +1280,8 @@ def report(results, args):
         video = r.get("source") == "video"
         print(f"  擬合              : 使用 {r['edges_used']} 個{'畫面碼邊緣' if video else '秒前緣'}，"
               f"殘差 {r['fit_rms_ms']:.3f} ms"
-              + (f"，排除 {r['edges_rejected']} 個異常點" if r["edges_rejected"] else ""))
+              + (f"，排除 {r['edges_rejected']} 個異常點" if r["edges_rejected"] else "")
+              + (f"，排除 {r['pitch_rejected']} 秒音高不符（秒數或音高讀錯）" if r.get("pitch_rejected") else ""))
         ch, ct = r["channel"]
         if not video:
             print(f"  波形碼聲道        : 第 {ch + 1} 聲道" if ch == ct else
@@ -1243,7 +1297,7 @@ def report(results, args):
         if r["mod"] == 60:
             print("  （未讀分鐘標記：起點時間只顯示分秒，相對位置在 ±30 秒內有效）")
         if r["mod"] == VIS_MOD:
-            print("  （畫面碼：起點時間只知道 9 分鐘週期內的位置，相對位置在 ±4.5 分鐘內有效）")
+            print(f"  （{'畫面碼' if video else '波形碼音高'}：起點時間只知道 9 分鐘週期內的位置，相對位置在 ±4.5 分鐘內有效）")
         if r["ambiguous"]:
             print("  ⚠ 頭尾之間的整分鐘數無法確定，請確認結果是否合理（可加 --minute 或 --full）")
         report_av(r, args)
@@ -1265,7 +1319,7 @@ def report(results, args):
         if al["mod"] == 60:
             print("  （起點位置以秒數判定，各檔案開始時間相差須在 ±30 秒內；更大的差距請以畫面或 --minute 確認）")
         elif al["mod"] == VIS_MOD:
-            print("  （起點位置以畫面碼判定，各檔案開始時間相差須在 ±4.5 分鐘內）")
+            print("  （起點位置以畫面碼或波形碼音高判定，各檔案開始時間相差須在 ±4.5 分鐘內）")
         elif al["mod"] == 180:
             print("  （起點位置以畫面碼與分鐘標記判定，各檔案開始時間相差須在 ±1.5 分鐘內）")
         for spec in args.at or []:
@@ -1309,34 +1363,40 @@ def report_av(r, args):
         print("  相對基準檔偏移差  : " + "；".join(part) + f"（基準：{r['av_ref']}）")
 
 
-def start_label(r, mod):
-    """r's start label usable modulo `mod`, or None. Waveform code: seconds in the minute (or hour, with a minute
-    marker); visual code: seconds in the 9-minute cycle, so files with it can be matched over ±4.5 minutes."""
-    if r["mod"] % mod == 0:
-        return r["start_label"]
-    if "_label540" in r and VIS_MOD % mod == 0:
-        return r["_label540"]
-    return None
+def cycles(r):
+    """[(M, start label mod M)]: the cycles r's start is known in (docs/start-time.md). The visual code read by --av
+    adds the 9-minute cycle to a waveform result that only knows seconds or the minute marker."""
+    out = [(r["mod"], r["start_label"])]
+    if "_label540" in r and r["mod"] % VIS_MOD:
+        out.append((VIS_MOD, r["_label540"]))
+    return out
+
+
+def pair_cycle(a, b):
+    """(M, label_a, label_b): the longest cycle both files know, the gcd of their cycle lengths."""
+    return max(((math.gcd(ma, mb), la, lb) for ma, la in cycles(a) for mb, lb in cycles(b)), key=lambda z: z[0])
 
 
 def align(ok, ref_name):
     """Express every file on the reference file's own timeline (seconds from its first frame/sample).
     real(t) = start + t / rate  for a file's time t;  t_ref = (real - start_ref) * rate_ref.
-    Start positions are matched modulo the longest cycle every file knows: 3600 s (minute markers),
-    540 s (visual code), 180 s (both kinds mixed) or 60 s."""
+    Each file's start is matched to the reference's modulo the gcd of their cycle lengths (docs/start-time.md):
+    10800 s (minute marker + pitch), 3600 s (minute marker), 540 s (pitch or visual code), 180 s or 60 s."""
     ref = next((r for r in ok if ref_name and os.path.basename(r["file"]) == os.path.basename(ref_name)), ok[0])
-    mod = next(m for m in (3600, VIS_MOD, 180, 60) if all(start_label(r, m) is not None for r in ok))
     rows = []
     for r in ok:
-        off_real = wrap(start_label(r, mod) - start_label(ref, mod), mod)
+        mod, la, lr = pair_cycle(r, ref)
+        off_real = wrap(la - lr, mod)
         rows.append({"offset": off_real * ref["rate"], "speed": r["rate"] / ref["rate"],
-                     "length": r["length"] * ref["rate"] / r["rate"], "off_real": off_real})
-    return {"ref": ref, "mod": mod, "rows": rows, "files": ok}
+                     "length": r["length"] * ref["rate"] / r["rate"], "off_real": off_real, "mod": mod})
+    others = [row["mod"] for r, row in zip(ok, rows) if r is not ref]
+    return {"ref": ref, "mod": min(others) if others else rows[0]["mod"], "rows": rows, "files": ok}
 
 
 def convert(al, src, t, dst):
     """Time t (s, from src's first frame) -> the same instant on dst's own timeline."""
-    real = wrap(start_label(src, al["mod"]) - start_label(dst, al["mod"]), al["mod"]) + t / src["rate"]
+    mod, ls, ld = pair_cycle(src, dst)
+    real = wrap(ls - ld, mod) + t / src["rate"]
     return real * dst["rate"]
 
 
@@ -1386,6 +1446,7 @@ def main():
             for r, a in zip(ok, al["rows"]):
                 r["align_to"] = os.path.basename(al["ref"]["file"])
                 r["align_offset"], r["align_speed"], r["align_length"] = a["offset"], a["speed"], a["length"]
+                r["align_mod"] = a["mod"]
         results = [{k: v for k, v in r.items() if not k.startswith("_")} for r in results]   # drop internal fields
         print(json.dumps(results, ensure_ascii=False, indent=2, default=float))
     else:
