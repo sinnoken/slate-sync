@@ -2,6 +2,7 @@
 // （見 src/core/analyze.js 開頭）。ffmpeg／ffprobe 須在 PATH 中。
 import { spawn } from 'node:child_process';
 import { statSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { VIS_SHORT } from '../src/core/visual.js';
 
 // Runs a program and collects its output. Resolves { code, stdout: Buffer, stderr: Buffer }; a missing program rejects.
@@ -19,18 +20,22 @@ function run(cmd, args) {
 const num = v => { const x = parseFloat(v); return Number.isFinite(x) ? x : null; };
 const ratio = s => { const [a, b] = String(s || '0/1').split('/').map(Number); return a && b ? a / b : null; };
 
-async function ffprobe(path) {
+// The name ffmpeg and ffprobe are given for a file: "file:" and the absolute path, so a name that starts with "-" is not
+// read as an option, "-" not as standard input, and one with ":" not as another protocol ("rtmp:", "concat:").
+const input = path => 'file:' + resolve(path);
+
+async function ffprobe(src) {
   const p = await run('ffprobe', ['-v', 'error', '-show_entries',
     'format=duration,start_time:format_tags=creation_time,time_reference:' +
     'stream=codec_type,avg_frame_rate,r_frame_rate,channels,sample_rate,nb_frames,duration,start_time:stream_disposition=attached_pic',
-    '-of', 'json', path]);
+    '-of', 'json', '-i', src]);
   if (p.code) throw new Error(p.stderr.toString('utf8').trim() || 'ffprobe 執行失敗');
   return JSON.parse(p.stdout.toString('utf8'));
 }
 
 // The core's media object for one file. fps: --fps (overrides the file's frame rate); hwaccel: false for --no-hwaccel.
 export async function openMedia(path, { fps = null, hwaccel = true } = {}) {
-  const j = await ffprobe(path), fmt = j.format || {}, tags = fmt.tags || {};
+  const src = input(path), j = await ffprobe(src), fmt = j.format || {}, tags = fmt.tags || {};
   const fStart = num(fmt.start_time) || 0, D = num(fmt.duration);
   if (D === null) throw new Error('ffprobe 讀不到檔案長度');
   const streams = j.streams || [];
@@ -57,10 +62,10 @@ export async function openMedia(path, { fps = null, hwaccel = true } = {}) {
   m.duration = Math.max(a ? m.aOff + m.aDur : 0, v ? m.vOff + m.vDur : 0) || D;
   if (tags.creation_time) { const t = Date.parse(tags.creation_time); if (Number.isFinite(t) && t > 0) m.created = t / 1000; }
   if (a && tags.time_reference && Number(tags.time_reference) > 0) m.bextSec = Number(tags.time_reference) / m.sr;
-  m.readWindow = (x, y) => readAudio(path, m, x, y);
+  m.readWindow = (x, y) => readAudio(src, m, x, y);
   m.openVideo = async () => {
     if (!v) return { unsupported: { why: 'why.codec', codec: '?' } };
-    const vr = new FfmpegVideo(path, fStart, hwaccel);
+    const vr = new FfmpegVideo(src, fStart, hwaccel);
     await vr.index();
     return vr;
   };
@@ -72,12 +77,12 @@ export async function openMedia(path, { fps = null, hwaccel = true } = {}) {
 // a full packet late at 0), so the input seeks to 1 s before the target and the output side cuts exactly, dropping
 // decoded samples by timestamp; near the start the file is decoded from the top. The start is moved onto the track's
 // sample grid (and the cut placed a quarter sample before it), so chans[*][0] sits exactly at t0.
-async function readAudio(path, m, a, b) {
+async function readAudio(src, m, a, b) {
   const sr = m.sr, ch = m.channels;
   const t0 = Math.max(m.aOff, m.aOff + Math.ceil((Math.max(0, a) - m.aOff) * sr - 1e-6) / sr);
   if (b <= t0) return { chans: [], t0, sr };
   const cut = Math.max(0, t0 - 0.25 / sr), pre = cut >= 1.1 ? cut - 1.0 : 0;
-  const p = await run('ffmpeg', ['-v', 'error', ...(pre ? ['-ss', pre.toFixed(6)] : []), '-i', path,
+  const p = await run('ffmpeg', ['-v', 'error', ...(pre ? ['-ss', pre.toFixed(6)] : []), '-i', src,
     '-ss', (cut - pre).toFixed(6), '-t', (b - t0).toFixed(6), '-vn', '-map', '0:a:0', '-f', 'f32le', '-']);
   if (p.code) throw new Error('ffmpeg 解碼失敗：' + p.stderr.toString('utf8').trim().slice(-300));
   const n = Math.floor(p.stdout.length / 4 / ch);
@@ -101,7 +106,7 @@ class FfmpegVideo {
   // Every video packet (file time, size, keyframe): demuxing only, no decoding.
   async index() {
     const p = await run('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time,size,flags',
-      '-of', 'csv=p=0', this.path]);
+      '-of', 'csv=p=0', '-i', this.path]);
     this.packets = [];
     for (const line of p.stdout.toString('utf8').split(/\r?\n/)) {
       const [t, size, flags] = line.split(',');
