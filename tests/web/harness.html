@@ -7,13 +7,13 @@
 <body>
 <!--
   網頁分析器的測試外框（由 tests/web/run_analyzer.py 開啟）。分析器本身不為測試修改：
-  這頁在同源 iframe 載入 web/sync-analyzer.html，依網址參數 fetch 測試檔、組成 File，
+  這頁在同源 iframe 載入建置後的 dist/sync-analyzer.html，依網址參數 fetch 測試檔、組成 File，
   以 DataTransfer 交給分析器的 #pick 並觸發 change，等 window.__done 達到檔案數後
   把 window.__results 與文字報告 POST 回 /__result。
 
   參數：f（測試檔網址，可重複）、lang、av、full、minute、only（head／tail）、dist（公尺）、timeout（秒）。
 -->
-<iframe id="app" src="/web/sync-analyzer.html" style="width:1200px;height:900px"></iframe>
+<iframe id="app" src="/dist/sync-analyzer.html" style="width:1200px;height:900px"></iframe>
 <script>
 (() => {
 const q = new URLSearchParams(location.search);

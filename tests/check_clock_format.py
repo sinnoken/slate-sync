@@ -27,7 +27,7 @@ CASES = [
 
 
 def web_fmt(cases):
-    html = open(os.path.join(ROOT, "web", "sync-analyzer.html"), encoding="utf-8").read()
+    html = open(os.path.join(ROOT, "src", "web", "main.js"), encoding="utf-8").read()
     a = html.index("const fmtClock = ")
     b = html.index("\n};", a) + 3
     js = ("const VIS_MOD = 540; const mod = (v, m) => ((v % m) + m) % m; const t = () => '';\n" + html[a:b] +

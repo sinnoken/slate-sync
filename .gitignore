@@ -6,3 +6,6 @@ venv/
 Thumbs.db
 # generated test media
 test-media/
+# build output and dependencies (npm run build, npm ci)
+dist/
+node_modules/

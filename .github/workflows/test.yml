@@ -35,6 +35,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Install npm packages and build the web pages
+        run: npm ci && npm run build
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -59,7 +64,7 @@ jobs:
         run: python tests/check_cli_encoding.py
       - name: Start clock never shows 60 seconds
         run: python tests/check_clock_format.py
-      # Headless Chrome (preinstalled on the ubuntu runner) runs web/sync-analyzer.html on tests/fixtures/ and the
+      # Headless Chrome (preinstalled on the ubuntu runner) runs the built dist/sync-analyzer.html on tests/fixtures/ and the
       # results are compared with the truth, the CLI and the text-report snapshot. The fixtures avoid HEVC, which
       # Linux Chrome cannot decode with WebCodecs.
       - name: Web analyzer in headless Chrome (truth, CLI, report snapshot)

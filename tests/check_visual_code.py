@@ -2,7 +2,7 @@
 """
 check_visual_code.py — 檢查畫面碼（AprilTag，規格見 docs/visual-code.md）的碼表、繪製與 ID 公式。
 
-1. 碼表一致：場記板（web/sync-slate.html）、分析器（web/sync-analyzer.html）內嵌的 JS 常數
+1. 碼表一致：場記板（web/sync-slate.html）、分析器（src/web/main.js）內嵌的 JS 常數
    TAG36H11_CODES／TAG36H11_BIT_X／TAG36H11_BIT_Y，與測試產生器（tests/make_test_media.py）的 Python 常數必須相同，
    並與 pupil-apriltags 內建的官方 tag36h11 族一致；加 --official 時另與官方 tag36h11.c 比對。
 2. 繪製：以測試產生器的 draw_tag() 畫出 ID 0–539（含 1 格靜區，每格數像素），pupil-apriltags 必須全部讀對。
@@ -78,7 +78,7 @@ def main():
     fail = 0
     gen = load_generator()
     sources = {"測試產生器 tests/make_test_media.py": {n: list(getattr(gen, n)) for n in NAMES}}
-    for rel in ("web/sync-slate.html", "web/sync-analyzer.html"):
+    for rel in ("web/sync-slate.html", "src/web/main.js"):
         sources[rel] = js_tables(os.path.join(ROOT, rel))
     try:
         from pupil_apriltags import Detector

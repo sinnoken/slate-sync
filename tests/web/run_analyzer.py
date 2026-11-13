@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
-run_analyzer.py — 以 headless 瀏覽器執行網頁分析器（web/sync-analyzer.html），取回結果 JSON 與文字報告。
+run_analyzer.py — 以 headless 瀏覽器執行網頁分析器，取回結果 JSON 與文字報告。
+
+先以 `node scripts/build.mjs` 建置（約 1 秒），測的一定是目前原始碼建置出的 dist/sync-analyzer.html。
 
 啟動本機 http 伺服器（127.0.0.1、隨機埠）提供 repo 根目錄，以 headless 瀏覽器開啟 tests/web/harness.html；
 外框頁在同源 iframe 載入分析器、把測試檔交給它，分析完成後把結果 POST 回伺服器。只用標準函式庫。
@@ -116,9 +118,17 @@ def stop(proc):
         proc.wait(5)
 
 
+def build():
+    """建置網頁到 dist/；失敗時丟出 RuntimeError。"""
+    p = subprocess.run(["node", os.path.join(ROOT, "scripts", "build.mjs")], capture_output=True)
+    if p.returncode:
+        raise RuntimeError("建置失敗（需先 npm ci）：\n" + p.stderr.decode("utf-8", "replace")[-2000:])
+
+
 def run(files, av=False, lang="zh-Hant", full=False, minute=False, only=None, dist=0.0, timeout=300.0, browser=None):
-    """分析 files（路徑清單，依序交給分析器），回傳外框頁 POST 回來的 dict。逾時或瀏覽器提前結束時丟出 RuntimeError。"""
+    """建置後分析 files（路徑清單，依序交給分析器），回傳外框頁 POST 回來的 dict。逾時或瀏覽器提前結束時丟出 RuntimeError。"""
     files = [os.path.abspath(f) for f in files]
+    build()
     for f in files:
         if not os.path.isfile(f):
             raise FileNotFoundError(f)

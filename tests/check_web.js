@@ -1,10 +1,15 @@
 #!/usr/bin/env node
-// check_web.js — 檢查三個網頁：<script> 語法正確；四種語言的字串 key 完全相同、{var} 一致；程式與標記用到的 key 都有定義。
+// check_web.js — 檢查三個網頁：程式語法正確；四種語言的字串 key 完全相同、{var} 一致；程式與標記用到的 key 都有定義。
+// 首頁與場記板檢查 web/ 內嵌的 <script>；分析器檢查原始碼（src/web/sync-analyzer.html 範本與 src/ 下的模組），
+// 語法以 esbuild 打包檢查（需先 npm ci）。
 // 用法：node tests/check_web.js
-const fs = require('fs'), path = require('path'), vm = require('vm');
+import * as esbuild from 'esbuild';
+import fs from 'node:fs';
+import path from 'node:path';
+import vm from 'node:vm';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = path.join(__dirname, '..');
-const PAGES = ['web/index.html', 'web/sync-slate.html', 'web/sync-analyzer.html'];
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 let failed = 0;
 
 // Inline <script> blocks of our own pages, found by plain string search (the pages only use bare <script> tags).
@@ -18,13 +23,28 @@ function scripts(html) {
   return out;
 }
 
-for (const rel of PAGES) {
-  const h = fs.readFileSync(path.join(ROOT, rel), 'utf8');
-  const src = scripts(h).join('\n;\n');
+const jsUnder = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => {
+  const p = path.join(dir, e.name);
+  return e.isDirectory() ? jsUnder(p) : p.endsWith('.js') ? [p] : [];
+});
+
+// [name, markup, script source, syntax error or null]
+function inlinePage(rel) {
+  const h = fs.readFileSync(path.join(ROOT, rel), 'utf8'), src = scripts(h).join('\n;\n');
+  try { new vm.Script(src, { filename: rel }); return [rel, h, src, null]; } catch (e) { return [rel, h, src, e.message]; }
+}
+function analyzerPage() {
+  const h = fs.readFileSync(path.join(ROOT, 'src/web/sync-analyzer.html'), 'utf8');
+  const src = jsUnder(path.join(ROOT, 'src')).map(f => fs.readFileSync(f, 'utf8')).join('\n;\n');
   try {
-    new vm.Script(src, { filename: rel });
-  } catch (e) {
-    console.log(`✗ ${rel}：語法錯誤 ${e.message}`);
+    esbuild.buildSync({ entryPoints: [path.join(ROOT, 'src/web/main.js')], bundle: true, write: false, logLevel: 'silent' });
+    return ['分析器（src/）', h, src, null];
+  } catch (e) { return ['分析器（src/）', h, src, e.message]; }
+}
+
+for (const [name, h, src, err] of [inlinePage('web/index.html'), inlinePage('web/sync-slate.html'), analyzerPage()]) {
+  if (err) {
+    console.log(`✗ ${name}：語法錯誤 ${err}`);
     failed++;
     continue;
   }
@@ -50,9 +70,9 @@ for (const rel of PAGES) {
   if (missing.length) problems.push(`未定義的 key：${missing.join(', ')}`);
   if (problems.length) {
     failed++;
-    console.log(`✗ ${rel}：${problems.join('；')}`);
+    console.log(`✗ ${name}：${problems.join('；')}`);
   } else {
-    console.log(`✓ ${rel}：語法正確，${langs.length} 種語言各 ${Object.keys(D['zh-Hant']).length} 個 key 一致`);
+    console.log(`✓ ${name}：語法正確，${langs.length} 種語言各 ${Object.keys(D['zh-Hant']).length} 個 key 一致`);
   }
 }
 console.log(failed ? `結果：${failed} 個檔案不符` : '結果：全部通過');

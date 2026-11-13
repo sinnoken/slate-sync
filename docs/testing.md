@@ -17,10 +17,12 @@ python tests/web/check_analyzer.py    # 以 headless Chrome／Edge 跑網頁分�
 
 測試產生器的其他選項：`--old-pitch`（舊版場記板的載波，不帶 9 分鐘循環）；`--ltc 24|25|29.97|30|23.976`（`--df`、`--ltc-channel`、`--ltc-with code|scene`、`--ltc-noise`、`--ltc-invert`，搭配 `--ppm`、`--start` 與 .m4a／.mp4 輸出的 AAC）；`--created start|end`、`--created-offset`、`--date`、`--tz`（MP4／MOV／M4A 寫 creation_time，WAV 寫 BWF time_reference）。產生器會印出 LTC 第一格的時間碼與位置、建立時間與 r 的真值。
 
-生成器會印出設定的速度比例與真實長度，與分析結果比對即可。網頁版分析器請用本機伺服器開啟（WebCodecs 需要安全環境）：
+生成器會印出設定的速度比例與真實長度，與分析結果比對即可。網頁由 `src/` 與 `web/` 建置到 `dist/`（需 Node；WebCodecs 需要安全環境，請用本機伺服器開啟）：
 
 ```bash
-python -m http.server 8000      # 在 repo 根目錄執行，然後開啟 http://localhost:8000/web/sync-analyzer.html
+npm ci                          # 第一次：安裝 esbuild
+npm run build                   # 建置到 dist/
+npm run dev                     # 開發：改檔後自動重建，開啟 http://localhost:8000/sync-analyzer.html
 ```
 
 畫面碼（AprilTag，規格見 [visual-code.md](visual-code.md)）另需 `pip install pupil-apriltags`（測試影片另需 pillow）：
@@ -215,7 +217,7 @@ H.264／H.265 × AAC、MOV 的 sowt／twos／in24（大小端）／fl32、MP4 �
 
 ### 網頁分析器自動測試
 
-`tests/web/run_analyzer.py` 在本機伺服器以外框頁（`tests/web/harness.html`）載入 `web/sync-analyzer.html`，把 `tests/fixtures/` 的測試檔交給分析器並收回結果；分析器本身不為測試修改。`tests/web/check_analyzer.py` 檢查：
+`tests/web/run_analyzer.py` 先建置，再在本機伺服器以外框頁（`tests/web/harness.html`）載入 `dist/sync-analyzer.html`，把 `tests/fixtures/` 的測試檔交給分析器並收回結果；分析器本身不為測試修改。`tests/web/check_analyzer.py` 檢查：
 
 - 與真值的誤差在報告自己的預估誤差內（另加半個取樣 0.0104 ms，產生器把每秒取整到取樣點）；
 - 與命令列版的差異在容許值內（速度比例 0.05 ppm、起點 0.001 ms、長度 0.01 ms，約為兩版實測最大差異的 2 倍；聲畫偏移 0.05 ms，因兩版偵測器不同）；
