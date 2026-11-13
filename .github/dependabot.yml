@@ -1,0 +1,11 @@
+# Monthly update PRs for the GitHub Actions used by the workflows and for the Python requirements.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: pip
+    directory: /python
+    schedule:
+      interval: monthly
