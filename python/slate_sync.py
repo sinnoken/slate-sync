@@ -750,7 +750,7 @@ def visual_scan(path, info, args, det):
 
 # ---------------------------------------------------------------- analysis
 def fmt_clock(sec, mod):
-    sec %= mod
+    sec = round(sec, 3) % mod   # round first, so 59.9996 s shows as the next minute, not :60.000
     h, m, s = int(sec // 3600), int(sec % 3600 // 60), sec % 60
     if mod == 60:
         return f"??:??:{s:06.3f}"

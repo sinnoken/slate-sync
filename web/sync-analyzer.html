@@ -3044,7 +3044,7 @@ function initLangMenu() {
 
 // =========================================================== UI
 const fmtClock = (sec, m) => {
-  sec = mod(sec, m);
+  sec = mod(Math.round(sec * 1000) / 1000, m);   // round first, so 59.9996 s shows as the next minute, not :60.000
   const h = Math.floor(sec / 3600), mi = Math.floor(sec % 3600 / 60), s = sec % 60;
   const p2 = v => String(v).padStart(2, '0'), ss = s.toFixed(3).padStart(6, '0');
   if (m === 60) return `??:??:${ss}`;

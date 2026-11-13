@@ -57,3 +57,5 @@ jobs:
         run: python tests/check_read_audio.py
       - name: Report prints on a non-UTF-8 console
         run: python tests/check_cli_encoding.py
+      - name: Start clock never shows 60 seconds
+        run: python tests/check_clock_format.py
