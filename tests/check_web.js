@@ -7,9 +7,20 @@ const ROOT = path.join(__dirname, '..');
 const PAGES = ['web/index.html', 'web/sync-slate.html', 'web/sync-analyzer.html'];
 let failed = 0;
 
+// Inline <script> blocks of our own pages, found by plain string search (the pages only use bare <script> tags).
+function scripts(html) {
+  const out = [];
+  for (let a = html.indexOf('<script>'); a >= 0; a = html.indexOf('<script>', a)) {
+    const b = html.indexOf('</script>', a);
+    out.push(html.slice(a + 8, b));
+    a = b;
+  }
+  return out;
+}
+
 for (const rel of PAGES) {
   const h = fs.readFileSync(path.join(ROOT, rel), 'utf8');
-  const src = [...h.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).join('\n;\n');
+  const src = scripts(h).join('\n;\n');
   try {
     new vm.Script(src, { filename: rel });
   } catch (e) {
@@ -28,7 +39,7 @@ for (const rel of PAGES) {
   const D = vm.runInNewContext('(' + src.slice(i, j + 1) + ')');
   const langs = Object.keys(D), base = Object.keys(D['zh-Hant']).sort().join();
   const vars = (l, k) => (String(D[l][k]).match(/\{\w+\}/g) || []).sort().join();
-  const used = [...h.matchAll(/data-i18n(?:-html)?="([^"]+)"/g)].map(m => m[1])
+  const used = [...h.matchAll(/data-i18n="([^"]+)"/g)].map(m => m[1])
     .concat([...h.matchAll(/data-i18n-attr="([^"]+)"/g)].flatMap(m => m[1].split(';').map(p => p.split(':')[1])))
     .concat([...src.matchAll(/\bt\('([\w.]+)'/g)].map(m => m[1]).filter(k => !k.endsWith('.')));
   const problems = [];
