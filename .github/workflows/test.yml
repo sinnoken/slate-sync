@@ -49,6 +49,10 @@ jobs:
         run: node tests/check_web.js
       - name: Visual code tables
         run: python tests/check_visual_code.py
+      - name: Waveform pitch matches the slate
+        run: python tests/check_wave_pitch.py
+      - name: LTC bits match the slate
+        run: python tests/check_ltc_bits.py
       - name: Audio reads land on the exact sample
         run: python tests/check_read_audio.py
       - name: Report prints on a non-UTF-8 console

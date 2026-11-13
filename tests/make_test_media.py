@@ -5,6 +5,10 @@ make_test_media.py — 產生已知漂移量與起點的波形碼測試檔，用
 輸出立體聲：左聲道為模擬現場收音，右聲道為波形碼（格式見 docs/waveform-code.md）。
 檔案時間 = (真實時間 − 起點) × 速率，速率 = 1 + ppm × 10⁻⁶。
 
+加 --ltc 時一個聲道改放場記板的 LTC（docs/ltc.md），合成方式與場記板相同（手機以真實時間輸出、錄音設備以自己的
+時鐘取樣，每個取樣取區間平均以保留取樣之間的邊緣），另一個聲道放現場聲音或波形碼（--ltc-with）。
+--created 寫入檔案建立時間（docs/start-time.md），產生器印出真值。
+
 加 --visual 時改為模擬攝影機拍攝場記板螢幕：畫面上是畫面碼（AprilTag，格式見 docs/visual-code.md），
 聲音軌照舊是波形碼。攝影機時鐘（--ppm）同時影響畫面與聲音軌；--av-offset 讓畫面相對聲音晚（正值）或早。
 每格的曝光區間以該格的時間為中心、長 --shutter 格，跨過整秒時新舊 tag 依時間比例混合。
@@ -14,11 +18,16 @@ make_test_media.py — 產生已知漂移量與起點的波形碼測試檔，用
   python make_test_media.py out.wav --plug 70                # 只有頭尾各 70 秒有波形碼
   python make_test_media.py out.mp4 --minutes 4 --ppm -694   # 另以 ffmpeg 加上 59.94 fps 測試畫面
   python make_test_media.py warm.wav --minutes 20 --ppm 800 --ppm-end 900   # 速率隨時間線性改變（模擬機身變熱）
+  python make_test_media.py old.wav --old-pitch            # 舊版場記板的載波（分析器只用秒數）
+  python make_test_media.py ltc.wav --ltc 29.97 --df --ltc-with code   # 右聲道 LTC，左聲道波形碼
+  python make_test_media.py cam.mp4 --created end --created-offset -0.6   # 結束型建立時間，設備慢 0.6 秒
+  python make_test_media.py rec.wav --created start --created-offset 1.5   # BWF time_reference
   python make_test_media.py cam.mp4 --visual --fps 29.97 --av-offset 12   # 畫面碼影片，畫面比聲音晚 12 ms
   python make_test_media.py cam.mp4 --visual --audio none --size 3840x2160 --codec h265 --plug 75
 需求：numpy；輸出 .mp4／.mov／.m4a 時另需 ffmpeg；--visual 另需 pillow
 """
 import argparse
+import datetime as dt
 import math
 import os
 import subprocess
@@ -126,7 +135,18 @@ FPS = {"23.976": (24000, 1001), "24": (24, 1), "25": (25, 1), "29.97": (30000, 1
        "30": (30, 1), "50": (50, 1), "59.94": (60000, 1001), "60": (60, 1)}
 
 
-def wave_hz(minute, sec):
+# 11 個五聲音階載波（docs/waveform-code.md），與場記板的 WAVE_PITCHES 相同；tests/check_wave_pitch.py 比對。
+WAVE_PITCHES = [587.33, 659.26, 783.99, 880.00, 987.77, 1174.66, 1318.51, 1567.98, 1760.00, 1975.53, 2349.32]
+
+
+def wave_hz(sec_of_day):
+    """第 S 秒（午夜起）的載波：k = S mod 540（與 tag ID 相同），音高編號 = (⌊k / 60⌋ + 4 × (k mod 60)) mod 11。"""
+    k = tag_id(sec_of_day)
+    return WAVE_PITCHES[(k // 60 + 4 * (k % 60)) % 11]
+
+
+def old_wave_hz(minute, sec):
+    """舊版場記板的載波（19 個音高，一小時一輪，不帶 9 分鐘循環）：分析器應退回只用秒數。"""
     return 600 + (((minute * 60 + sec) * 7919) % 19) * 80
 
 
@@ -154,6 +174,103 @@ def second(val, is_min, hz, rate=1.0):
     end = digit(0.3 if is_min else 0.1, val // 10)
     digit(end + 0.1, val % 10)
     return d
+
+
+# ---------------------------------------------------------------- LTC (docs/ltc.md)
+# 與場記板 web/sync-slate.html 的 ltcParams()、countToTC()、ltcBits()、ltcChunk() 相同；tests/check_ltc_bits.py 比對。
+LTC_AMP = 0.5
+LTC_SYNC = [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1]
+LTC_FPS = {"23.976": (24000 / 1001, 24), "24": (24, 24), "25": (25, 25), "29.97": (30000 / 1001, 30), "30": (30, 30)}
+
+
+def ltc_params(fps, df=False):
+    """{rate: 實際每秒格數, nominal: 時間碼每秒計幾格, df}；DF 只用於 29.97（同 ltcParams()）。"""
+    rate, nominal = LTC_FPS[fps]
+    return {"rate": rate, "nominal": nominal, "df": bool(df) and fps == "29.97"}
+
+
+def js_round(v):
+    """JavaScript 的 Math.round（.5 進位；Python 的 round 是銀行家捨入）。"""
+    return math.floor(v + 0.5)
+
+
+def count_to_tc(n, p):
+    """第 n 格（午夜起的格數）的時間碼 (時, 分, 秒, 格)；DF 每分鐘跳過 ;00、;01，每 10 分鐘不跳。"""
+    day = 2589408 if p["df"] else p["nominal"] * 86400
+    n %= day
+    if p["df"]:
+        D, M = n // 17982, n % 17982
+        n += 18 * D + (2 * ((M - 2) // 1798) if M > 1 else 0)
+    nb = p["nominal"]
+    return n // (nb * 3600) % 24, n // (nb * 60) % 60, n // nb % 60, n % nb
+
+
+def ltc_bits(n, p):
+    """第 n 格的 80 個位元：SMPTE 12M 的位置、位元 10 為 DF、同步字，以及讓 1 為偶數個的極性位元。"""
+    h, m, sec, f = count_to_tc(n, p)
+    bits = [0] * 80
+
+    def put(v, at, length):
+        for j in range(length):
+            bits[at + j] = (v >> j) & 1
+    put(f % 10, 0, 4)
+    put(f // 10, 8, 2)
+    bits[10] = 1 if p["df"] else 0
+    put(sec % 10, 16, 4)
+    put(sec // 10, 24, 3)
+    put(m % 10, 32, 4)
+    put(m // 10, 40, 3)
+    put(h % 10, 48, 4)
+    put(h // 10, 56, 2)
+    bits[64:80] = LTC_SYNC
+    bits[59 if p["nominal"] == 25 else 27] = sum(bits) % 2
+    return bits
+
+
+def ltc_start_count(F0, p):
+    """LTC 從午夜後第 F0 個格邊界開始輸出時，第一格的格數（同 ltcStart()）：DF 與整數影格率就是 F0；
+    23.976 與 29.97 NDF 每秒計 24／30 格，只在開始時對齊真實時間。"""
+    if p["df"] or p["rate"] == p["nominal"]:
+        return F0
+    return js_round(F0 / p["rate"] * p["nominal"])
+
+
+def ltc_levels(p, start_count, n_frames, sr=48000):
+    """手機輸出的 LTC（同 ltcChunk()，漂移鎖定沒有介入時）：(變化點的取樣位置, 變化後的位準)。位置從第一格起點
+    算起、以手機的取樣率計；最後一點是結束（位準回到 0）。每個位元開頭翻轉、位元為 1 時中點再翻轉，第一個位準為 −0.5。"""
+    spb = sr / (p["rate"] * 80)
+    bits = np.array([ltc_bits(start_count + i, p) for i in range(n_frames)], np.int8).ravel()
+    g = np.arange(len(bits), dtype=np.float64)
+    pos = np.stack([np.floor(g * spb + 0.5), np.floor((g + 0.5) * spb + 0.5)], 1).ravel()
+    flip = np.stack([np.ones(len(bits), bool), bits.astype(bool)], 1).ravel()
+    pos = pos[flip]
+    level = np.where(np.arange(1, len(pos) + 1) % 2 == 1, -LTC_AMP, LTC_AMP)
+    return np.append(pos, np.floor(len(bits) * spb + 0.5)), np.append(level, 0.0)
+
+
+def phone_samples(pos, level):
+    """手機輸出端的取樣（變化點之間位準不變）；tests/check_ltc_bits.py 用來與場記板的 ltcChunk() 逐點比對。"""
+    return np.repeat(level[:-1], np.diff(pos).astype(np.int64))
+
+
+def box_sampled(u, level, n):
+    """在檔案取樣位置 u（含小數）變化的方波，以每個取樣前後各半個取樣間隔內的平均值取成 n 點（中心在取樣點上，
+    邊緣不偏移半個取樣），保留取樣之間的邊緣位置。"""
+    delta = level - np.concatenate(([0.0], level[:-1]))
+    u = u + 0.5                                     # sample j averages [j - 1/2, j + 1/2)
+    keep = (u >= 0) & (u < n)
+    u, delta = u[keep], delta[keep]
+    fl = np.floor(u).astype(np.int64)
+    fr = u - fl
+    d = np.zeros(n + 2)
+    np.add.at(d, fl, delta * (1 - fr))
+    np.add.at(d, fl + 1, delta * fr)
+    return np.cumsum(d)[:n]
+
+
+def fmt_tc(tc, df):
+    h, m, sec, f = tc
+    return f"{h:02d}:{m:02d}:{sec:02d}{';' if df else ':'}{f:02d}"
 
 
 def parse_clock(s):
@@ -321,8 +438,8 @@ def make_visual(args, wav_path, dur, r0, rate, p0, real_offset, visible):
            "-framerate", f"{num}/{den}", "-i", "-"]
     if wav_path:
         cmd += ["-i", wav_path, "-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "192k"]
-    cmd += venc + ["-g", str(max(1, int(round(args.gop * fps)))), "-pix_fmt", "yuv420p", "-frames:v", str(nfr),
-                   args.out]
+    cmd += venc + ["-g", str(max(1, int(round(args.gop * fps)))), "-pix_fmt", "yuv420p", "-frames:v", str(nfr)]
+    cmd += args.meta + [args.out]
     enc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
 
     def state(t):
@@ -362,6 +479,23 @@ def main():
     ap.add_argument("--start", default="12:34:56.789", help="檔案第 0 秒對應的真實時間")
     ap.add_argument("--plug", type=float, default=0, help="只在頭尾各這麼多秒放波形碼（0＝全程）")
     ap.add_argument("--ppm-end", type=float, default=None, help="結尾時的時鐘偏差；與 --ppm 之間線性變化（預設同 --ppm）")
+    ap.add_argument("--old-pitch", action="store_true",
+                    help="用舊版場記板的載波公式（不帶 9 分鐘循環），驗證分析器退回只用秒數")
+    g = ap.add_argument_group("LTC（--ltc，docs/ltc.md）")
+    g.add_argument("--ltc", choices=list(LTC_FPS), help="在一個聲道放場記板的 LTC（影格率）；從檔案起點後的第一個格邊界開始")
+    g.add_argument("--df", action="store_true", help="LTC 用 DF（只用於 29.97）")
+    g.add_argument("--ltc-channel", type=int, choices=[0, 1], default=1, help="LTC 所在聲道（0 起算），預設 1")
+    g.add_argument("--ltc-with", choices=["scene", "code"], default="scene",
+                   help="另一個聲道：scene＝現場聲音（預設）、code＝波形碼")
+    g.add_argument("--ltc-noise", type=float, default=None, help="LTC 聲道加上白雜訊：訊雜比（dB，以 LTC 方波為準）")
+    g.add_argument("--ltc-invert", action="store_true", help="LTC 反相（模擬錄音設備反相）")
+    g = ap.add_argument_group("檔案建立時間（docs/start-time.md）")
+    g.add_argument("--created", choices=["start", "end"],
+                   help="寫入建立時間：start＝開始錄的時間、end＝存檔（結束）的時間。MP4／MOV／M4A 寫 creation_time"
+                        "（整數秒），WAV 寫 BWF time_reference（只能 start）")
+    g.add_argument("--created-offset", type=float, default=0.0, help="設備時鐘比場記板快幾秒，預設 0")
+    g.add_argument("--date", default="2026-11-12", help="錄音日期（本地），預設 2026-11-12")
+    g.add_argument("--tz", default=None, help="本地時區，例如 +08:00；預設為這台電腦的時區")
     g = ap.add_argument_group("畫面碼影片（--visual）")
     g.add_argument("--visual", action="store_true", help="畫面改為攝影機拍到的場記板畫面碼（輸出須為 .mp4／.mov）")
     g.add_argument("--fps", choices=list(FPS), default="59.94", help="影格率，預設 59.94")
@@ -410,23 +544,68 @@ def main():
         if visible(R):
             m, s = (R % 3600) // 60, R % 60
             local = 1 + p0 + (p1 - p0) * (R - r0) / real_span     # the recorder's clock ratio at this moment
-            b = second(m if s == 0 else s, s == 0, wave_hz(m, s), local)
+            hz = old_wave_hz(m, s) if args.old_pitch else wave_hz(R)
+            b = second(m if s == 0 else s, s == 0, hz, local)
             i = int(round(ft * SR))
             code[i:i + len(b)] += b
         R += 1
     scene = rng.normal(0, 0.1, n) * np.repeat(rng.uniform(0, 1, n // 2400 + 1) ** 2, 2400)[:n]
     if args.visual and args.audio == "scene":
         code[:] = 0
-    pcm = (np.stack([scene, 0.5 * code], 1).clip(-1, 1) * 32767).astype("<i2")
+    chans, ltc_note = [scene, 0.5 * code], None
+    if args.ltc:
+        if args.df and args.ltc != "29.97":
+            ap.error("--df 只用於 --ltc 29.97")
+        p = ltc_params(args.ltc, args.df)
+        F0 = math.ceil(r0 * p["rate"])                   # first frame boundary at or after the file's first sample
+        start_count = ltc_start_count(F0, p)
+        n_frames = int(math.ceil((r0 + real_span - F0 / p["rate"]) * p["rate"])) + 1
+        pos, level = ltc_levels(p, start_count, n_frames)
+        # The phone plays its samples on real time; the recorder samples them on its own clock (file_time).
+        a = (p1 - p0) / (2 * real_span)
+        d = F0 / p["rate"] + pos / SR - r0
+        ltc = box_sampled((d + p0 * d + a * d * d) * SR, level, n) * (-1 if args.ltc_invert else 1)
+        if args.ltc_noise is not None:
+            ltc = ltc + rng.normal(0, LTC_AMP * 10 ** (-args.ltc_noise / 20), n)
+        chans[1 - args.ltc_channel] = 0.5 * code if args.ltc_with == "code" else scene
+        chans[args.ltc_channel] = ltc
+        kind = " DF" if p["df"] else (" NDF" if args.ltc == "29.97" else "")
+        ltc_note = (f"    LTC {args.ltc}{kind}（第 {args.ltc_channel + 1} 聲道）：第一格 "
+                    f"{fmt_tc(count_to_tc(start_count, p), p['df'])}（格數 {start_count}），格起點在真實時間 "
+                    f"{fmt_clock(F0 / p['rate'])}、檔案 {file_time(F0 / p['rate'] - r0):.6f} 秒，共 {n_frames} 格"
+                    + ("；時間碼每秒計整數格，只在第一格對齊真實時間" if p["rate"] != p["nominal"] and not p["df"] else ""))
+    pcm = (np.stack(chans, 1).clip(-1, 1) * 32767).astype("<i2")
 
     ext = os.path.splitext(args.out)[1].lower()
     if args.visual and ext not in (".mp4", ".mov"):
         ap.error("--visual 的輸出須為 .mp4 或 .mov")
+    # Creation time: the device's clock (slate clock + offset) when recording started or when the file was saved.
+    args.meta, created_note = [], None
+    if args.created:
+        if ext == ".wav" and args.created == "end":
+            ap.error("WAV 的 BWF time_reference 規格上是開始時間，只能 --created start")
+        dev_start = r0 + args.created_offset
+        if ext == ".wav":
+            ref = int(round(dev_start * SR)) % (86400 * SR)
+            args.meta = ["-write_bext", "1", "-metadata", f"time_reference={ref}"]
+            created_note = f"    BWF time_reference {ref}（{fmt_clock(ref / SR)}，開始型），r = {ref / SR - r0:+.6f} 秒"
+        else:
+            tz = (dt.datetime.strptime(args.tz.replace(":", ""), "%z").tzinfo if args.tz
+                  else dt.datetime.now().astimezone().tzinfo)
+            end = args.created == "end"
+            C = math.floor(dev_start + (dur if end else 0.0))          # mvhd keeps whole seconds
+            day0 = dt.datetime.strptime(args.date, "%Y-%m-%d").replace(tzinfo=tz)
+            stamp = (day0 + dt.timedelta(seconds=C)).astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000000Z")
+            args.meta = ["-metadata", f"creation_time={stamp}"]
+            created_note = (f"    creation_time {stamp}（本地 {fmt_clock(C)}，{'結束' if end else '開始'}型，"
+                            f"檔長 {dur:.6f} 秒）：r = {C - (dur if end else 0.0) - r0:+.6f} 秒"
+                            f"（設定偏差 {args.created_offset:+.3f} 秒，取整數秒後）")
     tmp = None
-    if ext == ".wav":
+    notes = [x for x in (ltc_note, created_note) if x]
+    if ext == ".wav" and not args.meta:
         wav_path = args.out
     else:  # mkstemp creates the file atomically (mktemp only returns a name another process could take first)
-        fd, tmp = tempfile.mkstemp(suffix=".wav")
+        fd, tmp = tempfile.mkstemp(suffix=".wav")   # (a BWF time_reference needs ffmpeg's WAV muxer)
         os.close(fd)
         wav_path = tmp
     try:  # the temporary WAV is removed even when encoding fails
@@ -438,15 +617,20 @@ def main():
                 w.writeframes(pcm.tobytes())
         if args.visual:
             make_visual(args, None if args.audio == "none" else wav_path, dur, r0, rate, p0, real_offset, visible)
+            for note in notes:
+                print(note)
             return 0
-        if ext != ".wav":
+        if ext == ".wav" and args.meta:
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", wav_path, "-c:a", "copy"] + args.meta + [args.out],
+                           check=True)
+        elif ext != ".wav":
             cmd = ["ffmpeg", "-v", "error", "-y"]
             if ext in (".mp4", ".mov"):
                 cmd += ["-f", "lavfi", "-i", "testsrc2=size=320x180:rate=60000/1001", "-i", wav_path,
                         "-map", "0:v", "-map", "1:a", "-t", f"{dur}", "-c:v", "libx264", "-preset", "ultrafast"]
             else:
                 cmd += ["-i", wav_path]
-            cmd += ["-c:a", "aac", "-b:a", "192k", args.out]
+            cmd += ["-c:a", "aac", "-b:a", "192k"] + args.meta + [args.out]
             subprocess.run(cmd, check=True)
     finally:
         if tmp:
@@ -456,6 +640,8 @@ def main():
               f"速度比例 {rate * 100:.6f} %，真實長度 {dur / rate:.6f} 秒")
     else:
         print(f"{args.out}: 起點 {args.start}，時鐘偏差由 {p0 * 1e6:+.1f} 變到 {p1 * 1e6:+.1f} ppm，真實長度 {real_span:.6f} 秒")
+    for note in notes:
+        print(note)
     return 0
 
 
