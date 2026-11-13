@@ -53,10 +53,11 @@ for (const name of ['wave.wav', 'ltc.wav']) {
   const truth = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests', 'fixtures', name.replace('.wav', '.truth.json')), 'utf8'));
   const r = await analyze(wavMedia(name), {});
   if (r.error) { fail(`${name}：分析失敗 ${JSON.stringify(r.error)}`); continue; }
-  const dPpm = r.ppm - truth.ppm, dStart = (mod(r.startLabel - truth.start + r.mod / 2, r.mod) - r.mod / 2) * 1000;
+  // The start is wrapped with the expected cycle, not the one the analyzer reports: a broken pitch cycle must not pass.
+  const M = truth.mod, dPpm = r.ppm - truth.ppm, dStart = (mod(r.startLabel - truth.start + M / 2, M) - M / 2) * 1000;
   const tol = r.worstMs + 0.5 / 48000 * 1000;      // the generator rounds each second to a sample
-  if (r.mode !== truth.mode || Math.abs(dPpm) > r.uncPpm || Math.abs(dStart) > tol)
-    fail(`${name}：模式 ${r.mode}，速度比例誤差 ${dPpm.toFixed(3)} ppm（±${r.uncPpm.toFixed(3)}），起點誤差 ${dStart.toFixed(4)} ms（±${tol.toFixed(4)}）`);
+  if (r.mode !== truth.mode || r.mod !== M || r.pitchRejected !== truth.pitch_rejected || Math.abs(dPpm) > r.uncPpm || Math.abs(dStart) > tol)
+    fail(`${name}：模式 ${r.mode}，週期 ${r.mod}（預期 ${M}），音高排除 ${r.pitchRejected}，速度比例誤差 ${dPpm.toFixed(3)} ppm（±${r.uncPpm.toFixed(3)}），起點誤差 ${dStart.toFixed(4)} ms（±${tol.toFixed(4)}）`);
   else console.log(`✓ ${name}：node 執行 analyze()，${r.ppm.toFixed(3)} ppm，起點誤差 ${dStart.toFixed(4)} ms（±${tol.toFixed(4)}）`);
 }
 // Creation-time clock (docs/start-time.md): the cases that must not be adopted, or must be, at the edges.

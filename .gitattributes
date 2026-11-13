@@ -1,2 +1,5 @@
 * text=auto eol=lf
 *.png binary
+# Test media and their truth are compared byte for byte (sha256); the generator script itself stays text.
+tests/fixtures/* binary
+tests/fixtures/make_fixtures.* text eol=lf diff merge

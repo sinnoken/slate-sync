@@ -10,6 +10,11 @@
   "has_video": false,
   "clock_type": null,
   "ltc": "25",
+  "tz": null,
+  "mod": 86400,
+  "pitch_rejected": 0,
+  "max_unc_ppm": 0.16,
+  "max_worst_ms": 0.0019,
   "media_length": 20,
   "corrected_length": 19.99400179946016,
   "generator_args": [
