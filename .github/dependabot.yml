@@ -5,7 +5,13 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    groups:
+      actions:                 # one PR for all action updates
+        patterns: ['*']
   - package-ecosystem: pip
     directory: /python
     schedule:
       interval: monthly
+    # requirements.txt states a minimum supported version, not a pin: only raise it when the current range
+    # excludes a new release, never just to follow the latest version.
+    versioning-strategy: increase-if-necessary
