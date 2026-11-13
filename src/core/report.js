@@ -93,7 +93,7 @@ export function createReport(t) {
     if (r.clockSrc && r.clockType)
       return t('clockNote', { src: t('hint.' + r.clockSrc), type: typeText(r.clockType, r.clockZone === 'local' && r.clockSrc === 'created'), r: sgn(r.clockR, 3) }) +
         (r.clockMatch ? '' : t('clockShowOnly'));
-    const bad = r.clockBad ? t('clockBad', { src: t('hint.' + r.clockSrc),
+    const bad = r.clockBad ? t(r.clockBadWhy === 'ambiguous' ? 'clockAmbig' : 'clockBad', { src: t('hint.' + r.clockSrc),
       rs: Object.keys(r.clockBad).map(k => t('clockR', { type: typeText(k.replace('Local', ''), k.endsWith('Local')), r: sgn(r.clockBad[k], 3) })).join(t('av.sep')) }) : '';
     return bad + (r.hintSrc ? t('hintNote', { src: t('hint.' + r.hintSrc) }) : '');
   }

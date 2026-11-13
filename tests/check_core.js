@@ -87,7 +87,11 @@ for (const name of ['wave.wav', 'ltc.wav']) {
   process.env.TZ = 'Asia/Tokyo';
   {
     const ck = createdClock({ created: day + 36000 }, 36000 % 540, 540, 30);
-    cases.push(['UTC+9、本地時間寫成 UTC：兩種解讀都通過，不採用', ck.type === undefined && ck.bad, `type ${ck.type}，bad ${JSON.stringify(ck.bad)}`]);
+    cases.push(['UTC+9、本地時間寫成 UTC：兩種解讀都通過，不採用（分不出來）', ck.type === undefined && ck.bad && ck.badWhy === 'ambiguous',
+      `type ${ck.type}，badWhy ${ck.badWhy}，bad ${JSON.stringify(ck.bad)}`]);
+    // Device 5 s fast: no reading passes (does not match the measured start).
+    const off = createdClock({ created: day + 36005 }, 36000 % 540, 540, 30);
+    cases.push(['設備快 5 秒：都不通過，不採用（不一致）', off.type === undefined && off.badWhy === 'mismatch', `type ${off.type}，badWhy ${off.badWhy}`]);
   }
   // UTC+8 (not a multiple of 540 s): a proper UTC creation time and a local one written as UTC are each found.
   process.env.TZ = 'Asia/Taipei';
