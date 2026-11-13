@@ -1,9 +1,11 @@
-# Run the regression tests on every push to main (documentation-only pushes are skipped) and on demand.
-# A push whose commit was already tested successfully, or is being tested, is skipped.
+# Run the regression tests on every push to main and on pull requests (documentation-only changes are skipped),
+# and on demand. A push whose commit was already tested successfully, or is being tested, is skipped.
 name: Test
 on:
   push:
     branches: [main]
+    paths-ignore: ['docs/**', '**/*.md']
+  pull_request:
     paths-ignore: ['docs/**', '**/*.md']
   workflow_dispatch:
 permissions:
