@@ -19,11 +19,12 @@ export function avRefDiff(r, results, avRef) {
 }
 // [[M, start label mod M]]: the cycles a file's start is known in (docs/start-time.md). The visual code read by the
 // A/V sync check adds the 9-minute cycle to a waveform result that only knows the seconds or the minute marker.
-// A start clock set from the file's own clock is known over the whole day: two such files are simply subtracted.
+// A start clock set from the file's own clock (and allowed for matching, clockMatch) is known over the whole day: two
+// such files are simply subtracted.
 // LTC time code that is not real time (23.976, 29.97 NDF) is matched only with the same kind ([M, label, kind]).
 export const cycles = r => r.ltc && r.ltc.tcScale !== 1 ? [[86400, r.startLabel, r.ltc.label]] :
   [[r.mod, r.startLabel]].concat(r.label540 !== undefined && r.mod % VIS_MOD ? [[VIS_MOD, r.label540]] : [],
-    r.clockType ? [[86400, r.startClock]] : []);
+    r.clockType && r.clockMatch ? [[86400, r.startClock]] : []);
 // [M, label of a, label of b]: the longest cycle both files know, the gcd of their cycle lengths; null when none.
 export function pairCycle(a, b) {
   let best = null;
@@ -71,9 +72,13 @@ export function createReport(t) {
   // After the start clock: where its hour came from, or why the file's creation time was not used.
   function hintNote(r) {
     if (r.ltc && r.ltc.tcScale !== 1) return t('clock.ltcTc');
-    if (r.clockSrc && r.clockType) return t('clockNote', { src: t('hint.' + r.clockSrc), type: t('ctype.' + r.clockType), r: sgn(r.clockR, 3) });
+    // start / end, and whether C was read as local time written as UTC (createdClock)
+    const typeText = (type, local) => t('ctype.' + type) + (local ? t('czone.local') : '');
+    if (r.clockSrc && r.clockType)
+      return t('clockNote', { src: t('hint.' + r.clockSrc), type: typeText(r.clockType, r.clockZone === 'local' && r.clockSrc === 'created'), r: sgn(r.clockR, 3) }) +
+        (r.clockMatch ? '' : t('clockShowOnly'));
     const bad = r.clockBad ? t('clockBad', { src: t('hint.' + r.clockSrc),
-      rs: Object.keys(r.clockBad).map(k => t('clockR', { type: t('ctype.' + k), r: sgn(r.clockBad[k], 3) })).join(t('av.sep')) }) : '';
+      rs: Object.keys(r.clockBad).map(k => t('clockR', { type: typeText(k.replace('Local', ''), k.endsWith('Local')), r: sgn(r.clockBad[k], 3) })).join(t('av.sep')) }) : '';
     return bad + (r.hintSrc ? t('hintNote', { src: t('hint.' + r.hintSrc) }) : '');
   }
 

@@ -348,24 +348,32 @@ export async function analyze(m, opts, tick) {
   return r;
 }
 
-// The file's own clock (docs/start-time.md): C = the container's creation time (m.created, Unix seconds UTC, taken to
-// local time) or the BWF time reference (m.bextSec, local), in seconds since local midnight. L: the measured start in its M-second cycle; D: the file length.
-// r_start = wrap(C - L, M) and r_end = wrap(C - D - L, M); exactly one within 2 s gives the full start clock (an end-type
-// file first takes off D). BWF is a start time by definition, so only r_start is checked. Returns {} without C;
-// { src, bad: { start, end } } when the creation time does not fit; { src, type, r, clock } when adopted.
-function createdClock(m, L, M, D) {
-  let C, src;
+// The file's own clock (docs/start-time.md): C = the container's creation time (m.created, Unix seconds UTC) or the BWF
+// time reference (m.bextSec, local), in seconds since local midnight. L: the measured start in its M-second cycle;
+// D: the file length. Candidates: r = wrap(C - L, M) (start type) and wrap(C - D - L, M) (end type), each also with C
+// read as local time written as UTC (the UTC clock face, as many cameras do; only when it differs from the local one).
+// r is rounded to 1 ms, so a µs-level error cannot flip the 2 s limit. Exactly one candidate within 2 s gives the full
+// start clock; when the time-zone offset is a multiple of M both readings pass and none is used. BWF is a local start
+// time by definition, so it has the one candidate. match: the clock may be used to match files, only for M a multiple
+// of 540 (with 60 or 3600 a device whole minutes off would pass unnoticed): otherwise it is only shown.
+// Returns {} without C; { src, bad: { start, end, startLocal, endLocal } } when no single candidate fits;
+// { src, type, zone, r, clock, match } when adopted.
+export function createdClock(m, L, M, D) {
+  const cands = [];
+  let src;
   if (m.created) {
-    const d = new Date(m.created * 1000);
-    C = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds(); src = 'created';
-  } else if (m.bextSec) { C = m.bextSec; src = 'bext'; }
+    src = 'created';
+    const d = new Date(m.created * 1000), local = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
+    const face = d.getUTCHours() * 3600 + d.getUTCMinutes() * 60 + d.getUTCSeconds();
+    for (const [zone, C] of local === face ? [['utc', local]] : [['utc', local], ['local', face]])
+      for (const type of ['start', 'end']) cands.push({ key: type + (zone === 'local' ? 'Local' : ''), type, zone, C });
+  } else if (m.bextSec) { src = 'bext'; cands.push({ key: 'start', type: 'start', zone: 'local', C: m.bextSec }); }
   else return {};
-  const r = { start: wrap(C - L, M) };
-  if (src === 'created') r.end = wrap(C - D - L, M);
-  const fits = Object.keys(r).filter(k => Math.abs(r[k]) <= 2);
-  if (fits.length !== 1) return { src, bad: r };
-  const type = fits[0], c0 = C - (type === 'end' ? D : 0);
-  return { src, type, r: r[type], clock: Math.round((c0 - L) / M) * M + L };
+  for (const c of cands) c.r = Math.round(wrap(c.C - (c.type === 'end' ? D : 0) - L, M) * 1000) / 1000;
+  const fits = cands.filter(c => Math.abs(c.r) <= 2);
+  if (fits.length !== 1) return { src, bad: Object.fromEntries(cands.map(c => [c.key, c.r])) };
+  const { type, zone, r, C } = fits[0], c0 = C - (type === 'end' ? D : 0);
+  return { src, type, zone, r, clock: Math.round((c0 - L) / M) * M + L, match: M % VIS_MOD === 0 };
 }
 
 // Time result from LTC (docs/ltc.md): the same steps as the waveform code in analyze(), on frame starts. When a file
@@ -446,7 +454,8 @@ function buildResult(m, fit, probes, singleFrom, channel, D = m.duration) {
   // mode: 'full' (middle probed), 'both' (head and tail), or the single end read: 'head' / 'tail'
   const mode = probes.length ? 'full' : (fit.both ? 'both' : (singleFrom || fit.which));
   return { file: m.name, kind, mode, channel, startLabel, mod: M, startClock, clockMod, hintSrc,
-    ltc: fit.ltc || null, clockSrc: ck.src || null, clockType: ck.type || null, clockR: ck.r === undefined ? null : ck.r, clockBad: ck.bad || null,
+    ltc: fit.ltc || null, clockSrc: ck.src || null, clockType: ck.type || null, clockZone: ck.zone || null,
+    clockR: ck.r === undefined ? null : ck.r, clockMatch: !!ck.match, clockBad: ck.bad || null,
     length: mLen, correctedLength: corrected, frames: hasV ? m.vFrames : null, fps: hasV ? fps : null,
     rate, ppm: (rate - 1) * 1e6, uncPpm: fit.uncPpm, worstMs, edgesUsed: fit.n, edgesRejected: fit.rejected,
     fitRmsMs: fit.rms * 1000, pitchRejected: fit.pitchRejected || 0, segments, midDevMs: fit.maxDev, aOff: m.aOff, vOff: hasV ? m.vOff : null, ambiguous: fit.ambiguous };

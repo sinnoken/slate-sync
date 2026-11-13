@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // check_core.js — 分析核心（src/core/）不依賴瀏覽器：每個模組都能在 node 直接 import，原始碼不使用 DOM、WebCodecs、
 // 檔案存取等平台 API；再以 tests/fixtures/ 的 WAV（波形碼與 LTC，在這裡直接解析 16-bit PCM）實際跑一次 analyze()，
-// 結果須在報告自己的預估誤差內符合真值。
+// 結果須在報告自己的預估誤差內符合真值；並以單元案例檢查建立時間的採用條件。
 // 用法：node tests/check_core.js
 import fs from 'node:fs';
 import path from 'node:path';
@@ -59,5 +59,46 @@ for (const name of ['wave.wav', 'ltc.wav']) {
     fail(`${name}：模式 ${r.mode}，速度比例誤差 ${dPpm.toFixed(3)} ppm（±${r.uncPpm.toFixed(3)}），起點誤差 ${dStart.toFixed(4)} ms（±${tol.toFixed(4)}）`);
   else console.log(`✓ ${name}：node 執行 analyze()，${r.ppm.toFixed(3)} ppm，起點誤差 ${dStart.toFixed(4)} ms（±${tol.toFixed(4)}）`);
 }
+// Creation-time clock (docs/start-time.md): the cases that must not be adopted, or must be, at the edges.
+{
+  const { createdClock } = await import(pathToFileURL(path.join(CORE, 'analyze.js')));
+  const { startDiff } = await import(pathToFileURL(path.join(CORE, 'report.js')));
+  const day = Date.UTC(2026, 10, 12) / 1000;          // 2026-11-12 00:00 UTC
+  // A result as buildResult() makes it, for the cross-file checks.
+  const result = (L, M, ck) => ({ mod: M, startLabel: L, rate: 1, ltc: null, clockType: ck.type || null, clockMatch: !!ck.match,
+    startClock: ck.clock === undefined ? L : ck.clock });
+  const cases = [];
+  // Two files 5 s apart, M = 60, the second device 60 s fast: its creation time passes the 2 s test (whole minutes are
+  // invisible at M = 60), so it may only be shown; matching stays on the 60 s cycle and gives 5 s.
+  process.env.TZ = 'UTC';
+  {
+    const ckA = createdClock({ created: day + 36000 }, 0, 60, 30), ckB = createdClock({ created: day + 36065 }, 5, 60, 30);
+    const d = startDiff(result(5, 60, ckB), result(0, 60, ckA));
+    cases.push(['M = 60、設備快 60 秒：只顯示、不用於比對，差值 5 秒', ckB.type === 'start' && !ckB.match && Math.abs(d - 5) < 1e-9,
+      `type ${ckB.type}，match ${ckB.match}，差值 ${d}`]);
+  }
+  // r = +2.000001 s is 2.000 after rounding to 1 ms: adopted.
+  {
+    const L = (36000.999999) % 540, ck = createdClock({ created: day + 36003 }, L, 540, 30);
+    cases.push(['r = +2.000001 秒：四捨五入到 1 ms 後採用', ck.type === 'start' && ck.r === 2 && ck.match, `type ${ck.type}，r ${ck.r}`]);
+  }
+  // UTC+9, local time written as UTC: the offset (9 h) is a multiple of 540 s, so both readings pass and none is used.
+  process.env.TZ = 'Asia/Tokyo';
+  {
+    const ck = createdClock({ created: day + 36000 }, 36000 % 540, 540, 30);
+    cases.push(['UTC+9、本地時間寫成 UTC：兩種解讀都通過，不採用', ck.type === undefined && ck.bad, `type ${ck.type}，bad ${JSON.stringify(ck.bad)}`]);
+  }
+  // UTC+8 (not a multiple of 540 s): a proper UTC creation time and a local one written as UTC are each found.
+  process.env.TZ = 'Asia/Taipei';
+  {
+    const L = (10 * 3600) % 540;                        // start 10:00:00 local = 02:00:00 UTC
+    const utc = createdClock({ created: day + 2 * 3600 }, L, 540, 30), face = createdClock({ created: day + 10 * 3600 }, L, 540, 30);
+    cases.push(['UTC+8：UTC 與本地時間寫成 UTC 各自判讀', utc.zone === 'utc' && face.zone === 'local' && utc.clock === 36000 && face.clock === 36000,
+      `${utc.zone} ${utc.clock}，${face.zone} ${face.clock}`]);
+  }
+  delete process.env.TZ;
+  for (const [name, ok, detail] of cases) if (ok) console.log(`✓ 建立時間：${name}`); else fail(`建立時間：${name}（${detail}）`);
+}
+
 console.log(failed ? `結果：${failed} 項不符` : '結果：全部通過');
 process.exit(failed ? 1 : 0);
