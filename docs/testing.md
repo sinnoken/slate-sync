@@ -8,6 +8,8 @@ python tests/make_test_media.py test-media/b.mp4 --minutes 4 --ppm -694 --start 
 python python/slate_sync.py test-media/a.wav test-media/b.mp4
 python tests/check_read_audio.py       # 從任何位置讀取音訊都不錯位（AAC 與 WAV）
 python tests/check_cli_encoding.py     # 主控台不是 UTF-8（如 cp950）時報告仍完整印出
+python tests/check_visual_code.py      # 各處內嵌的 tag 碼表一致、每個 ID 都偵測得到
+node tests/check_web.js               # 網頁語法正確、四種語言的字串 key 一致
 ```
 
 生成器會印出設定的速度比例與真實長度，與分析結果比對即可。網頁版分析器請用本機伺服器開啟（WebCodecs 需要安全環境）：

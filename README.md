@@ -129,6 +129,7 @@ Both web tools are single HTML files with no build step and no server code.
 | [`tests/check_visual_code.py`](tests/check_visual_code.py) | Checks that the embedded tag tables match and every ID is detected |
 | [`tests/check_read_audio.py`](tests/check_read_audio.py) | Checks that audio reads start on the exact requested sample (AAC and WAV) |
 | [`tests/check_cli_encoding.py`](tests/check_cli_encoding.py) | Checks that the report prints fully on a non-UTF-8 console |
+| [`tests/check_web.js`](tests/check_web.js) | Checks the web pages' script syntax and that all four languages have the same strings |
 | [`docs/`](docs/README.md) | Specifications and test results (Traditional Chinese); [the index](docs/README.md) lists which document owns which specification |
 | [`CHANGELOG.md`](CHANGELOG.md) | Release notes (Traditional Chinese) |
 

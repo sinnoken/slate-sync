@@ -1,0 +1,53 @@
+# Run the regression tests on every push to main (documentation-only pushes are skipped) and on demand.
+# A push whose commit was already tested successfully, or is being tested, is skipped.
+name: Test
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['docs/**', '**/*.md']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  dedupe:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          skip=false
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            n=$(gh run list -R "$GITHUB_REPOSITORY" --workflow test.yml --commit "$GITHUB_SHA" \
+                  --json databaseId,status,conclusion \
+                  --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID) | select(.status != \"completed\" or .conclusion == \"success\")] | length")
+            [ "$n" -gt 0 ] && skip=true
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+  test:
+    needs: dedupe
+    if: needs.dedupe.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install ffmpeg and Python packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          pip install -r python/requirements.txt pupil-apriltags pyflakes
+      - name: Static check
+        run: python -m pyflakes python/slate_sync.py tests/*.py
+      - name: Web pages (syntax, four-language strings)
+        run: node tests/check_web.js
+      - name: Visual code tables
+        run: python tests/check_visual_code.py
+      - name: Audio reads land on the exact sample
+        run: python tests/check_read_audio.py
+      - name: Report prints on a non-UTF-8 console
+        run: python tests/check_cli_encoding.py

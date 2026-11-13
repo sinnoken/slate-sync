@@ -129,6 +129,7 @@ python python/slate_sync.py *.MP4 --ref A001.MP4 --at B002.MP4=125.5   # B002 �
 | [`tests/check_visual_code.py`](tests/check_visual_code.py) | 檢查各處內嵌的 tag 碼表一致、每個 ID 都偵測得到 |
 | [`tests/check_read_audio.py`](tests/check_read_audio.py) | 檢查音訊從任何位置讀取都精確落在要求的取樣（AAC 與 WAV） |
 | [`tests/check_cli_encoding.py`](tests/check_cli_encoding.py) | 檢查主控台不是 UTF-8 時報告仍完整印出 |
+| [`tests/check_web.js`](tests/check_web.js) | 檢查網頁的語法，以及四種語言的字串一致 |
 | [`docs/`](docs/README.md) | 規格與驗證結果；[索引](docs/README.md)列出每份文件負責的規格 |
 | [`CHANGELOG.md`](CHANGELOG.md) | 更新紀錄 |
 
