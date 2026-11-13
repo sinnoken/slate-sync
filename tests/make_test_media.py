@@ -422,28 +422,35 @@ def main():
     ext = os.path.splitext(args.out)[1].lower()
     if args.visual and ext not in (".mp4", ".mov"):
         ap.error("--visual 的輸出須為 .mp4 或 .mov")
-    wav_path = args.out if ext == ".wav" else tempfile.mktemp(suffix=".wav")
-    if not (args.visual and args.audio == "none"):
-        with wave.open(wav_path, "wb") as w:
-            w.setnchannels(2)
-            w.setsampwidth(2)
-            w.setframerate(SR)
-            w.writeframes(pcm.tobytes())
-    if args.visual:
-        make_visual(args, None if args.audio == "none" else wav_path, dur, r0, rate, p0, real_offset, visible)
-        if args.audio != "none":
-            os.remove(wav_path)
-        return 0
-    if ext != ".wav":
-        cmd = ["ffmpeg", "-v", "error", "-y"]
-        if ext in (".mp4", ".mov"):
-            cmd += ["-f", "lavfi", "-i", "testsrc2=size=320x180:rate=60000/1001", "-i", wav_path,
-                    "-map", "0:v", "-map", "1:a", "-t", f"{dur}", "-c:v", "libx264", "-preset", "ultrafast"]
-        else:
-            cmd += ["-i", wav_path]
-        cmd += ["-c:a", "aac", "-b:a", "192k", args.out]
-        subprocess.run(cmd, check=True)
-        os.remove(wav_path)
+    tmp = None
+    if ext == ".wav":
+        wav_path = args.out
+    else:  # mkstemp creates the file atomically (mktemp only returns a name another process could take first)
+        fd, tmp = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)
+        wav_path = tmp
+    try:  # the temporary WAV is removed even when encoding fails
+        if not (args.visual and args.audio == "none"):
+            with wave.open(wav_path, "wb") as w:
+                w.setnchannels(2)
+                w.setsampwidth(2)
+                w.setframerate(SR)
+                w.writeframes(pcm.tobytes())
+        if args.visual:
+            make_visual(args, None if args.audio == "none" else wav_path, dur, r0, rate, p0, real_offset, visible)
+            return 0
+        if ext != ".wav":
+            cmd = ["ffmpeg", "-v", "error", "-y"]
+            if ext in (".mp4", ".mov"):
+                cmd += ["-f", "lavfi", "-i", "testsrc2=size=320x180:rate=60000/1001", "-i", wav_path,
+                        "-map", "0:v", "-map", "1:a", "-t", f"{dur}", "-c:v", "libx264", "-preset", "ultrafast"]
+            else:
+                cmd += ["-i", wav_path]
+            cmd += ["-c:a", "aac", "-b:a", "192k", args.out]
+            subprocess.run(cmd, check=True)
+    finally:
+        if tmp:
+            os.remove(tmp)
     if p0 == p1:
         print(f"{args.out}: 起點 {args.start}，時鐘偏差 {args.ppm:+.3f} ppm，"
               f"速度比例 {rate * 100:.6f} %，真實長度 {dur / rate:.6f} 秒")
