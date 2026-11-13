@@ -136,4 +136,19 @@ for (const [name, rate, nominal, df] of CASES) {
       assert.equal(q.df, df);
     }
   });
+
+  test(`${name}：測試產生器的 LTC 變化點與參考實作相同（跨午夜、跨區塊）`, async () => {
+    const gen = await import(pathToFileURL(path.join(ROOT, 'tests', 'make_test_media.mjs')));
+    const startCount = dayOf(p) - 300, nFrames = 450;     // 產生器每 200 格呼叫一次 ltcChunk()
+    const { pos, level } = gen.ltcLevels(p, startCount, nFrames);
+    const want = refSamples(p, startCount, nFrames), got = new Float64Array(want.length);
+    assert.equal(pos[pos.length - 1], want.length, '結束位置');
+    assert.equal(level[level.length - 1], 0, '結束後位準回到 0');
+    for (let j = 0; j + 1 < pos.length; j++) got.fill(level[j], pos[j], pos[j + 1]);
+    const k = got.findIndex((v, i) => v !== want[i]);
+    assert.equal(k, -1, `第 ${k} 個取樣不同：產生器 ${got[k]}，參考 ${want[k]}`);
+    assert.equal(gen.ltcStartCount(36000 * 30, gen.ltcParams('29.97', true)), 36000 * 30, 'DF 的第一格就是格邊界數');
+    // 29.97 NDF 在 10:00:00 後的第一個格邊界（第 1078922 個，10:00:00.0307）標成最接近的 10:00:00:01（格數 1080001）。
+    assert.equal(gen.ltcStartCount(Math.ceil(36000 * 30000 / 1001), gen.ltcParams('29.97')), 36000 * 30 + 1, 'NDF 的第一格對齊真實時間');
+  });
 }

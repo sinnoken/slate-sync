@@ -63,6 +63,14 @@ for (const [tz, off] of ZONES) {
   });
 }
 
+test(`測試產生器：${DAYS} 天逐秒的 k 與音高符合公式`, async () => {
+  const gen = await import(pathToFileURL(path.join(ROOT, 'tests', 'make_test_media.mjs')));
+  for (let i = 0; i < DAYS * 86400; i++) {
+    if (gen.tagId(i + 0.5) !== kOf(i)) assert.fail(`第 ${i} 秒：k = ${gen.tagId(i + 0.5)}，應為 ${kOf(i)}`);
+    if (gen.waveHz(i) !== PITCHES[pitchOf(kOf(i))]) assert.fail(`第 ${i} 秒：${gen.waveHz(i)} Hz，應為 ${PITCHES[pitchOf(kOf(i))]}`);
+  }
+});
+
 test('分析核心 cycleK()：540 種組合解回 0–539 各一次，其餘 120 種判為讀錯', () => {
   const seen = new Set();
   let invalid = 0;

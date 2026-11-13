@@ -5,13 +5,16 @@
 //    官方碼表本身的最小漢明距離（含四種旋轉）為 11，抄錯一個位元就會被發現。
 // 2. 繪製：以 vm 執行場記板的 drawTag()（模擬 canvas），每格取樣成位元，外框（靜區、白圈、黑圈）正確、每格顏色均勻；
 //    畫面依四種角度旋轉後解碼，只有轉回正確方向時與官方的同一個 ID 完全相符，其餘方向與所有碼都相差 11 位元以上。
-// 3. ID 公式：場記板的 cycleK()（ID = 本地時間午夜起秒數 mod 540）對照固定的期望值，兩天內逐秒連續。
+//    測試產生器（tests/make_test_media.mjs）畫的 tag 與場記板逐格相同。
+// 3. ID 公式：場記板的 cycleK() 與測試產生器的 tagId()（ID = 本地時間午夜起秒數 mod 540）對照固定的期望值，
+//    兩天內逐秒連續且兩者相同。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ROOT, loadSlate } from './lib/slate.mjs';
+import * as gen from './make_test_media.mjs';
 
 const OFFICIAL = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests', 'data', 'tag36h11.json'), 'utf8'));
 const CODES = OFFICIAL.codes.map(Number);          // 36 位元，在 2^53 內可以精確表示
@@ -50,10 +53,7 @@ test('碼表：場記板與分析核心與官方 tag36h11.c 相同', async () =>
   assert.equal(OFFICIAL.bitX.length, 36);
   const slate = loadSlate(NAMES);
   const core = await import(pathToFileURL(path.join(ROOT, 'src', 'core', 'visual.js')));
-  const py = fs.readFileSync(path.join(ROOT, 'tests', 'make_test_media.py'), 'utf8');
-  const gen = Object.fromEntries(NAMES.map(n => [n, py.match(new RegExp(`^${n} = \\[([\\s\\S]*?)\\]`, 'm'))[1]
-    .match(/0x[0-9a-f]+|\d+/gi).map(Number)]));
-  for (const [where, tab] of [['場記板', slate], ['分析核心', core], ['測試產生器', gen]])
+  for (const [where, tab] of [['場記板', slate], ['分析核心', core]])
     for (const n of NAMES) assert.deepEqual(Array.from(tab[n]), official[n], `${where}的 ${n} 與官方不同`);
 });
 
@@ -102,9 +102,11 @@ function sample({ px, side }, cell) {
 
 test('繪製：場記板畫的 ID 0–539 以四種角度解碼都讀回同一個 ID', () => {
   for (const cell of [1, 4]) {
-    const draw = slateDrawer(cell);
+    const slateDraw = slateDrawer(cell), side = 12 * cell;
     for (let id = 0; id < VIS_MOD; id++) {
-      const g = sample(draw(id), cell);
+      const g = sample(slateDraw(id), cell);
+      // 測試產生器畫的 tag（以 vm 執行同一個 drawTag()，再貼到手機畫面上）必須逐格相同。
+      assert.deepEqual(sample({ px: gen.drawTag(id, cell), side }, cell), g, `ID ${id}：測試產生器畫的 tag 與場記板不同`);
       for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) {
         const ring = Math.min(x, y, 11 - x, 11 - y);
         if (ring < 3) assert.equal(g[y][x], ring < 2 ? 1 : 0, `ID ${id}：外框第 ${ring} 圈 (${x}, ${y}) 顏色錯`);
@@ -133,6 +135,8 @@ test('ID 公式：場記板的 cycleK() 為本地時間午夜起秒數 mod 540',
       const [h, m, s] = clock.split(':').map(Number), ms = day + (h * 3600 + m * 60 + s) * 1000;
       assert.equal(slate.cycleK(ms), want, clock);
       assert.equal(slate.cycleK(ms + 999), want, clock + '.999');
+      assert.equal(gen.tagId(h * 3600 + m * 60 + s + 0.999), want, `測試產生器 ${clock}.999`);
+      assert.equal(gen.tagId(86400 + h * 3600 + m * 60 + s), want, `測試產生器 隔天 ${clock}`);
       assert.equal(want % 60, s, `${clock}：ID 的個位秒`);
       assert.equal(Math.floor(want / 60), (h * 60 + m) % 9, `${clock}：ID 的分鐘位置`);
     }
@@ -140,6 +144,7 @@ test('ID 公式：場記板的 cycleK() 為本地時間午夜起秒數 mod 540',
     for (let i = 1; i < 2 * 86400; i++) {                 // 兩天內逐秒連續，跨整點與午夜
       const k = slate.cycleK(day + i * 1000);
       if ((k - prev + VIS_MOD) % VIS_MOD !== 1) assert.fail(`第 ${i} 秒：${prev} → ${k} 不連續`);
+      if (gen.tagId(i) !== k) assert.fail(`第 ${i} 秒：測試產生器 ${gen.tagId(i)}，場記板 ${k}`);
       prev = k;
     }
   } finally {

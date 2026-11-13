@@ -3,8 +3,8 @@
 ## 自行驗證
 
 ```bash
-python tests/make_test_media.py test-media/a.wav --minutes 4 --ppm 833
-python tests/make_test_media.py test-media/b.mp4 --minutes 4 --ppm -694 --start 12:35:00.039 --plug 70
+node tests/make_test_media.mjs test-media/a.wav --minutes 4 --ppm 833
+node tests/make_test_media.mjs test-media/b.mp4 --minutes 4 --ppm -694 --start 12:35:00.039 --plug 70
 node cli/slate-sync.mjs test-media/a.wav test-media/b.mp4    # 命令列分析器（需 ffmpeg／ffprobe；--json、--lang en 等）
 npm test                              # 全部：npm run check 加上 node --test（需 ffmpeg／ffprobe、Chrome 或 Edge）
 ```
@@ -26,7 +26,7 @@ npm test                              # 全部：npm run check 加上 node --tes
 
 場記板 `web/sync-slate.html` 的程式內嵌在頁面裡，測試以 `tests/lib/slate.mjs` 取出指定的函式，在 node 的 `vm` 執行。網頁測試的瀏覽器時區須與 `cam.mp4` 的真值相同（UTC+8）：Linux 以 `TZ=Asia/Taipei` 執行，Windows 的 Edge 不理會 `TZ`，用系統時區；不符時測試明確報錯。單獨執行網頁分析器：`node tests/web/run-analyzer.mjs 檔案… --av --out result.json --report report.txt`；報告措辭刻意修改時以 `node tests/web/analyzer.test.mjs --update` 更新快照。
 
-測試產生器的其他選項：`--old-pitch`（舊版場記板的載波，不帶 9 分鐘循環）；`--ltc 24|25|29.97|30|23.976`（`--df`、`--ltc-channel`、`--ltc-with code|scene`、`--ltc-noise`、`--ltc-invert`，搭配 `--ppm`、`--start` 與 .m4a／.mp4 輸出的 AAC）；`--created start|end`、`--created-offset`、`--date`、`--tz`（MP4／MOV／M4A 寫 creation_time，WAV 寫 BWF time_reference）。產生器會印出 LTC 第一格的時間碼與位置、建立時間與 r 的真值。
+測試產生器（`node tests/make_test_media.mjs --help` 列出全部選項）：`--minutes`、`--ppm`、`--ppm-end`（與 `--ppm` 之間線性變化，模擬機身變熱）、`--start`、`--plug`（只在頭尾各幾秒放波形碼）；`--ltc 24|25|29.97|30|23.976`（`--df`、`--ltc-channel`、`--ltc-with code|scene`、`--ltc-noise`、`--ltc-invert`，搭配 `--ppm`、`--start` 與 .m4a／.mp4 輸出的 AAC）；`--created start|end`、`--created-offset`、`--date`、`--tz`（MP4／MOV／M4A 寫 creation_time，WAV 寫 BWF time_reference）。產生器會印出 LTC 第一格的時間碼與位置、建立時間與 r 的真值。
 
 生成器會印出設定的速度比例與真實長度，與分析結果比對即可。網頁由 `src/` 與 `web/` 建置到 `dist/`（需 Node；WebCodecs 需要安全環境，請用本機伺服器開啟）：
 
@@ -36,15 +36,15 @@ npm run build                   # 建置到 dist/
 npm run dev                     # 開發：改檔後自動重建，開啟 http://localhost:8000/sync-analyzer.html
 ```
 
-測試產生器需要 Python（`pip install numpy pillow`）。畫面碼（AprilTag，規格見 [visual-code.md](visual-code.md)）：
+產生器只需要 Node 與 ffmpeg（PATH 中；輸出 WAV 且不寫建立時間時不需要 ffmpeg）：音訊在 JS 以陣列合成，畫面算成灰階 raw 影格經 stdin 交給 ffmpeg 編碼。波形碼的脈衝與載波、tag 的繪製與 LTC 的取樣都以 vm 執行場記板本身的函式，與場記板一致；場記板本身算錯時由上表的獨立比對抓到。畫面碼（AprilTag，規格見 [visual-code.md](visual-code.md)）：
 
 ```bash
-python tests/make_test_media.py test-media/v.mp4 --visual --minutes 3 --plug 60 --fps 29.97 --av-offset 25
-python tests/make_test_media.py test-media/w.mp4 --visual --minutes 3 --plug 60 --fps 25 --audio none --start 12:38:00.5
+node tests/make_test_media.mjs test-media/v.mp4 --visual --minutes 3 --plug 60 --fps 29.97 --av-offset 25
+node tests/make_test_media.mjs test-media/w.mp4 --visual --minutes 3 --plug 60 --fps 25 --audio none --start 12:38:00.5
 node cli/slate-sync.mjs test-media/v.mp4 test-media/w.mp4 --av
 ```
 
-`--visual` 模擬攝影機拍手機螢幕：曝光區間以每格的時間為中心、長 `--shutter` 格，跨過整秒時新舊 tag 依時間比例混合；`--ppm` 同時作用於畫面與聲音軌，`--av-offset` 為畫面相對聲音的偏移。產生器印出實際用的編碼器與 GOP（預設 1 秒，`--encoder auto` 先試 NVENC）。
+`--visual` 模擬攝影機拍手機螢幕：曝光區間以每格的時間為中心、長 `--shutter` 格，跨過整秒時新舊 tag 依時間比例混合；`--ppm` 同時作用於畫面與聲音軌，`--av-offset` 為畫面相對聲音的偏移。產生器印出實際用的編碼器與 GOP（預設 1 秒，`--encoder auto` 先試 NVENC）。其他畫面選項：`--fps`、`--size`、`--codec h264|h265`、`--encoder auto|nvenc|cpu`、`--gop`、`--tag-size`、`--blur`（高斯模糊，像素）、`--exposure`（亮度與自動曝光起伏）、`--tilt`（手機繞垂直軸傾斜，度）、`--audio code|scene|none`。`--created end` 搭配 `--visual` 時，建立時間與 r 以影片長 nfr / fps 計算（分析器以畫面軌的長度為準）。
 
 ## 已驗證項目
 
@@ -145,17 +145,15 @@ H.264／H.265 × AAC、MOV 的 sowt／twos／in24（大小端）／fl32、MP4 �
 
 `tests/wave-pitch.test.mjs`：以 vm 執行場記板的 `cycleK()`／`waveHz()`，連續兩天逐秒（UTC 與 UTC+8，含跨午夜，另抽查整秒內的毫秒）與獨立寫的規格公式（與產生器相同）比對，172800 秒全部一致；場記板與分析核心的 11 個音高與固定的音高表相同；相鄰兩秒都不同音；分析核心的 `cycleK()` 由秒數與音高解回全部 540 個 k（都在 0–539、各一次），其餘 120 種組合判為讀錯。
 
-回歸：5 個 WAV（4 分鐘 +833 ppm；−694 ppm 頭尾各 70 秒；10 分鐘 +200 ppm 頭尾各 30 秒；20 分鐘 +800 → +900 ppm `--full`；跨午夜 −300 ppm），各以預設、`--minute`、`--only head` 與三檔對齊執行，與修改前的分析器讀舊公式檔比較：
+回歸：5 個 WAV（4 分鐘 +833 ppm；−694 ppm 頭尾各 70 秒；10 分鐘 +200 ppm 頭尾各 30 秒；20 分鐘 +800 → +900 ppm `--full`；跨午夜 −300 ppm），各以預設、`--minute`、`--only head` 與三檔對齊執行，與修改前的分析器比較：
 
 | 情況 | 結果 |
 |---|---|
 | 新公式檔 | 循環由 60 → 540、3600 → 10800 秒；速度比例差 ≤ 8×10⁻¹¹，起點差 ≤ 0.12 µs，預估誤差差 ≤ 3×10⁻⁵ ms；音高排除 0 秒 |
 | 新公式檔，只讀一端 7 秒（`--only head`） | 速度比例差 0.80 ppm（量測精度 ±1.89 ppm）：音高不同，每秒前緣的取樣內插誤差不同 |
-| 舊公式檔（`--old-pitch`，與修改前的產生器逐位元組相同） | 全部退回只用秒數（60／3600 秒）；速度比例差約 10⁻⁹，起點差約 1 µs，只讀一端 7 秒時 0.77 ppm。舊音高被比對到最近的五聲音階音，前緣校正因此差幾 µs |
-| 兩檔起點相差 4 分 15.25 秒（+300 ppm 對 −200 ppm） | 新公式：循環 540 秒，標示 190.250／445.500（真值 190.25／445.5），對齊 +255.326577 秒（理論 255.326575）；舊公式：退回 60 秒，對齊 +15.254575 秒 |
-| 真實手機錄影（舊版場記板，經空氣收音，9 秒） | 退回只用秒數，起點 :31.833 不變；+151.542 → +151.535 ppm，預估誤差 ±0.799 → ±0.797 ms，起點差 0.66 µs |
+| 兩檔起點相差 4 分 15.25 秒（+300 ppm 對 −200 ppm） | 新公式：循環 540 秒，標示 190.250／445.500（真值 190.25／445.5），對齊 +255.326577 秒（理論 255.326575） |
 
-舊公式檔的 58–138 秒中，最多只有 8–16 秒推出同一個 k；真實錄影 9 秒中最多 2 秒，遠低於採用門檻（至少 3 秒且過半）。
+讀不到足夠的音高時退回只用秒數（採用門檻：至少 3 秒推出同一個 k 且過半）。`tests/generator.test.mjs` 以新公式的短檔回歸：只有 2 秒波形碼時週期為 60 秒，3 秒時為 540 秒，起點都在預估誤差內。
 
 ### 測試產生器的 LTC
 
@@ -235,7 +233,7 @@ H.264／H.265 × AAC、MOV 的 sowt／twos／in24（大小端）／fl32、MP4 �
 - 瀏覽器的時區與真值記錄的時區（cam.mp4 的建立時間以 UTC+8 寫入）相同；
 - 繁中文字報告與快照（`tests/web/snapshots/`）相同，數字以 `#` 取代、「硬體解碼失敗」那一行拿掉後比對。
 
-測試檔由 `tests/fixtures/make_fixtures.py` 以固定參數產生（640×360、libx264，不含 HEVC，合計約 3 MB）；頭尾模式要求兩端相隔 60 秒以上，所以長檔為 80 秒。本機 Edge 全部約 40 秒。
+測試檔由 `node tests/fixtures/make_fixtures.mjs` 以固定參數產生（640×360、libx264，不含 HEVC，7 個檔案合計 3.82 MB，上限 4 MB）；頭尾模式要求兩端相隔 60 秒以上，所以長檔為 80 秒。除了波形碼（WAV、AAC）、畫面碼（有聲、無聲）與 25 fps LTC，另有 BWF 開始型建立時間（bwf.wav，設備快 0.8 秒）與 29.97 DF 反相、訊雜比 20 dB 的 LTC（ltcdf.m4a，10 秒）。本機 Edge 全部約 35 秒。
 
 ### 命令列改為 Node（ADR-0001）
 
