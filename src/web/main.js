@@ -117,9 +117,10 @@ function renderRel() {
   $('relSec').hidden = !rel;
   if (rel) {
     $('relTable').innerHTML = `<tr><th>${t('th.file')}</th><th style="text-align:right">${t('th.start')}</th><th style="text-align:right">${t('th.speed')}</th><th style="text-align:right">${t('th.len')}</th></tr>` +
-      rel.rows.map(x => `<tr><td>${esc(x.file)}${x.r === rel.ref ? t('refMark') : ''}</td><td class="n num">${offText(x.offset)}</td><td class="n num">${(x.speed * 100).toFixed(6)} %</td><td class="n num">${x.length.toFixed(6)}</td></tr>`).join('');
-    $('relNote').textContent = (relNoteKey(rel.M) ? t(relNoteKey(rel.M)) : '') +
-      (rel.unmatched ? t('rel.noteLtc') : '');
+      rel.rows.map(x => `<tr><td>${esc(x.file)}${x.r === rel.ref ? t('refMark') : ''}</td><td class="n num">${offText(x.offset)}${x.alt !== null ? `<br><span class="warn">${t('rel.altCell', { v: offText(x.alt) })}</span>` : ''}</td><td class="n num">${(x.speed * 100).toFixed(6)} %</td><td class="n num">${x.length.toFixed(6)}</td></tr>`).join('');
+    $('relNote').textContent = rel.rows.filter(x => x.alt !== null)
+      .map(x => '⚠ ' + t('rel.clockWarn', { file: x.file, x: offText(x.offset), y: offText(x.alt) }) + ' ').join('') +
+      (relNoteKey(rel.M) ? t(relNoteKey(rel.M)) : '') + (rel.unmatched ? t('rel.noteLtc') : '');
     const cur = $('convSrc').value;
     $('convSrc').innerHTML = rel.ok.map(r => `<option${r.file === cur ? ' selected' : ''}>${esc(r.file)}</option>`).join('');
     renderConv();

@@ -22,17 +22,29 @@ export function avRefDiff(r, results, avRef) {
 // A start clock set from the file's own clock (and allowed for matching, clockMatch) is known over the whole day: two
 // such files are simply subtracted.
 // LTC time code that is not real time (23.976, 29.97 NDF) is matched only with the same kind ([M, label, kind]).
+// The creation-time clock is marked ([86400, clock, undefined, true]): it can be off by whole cycles (clockCheck).
 export const cycles = r => r.ltc && r.ltc.tcScale !== 1 ? [[86400, r.startLabel, r.ltc.label]] :
   [[r.mod, r.startLabel]].concat(r.label540 !== undefined && r.mod % VIS_MOD ? [[VIS_MOD, r.label540]] : [],
-    r.clockType && r.clockMatch ? [[86400, r.startClock]] : []);
-// [M, label of a, label of b]: the longest cycle both files know, the gcd of their cycle lengths; null when none.
-export function pairCycle(a, b) {
+    r.clockType && r.clockMatch ? [[86400, r.startClock, undefined, true]] : []);
+// [M, label of a, label of b, from a creation-time clock]: the longest cycle both files know, the gcd of their cycle
+// lengths; null when none. clock = false leaves out the creation-time clocks.
+export function pairCycle(a, b, clock = true) {
   let best = null;
-  for (const [ma, la, ka] of cycles(a)) for (const [mb, lb, kb] of cycles(b)) {
+  for (const [ma, la, ka, ca] of cycles(a)) for (const [mb, lb, kb, cb] of cycles(b)) {
+    if (!clock && (ca || cb)) continue;
     const g = gcd(ma, mb);
-    if (ka === kb && (!best || g > best[0])) best = [g, la, lb];
+    if (ka === kb && (!best || g > best[0])) best = [g, la, lb, !!(ca || cb)];
   }
   return best;
+}
+// The creation time is checked only within the file's cycle M, so a device clock or time zone off by a whole number of
+// cycles (3, 6, 9 or 12 hours with M = 540) still passes. When the difference from the clocks lies outside what the
+// cycles alone can match (|d| > M/2, M the gcd of the two files' cycles), the difference within the cycle is given too:
+// { alt: real seconds from b's start to a's start, wrapped to ±M/2, M }; null otherwise.
+export function clockCheck(a, b) {
+  const pc = pairCycle(a, b), pc0 = pc && pc[3] ? pairCycle(a, b, false) : null;
+  if (!pc0 || Math.abs(wrap(pc[1] - pc[2], pc[0])) <= pc0[0] / 2) return null;
+  return { alt: wrap(pc0[1] - pc0[2], pc0[0]), M: pc0[0] };
 }
 // Real seconds from b's start to a's start, matched modulo the cycle both know (null when they cannot be matched).
 export const startDiff = (a, b) => {
@@ -47,8 +59,9 @@ export function relRows(results, refName) {
   if (ok.length < 2) return null;
   const ref = ok.find(r => r.file === refName) || ok[0];
   const pcs = ok.filter(r => r !== ref).map(r => pairCycle(r, ref)), M = Math.min(...pcs.filter(Boolean).map(p => p[0]));
-  return { ref, M, ok, unmatched: pcs.some(p => !p), rows: ok.map(r => { const d = startDiff(r, ref); return { file: r.file, r,
-    offset: d === null ? null : d * ref.rate, speed: r.rate / ref.rate, length: r.length * ref.rate / r.rate }; }) };
+  return { ref, M, ok, unmatched: pcs.some(p => !p), rows: ok.map(r => { const d = startDiff(r, ref), ck = r === ref ? null : clockCheck(r, ref);
+    return { file: r.file, r, offset: d === null ? null : d * ref.rate, alt: ck ? ck.alt * ref.rate : null,
+      speed: r.rate / ref.rate, length: r.length * ref.rate / r.rate }; }) };
 }
 // Time t (s, from src's first frame) -> the same moment on dst's own timeline; null when they cannot be matched.
 export function convertT(src, t, dst) { const d = startDiff(src, dst); return d === null ? null : (d + t / src.rate) * dst.rate; }
@@ -128,6 +141,7 @@ export function createReport(t) {
       L.push('='.repeat(64), t('rep.relHead', { file: rel.ref.file }));
       for (const x of rel.rows) L.push(t('rep.relRow', { file: x.file, ref: x.r === rel.ref ? t('refMark') : '',
         off: offText(x.offset), v: (x.speed * 100).toFixed(6), len: x.length.toFixed(6) }));
+      for (const x of rel.rows) if (x.alt !== null) L.push('  ⚠ ' + t('rel.clockWarn', { file: x.file, x: offText(x.offset), y: offText(x.alt) }));
       if (relNoteKey(rel.M)) L.push('  ' + t(relNoteKey(rel.M)));
       if (rel.unmatched) L.push('  ' + t('rel.noteLtc'));
     }

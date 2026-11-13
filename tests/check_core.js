@@ -97,6 +97,27 @@ for (const name of ['wave.wav', 'ltc.wav']) {
     cases.push(['UTC+8：UTC 與本地時間寫成 UTC 各自判讀', utc.zone === 'utc' && face.zone === 'local' && utc.clock === 36000 && face.clock === 36000,
       `${utc.zone} ${utc.clock}，${face.zone} ${face.clock}`]);
   }
+  // The creation time is checked only within M: a device clock 9 minutes fast, or a time zone 3 hours off, passes and
+  // the clocks put the files a whole number of cycles apart. The alignment then also gives the difference within the
+  // cycle (report.js clockCheck); a difference within ±M/2 gets no second value.
+  process.env.TZ = 'UTC';
+  {
+    const { relRows } = await import(pathToFileURL(path.join(CORE, 'report.js')));
+    const file = (name, L, ck) => ({ ...result(L, 540, ck), file: name, length: 24 });
+    const bwf = s => createdClock({ bextSec: s }, s % 540, 540, 24);
+    const alt = (start, created, ref) => {
+      const a = file('a', start % 540, createdClock({ created: day + created }, start % 540, 540, 24)), b = file('b', ref % 540, bwf(ref));
+      const row = relRows([a, b], 'b').rows[0];
+      return [row.offset, row.alt];
+    };
+    const near = (v, x) => v !== null && Math.abs(v - x) < 1e-6;
+    let [x, y] = alt(36010, 36010 + 540, 36075);
+    cases.push(['設備快 9 分鐘（M = 540）：依建立時間 +475 秒，循環內 −65 秒', near(x, 475) && near(y, -65), `${x}，${y}`]);
+    [x, y] = alt(36010, 36010 + 10800, 36075);
+    cases.push(['時區差 3 小時（M = 540）：依建立時間 +10735 秒，循環內 −65 秒', near(x, 10735) && near(y, -65), `${x}，${y}`]);
+    [x, y] = alt(36010, 36010, 36075);
+    cases.push(['建立時間正確、相差在 ±4.5 分鐘內：只有一個值', near(x, -65) && y === null, `${x}，${y}`]);
+  }
   delete process.env.TZ;
   for (const [name, ok, detail] of cases) if (ok) console.log(`✓ 建立時間：${name}`); else fail(`建立時間：${name}（${detail}）`);
 }

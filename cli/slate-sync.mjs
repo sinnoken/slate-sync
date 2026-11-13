@@ -135,6 +135,8 @@ async function main() {
         const pc = pairCycle(r, rel.ref);
         Object.assign(j, { align_to: path.basename(rel.ref.file), align_offset: row.offset, align_speed: row.speed,
           align_length: row.length, align_mod: pc ? pc[0] : null });
+        // The creation-time clocks put the start outside the cycles' range: the difference within the cycle (report.js clockCheck).
+        if (row.alt !== null) j.align_offset_cycle = row.alt;
       }
       return j;
     });
