@@ -5,15 +5,15 @@
 ```bash
 python tests/make_test_media.py test-media/a.wav --minutes 4 --ppm 833
 python tests/make_test_media.py test-media/b.mp4 --minutes 4 --ppm -694 --start 12:35:00.039 --plug 70
-python python/slate_sync.py test-media/a.wav test-media/b.mp4
-python tests/check_read_audio.py       # 從任何位置讀取音訊都不錯位（AAC 與 WAV）
+node cli/slate-sync.mjs test-media/a.wav test-media/b.mp4    # 命令列分析器（需 ffmpeg／ffprobe；--json、--lang en 等）
+python tests/check_read_audio.py       # 命令列從任何位置讀取音訊都不錯位（AAC 與 WAV）
 python tests/check_cli_encoding.py     # 主控台不是 UTF-8（如 cp950）時報告仍完整印出
 python tests/check_visual_code.py      # 各處內嵌的 tag 碼表一致、每個 ID 都偵測得到
-python tests/check_wave_pitch.py       # 波形碼音高：場記板、產生器、分析器的公式一致（需要 node）
+python tests/check_wave_pitch.py       # 波形碼音高：場記板、產生器、分析核心的公式一致（需要 node）
 python tests/check_ltc_bits.py         # 產生器的 LTC 與場記板逐格、逐取樣相同（需要 node）
 node tests/check_web.js               # 網頁語法正確、四種語言的字串 key 一致
 node tests/check_core.js              # 分析核心不用瀏覽器 API，node 可直接執行
-python tests/web/check_analyzer.py    # 以 headless Chrome／Edge 跑網頁分析器，與真值、命令列版、報告快照比對
+python tests/web/check_analyzer.py    # 建置後以 headless Chrome／Edge 跑網頁分析器，與真值、命令列版、報告快照比對
 ```
 
 測試產生器的其他選項：`--old-pitch`（舊版場記板的載波，不帶 9 分鐘循環）；`--ltc 24|25|29.97|30|23.976`（`--df`、`--ltc-channel`、`--ltc-with code|scene`、`--ltc-noise`、`--ltc-invert`，搭配 `--ppm`、`--start` 與 .m4a／.mp4 輸出的 AAC）；`--created start|end`、`--created-offset`、`--date`、`--tz`（MP4／MOV／M4A 寫 creation_time，WAV 寫 BWF time_reference）。產生器會印出 LTC 第一格的時間碼與位置、建立時間與 r 的真值。
@@ -26,13 +26,13 @@ npm run build                   # 建置到 dist/
 npm run dev                     # 開發：改檔後自動重建，開啟 http://localhost:8000/sync-analyzer.html
 ```
 
-畫面碼（AprilTag，規格見 [visual-code.md](visual-code.md)）另需 `pip install pupil-apriltags`（測試影片另需 pillow）：
+Python 只用於測試產生器與測試工具（`pip install numpy pillow pupil-apriltags`；pupil-apriltags 只有 `check_visual_code.py` 用）。畫面碼（AprilTag，規格見 [visual-code.md](visual-code.md)）：
 
 ```bash
 python tests/check_visual_code.py          # 三處碼表一致、ID 0–539 繪製後讀回、ID 公式
 python tests/make_test_media.py test-media/v.mp4 --visual --minutes 3 --plug 60 --fps 29.97 --av-offset 25
 python tests/make_test_media.py test-media/w.mp4 --visual --minutes 3 --plug 60 --fps 25 --audio none --start 12:38:00.5
-python python/slate_sync.py test-media/v.mp4 test-media/w.mp4 --av
+node cli/slate-sync.mjs test-media/v.mp4 test-media/w.mp4 --av
 ```
 
 `--visual` 模擬攝影機拍手機螢幕：曝光區間以每格的時間為中心、長 `--shutter` 格，跨過整秒時新舊 tag 依時間比例混合；`--ppm` 同時作用於畫面與聲音軌，`--av-offset` 為畫面相對聲音的偏移。產生器印出實際用的編碼器與 GOP（預設 1 秒，`--encoder auto` 先試 NVENC）。
@@ -221,10 +221,31 @@ H.264／H.265 × AAC、MOV 的 sowt／twos／in24（大小端）／fl32、MP4 �
 `tests/web/run_analyzer.py` 先建置，再在本機伺服器以外框頁（`tests/web/harness.html`）載入 `dist/sync-analyzer.html`，把 `tests/fixtures/` 的測試檔交給分析器並收回結果；分析器本身不為測試修改。`tests/web/check_analyzer.py` 檢查：
 
 - 與真值的誤差在報告自己的預估誤差內（另加半個取樣 0.0104 ms，產生器把每秒取整到取樣點）；
-- 與命令列版的差異在容許值內（速度比例 0.05 ppm、起點 0.001 ms、長度 0.01 ms，約為兩版實測最大差異的 2 倍；聲畫偏移 0.05 ms，因兩版偵測器不同）；
+- 與命令列版的差異在容許值內（速度比例 0.05 ppm、起點 0.001 ms、長度 0.01 ms，約為兩版實測最大差異的 2 倍；聲畫偏移 0.05 ms，因兩版縮小影格的方式不同）；
 - 繁中文字報告與快照（`tests/web/snapshots/`）相同，數字以 `#` 取代後比對。
 
 測試檔由 `tests/fixtures/make_fixtures.py` 以固定參數產生（640×360、libx264，不含 HEVC，合計約 3 MB）；頭尾模式要求兩端相隔 60 秒以上，所以長檔為 80 秒。本機 Edge 全部約 40 秒。
+
+### 命令列改為 Node（ADR-0001）
+
+網頁與命令列改用同一份分析核心（`src/core/`），命令列 `cli/slate-sync.mjs` 只以 ffprobe／ffmpeg 讀檔。
+
+- `tests/fixtures/` 全部 5 個檔案：命令列與網頁版的速度比例、起點、校正後長度差異皆小於 10⁻⁹（顯示位數內為 0），聲畫偏移差 < 0.0001 ms，LTC 檔也一致；只有預估誤差差 0.00001 ms（cam.mp4，AAC 解碼器不同）。網頁版的結果與四種語言的文字報告與搬移前逐字相同。
+- 與移除前的 Python 版比較（`--json`，同一批產生器測試檔）：
+
+| 情況 | 差異 |
+|---|---|
+| WAV 4 分鐘頭尾（+833 ppm） | 0（各欄位相同） |
+| MP4（AAC）頭尾各 70 秒，−694 ppm | 速度比例 +0.019 ppm（Node −693.992，Python −694.012），起點 0.0001 ms，長度 −0.005 ms |
+| 同上 `--minute` | +0.025 ppm（Node −693.999，Python −694.024），起點 0.0007 ms |
+| 10 分鐘 +800 → +900 ppm `--full` | 分段速度差 ≤ 0.073 ppm，起點 −0.006 ms，中段偏差 −0.006 ms |
+| AAC 10 分鐘 `--only head` | 0 |
+| 兩檔 `--ref`／`--at` | 對齊 +0.0001 ms、換算 100 秒差 0.002 ms |
+| 畫面碼 `--av`（H.264 29.97 fps、H.265 25 fps，cuda） | 結果相同；H.264 結尾聲畫偏移差 0.009 ms（偵測器 pupil-apriltags → js-aruco2），聲畫漂移差 0.05 ppm（估計誤差 ±195） |
+| 建立時間結束型（−0.6 秒） | Python 不支援；Node 起點 09:15:20.125（真值） |
+| LTC 25（另一聲道有波形碼）、LTC 29.97 DF 跨午夜（AAC） | Python 只讀波形碼／讀不到；Node 讀 LTC：+400.000 ppm 起點 10:00:03.300、−500.000 ppm 起點 23:58:30.200（真值） |
+
+AAC 與 `--full` 的差異來自讀取位置：Python 版把讀取起點當作第一個取樣的時間（最多差 1 個取樣），Node 版先把起點移到取樣格點上；Node 版的結果更接近真值。cuda 與 `--no-hwaccel` 的畫面結果相同。
 
 ## 尚未驗證
 
@@ -238,6 +259,7 @@ H.264／H.265 × AAC、MOV 的 sowt／twos／in24（大小端）／fl32、MP4 �
 - 可變影格率（手機錄影）、長 GOP 或全 I 格編碼、直拿（旋轉中繼資料）的畫面碼讀取與成本
 - 畫面碼的 `--full` 抽查中段、`--only`（程式已接上，未以測試影片驗證）
 - cuda 以外的硬體解碼（d3d11va，以及沒有 NVIDIA 顯示卡的機器）
+- Node 命令列在真的 cp950 主控台視窗中的輸出（`check_cli_encoding.py` 只測導向管線的輸出）
 - 網頁版分析器的畫面碼解讀
 - 波形碼音高循環：網頁版分析器、以新版場記板實際錄音（只以合成檔驗證）
 - 分析器讀 LTC 與檔案建立時間（[ltc.md](ltc.md)、[start-time.md](start-time.md)）：測試產生器已能產生，分析器尚未實作

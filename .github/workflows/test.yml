@@ -43,32 +43,31 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - name: Install ffmpeg and Python packages
+      # Python only runs the test-media generator and the test tools written in Python; the analyzer is Node.
+      - name: Install ffmpeg and the Python test tools' packages
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg
-          pip install -r python/requirements.txt pupil-apriltags pyflakes
-      - name: Static check
-        run: python -m pyflakes python/slate_sync.py tests/*.py tests/web/*.py tests/fixtures/*.py
-      - name: Web pages (syntax, four-language strings)
-        run: node tests/check_web.js
-      - name: Analysis core runs in node without browser APIs
-        run: node tests/check_core.js
+          pip install numpy pupil-apriltags pyflakes
+      - name: Static check of the Python test tools
+        run: python -m pyflakes tests/*.py tests/web/*.py tests/fixtures/*.py
+      - name: Web pages and analysis core (npm run check)
+        run: npm run check
       - name: Visual code tables
         run: python tests/check_visual_code.py
       - name: Waveform pitch matches the slate
         run: python tests/check_wave_pitch.py
       - name: LTC bits match the slate
         run: python tests/check_ltc_bits.py
-      - name: Audio reads land on the exact sample
+      - name: Command line - audio reads land on the exact sample
         run: python tests/check_read_audio.py
-      - name: Report prints on a non-UTF-8 console
+      - name: Command line - report prints on a non-UTF-8 console
         run: python tests/check_cli_encoding.py
       - name: Start clock never shows 60 seconds
         run: python tests/check_clock_format.py
       # Headless Chrome (preinstalled on the ubuntu runner) runs the built dist/sync-analyzer.html on tests/fixtures/ and the
-      # results are compared with the truth, the CLI and the text-report snapshot. The fixtures avoid HEVC, which
+      # results are compared with the truth, the Node command line and the text-report snapshot. The fixtures avoid HEVC, which
       # Linux Chrome cannot decode with WebCodecs.
-      - name: Web analyzer in headless Chrome (truth, CLI, report snapshot)
+      - name: Web analyzer in headless Chrome (truth, command line, report snapshot)
         timeout-minutes: 5
         run: python tests/web/check_analyzer.py

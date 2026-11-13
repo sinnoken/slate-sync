@@ -44,7 +44,7 @@ export function solve(head, tail, probes, vis) {
     pts = L.lab.map(([t]) => [t, Math.round(t - t0)]);
     clusters = [L.lab.map(([t]) => t)];
   }
-  const iters = vis ? 3 : 4;   // slate_sync.py refits 3 times; the audio path keeps this page's original 4
+  const iters = vis ? 3 : 4;   // refits: 3 for the visual code, 4 for the waveform code, as each was first validated
   let { keep, rate, c } = fitKeep(pts, tol, iters);
   // Refine each second's start from ALL its pulses (pulse k at offset o_k sits at start + o_k * rate), with
   // median rejection at 1 ms; keep the refined times only if they scatter less than the sync edges alone.
