@@ -1,6 +1,7 @@
 # Build the web pages once, run the regression tests and, on main, publish that same build to GitHub Pages. Runs on
 # every push to main and on pull requests (documentation-only changes are skipped), and on demand. A push whose
-# commit was already tested successfully, or is being tested, is skipped.
+# commit was already pushed and tested successfully, or is being tested, is skipped; a run for a pull request does
+# not count, because only a push run deploys.
 name: Test
 on:
   push:
@@ -25,8 +26,8 @@ jobs:
           skip=false
           if [ "$GITHUB_EVENT_NAME" = push ]; then
             n=$(gh run list -R "$GITHUB_REPOSITORY" --workflow test.yml --commit "$GITHUB_SHA" \
-                  --json databaseId,status,conclusion \
-                  --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID) | select(.status != \"completed\" or .conclusion == \"success\")] | length")
+                  --json databaseId,event,status,conclusion \
+                  --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID) | select(.event == \"push\") | select(.status != \"completed\" or .conclusion == \"success\")] | length")
             [ "$n" -gt 0 ] && skip=true
           fi
           echo "skip=$skip" >> "$GITHUB_OUTPUT"
