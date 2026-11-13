@@ -53,6 +53,9 @@ export function relRows(results, refName) {
 // Time t (s, from src's first frame) -> the same moment on dst's own timeline; null when they cannot be matched.
 export function convertT(src, t, dst) { const d = startDiff(src, dst); return d === null ? null : (d + t / src.rate) * dst.rate; }
 export const offText = v => v === null ? '—' : sgn(v, 6);
+// The note on how far apart the files may start, for the cycle M the alignment used (docs/start-time.md); none for
+// 3600 (±30 minutes, the minute markers alone) or when nothing could be matched.
+export const relNoteKey = M => ({ 60: 'rel.note60', 180: 'rel.note180', [VIS_MOD]: 'rel.note540', 10800: 'rel.note10800', 86400: 'rel.note86400' }[M] || null);
 
 // The parts that need words, for the translator t of one language (i18n.js translator()).
 export function createReport(t) {
@@ -125,7 +128,7 @@ export function createReport(t) {
       L.push('='.repeat(64), t('rep.relHead', { file: rel.ref.file }));
       for (const x of rel.rows) L.push(t('rep.relRow', { file: x.file, ref: x.r === rel.ref ? t('refMark') : '',
         off: offText(x.offset), v: (x.speed * 100).toFixed(6), len: x.length.toFixed(6) }));
-      if (rel.M === VIS_MOD || rel.M === 180) L.push('  ' + t(rel.M === VIS_MOD ? 'rel.note540' : 'rel.note180'));
+      if (relNoteKey(rel.M)) L.push('  ' + t(relNoteKey(rel.M)));
       if (rel.unmatched) L.push('  ' + t('rel.noteLtc'));
     }
     return L.join('\n');

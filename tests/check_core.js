@@ -119,5 +119,18 @@ for (const name of ['wave.wav', 'ltc.wav']) {
   for (const [name, ok] of cases) if (ok) console.log(`✓ 分鐘標記：${name}`); else fail(`分鐘標記：${name}`);
 }
 
+// Cross-file range notes (docs/start-time.md): the cycle the alignment used decides the note shown.
+{
+  const { relRows, relNoteKey } = await import(pathToFileURL(path.join(CORE, 'report.js')));
+  const res = (M, ltc = null) => ({ file: 'x', mod: M, startLabel: 1, rate: 1, length: 1, ltc });
+  const note = rs => { const rel = relRows(rs.map((r, i) => ({ ...r, file: 'f' + i })), null); return relNoteKey(rel.M); };
+  const ltc25 = { label: '25', tcScale: 1 };
+  const cases = [[[res(60), res(540)], 'rel.note60'], [[res(540), res(10800)], 'rel.note540'], [[res(10800), res(10800)], 'rel.note10800'],
+    [[res(3600), res(10800)], null], [[res(86400, ltc25), res(86400, ltc25)], 'rel.note86400'], [[res(3600), res(540)], 'rel.note180']];
+  const bad = cases.filter(([rs, want]) => note(rs) !== want);
+  if (bad.length) fail(`比對範圍註記：${bad.map(([rs, want]) => `${rs.map(r => r.mod).join('/')} → ${note(rs)}（應為 ${want}）`).join('；')}`);
+  else console.log(`✓ 比對範圍註記：${cases.length} 種循環組合`);
+}
+
 console.log(failed ? `結果：${failed} 項不符` : '結果：全部通過');
 process.exit(failed ? 1 : 0);

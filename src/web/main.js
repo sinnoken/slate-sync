@@ -1,7 +1,7 @@
 // main.js — 網頁分析器的介面：選檔、進度、結果卡片、對齊表與時間換算；分析本身在 src/core/，讀檔在 media.js、video.js。
 import { analyze } from '../core/analyze.js';
 import { LANGS, translator } from '../core/i18n.js';
-import { avRefDiff, convertT, createReport, driftBad, endClock, fitKey, isSingle, offText, relRows, sgn } from '../core/report.js';
+import { avRefDiff, convertT, createReport, driftBad, endClock, fitKey, isSingle, offText, relNoteKey, relRows, sgn } from '../core/report.js';
 import { SOUND, VIS_MOD } from '../core/visual.js';
 import { openMedia, readWindow } from './media.js';
 import { VideoReader } from './video.js';
@@ -118,7 +118,7 @@ function renderRel() {
   if (rel) {
     $('relTable').innerHTML = `<tr><th>${t('th.file')}</th><th style="text-align:right">${t('th.start')}</th><th style="text-align:right">${t('th.speed')}</th><th style="text-align:right">${t('th.len')}</th></tr>` +
       rel.rows.map(x => `<tr><td>${esc(x.file)}${x.r === rel.ref ? t('refMark') : ''}</td><td class="n num">${offText(x.offset)}</td><td class="n num">${(x.speed * 100).toFixed(6)} %</td><td class="n num">${x.length.toFixed(6)}</td></tr>`).join('');
-    $('relNote').textContent = (!isFinite(rel.M) || rel.M % 3600 === 0 ? '' : t({ [VIS_MOD]: 'rel.note540', 180: 'rel.note180' }[rel.M] || 'rel.note60')) +
+    $('relNote').textContent = (relNoteKey(rel.M) ? t(relNoteKey(rel.M)) : '') +
       (rel.unmatched ? t('rel.noteLtc') : '');
     const cur = $('convSrc').value;
     $('convSrc').innerHTML = rel.ok.map(r => `<option${r.file === cur ? ' selected' : ''}>${esc(r.file)}</option>`).join('');
