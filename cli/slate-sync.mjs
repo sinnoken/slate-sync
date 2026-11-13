@@ -51,35 +51,52 @@ function fatal(msg) {
   process.exit(2);
 }
 
+const OPTIONS = {
+  channel: { type: 'string' }, fps: { type: 'string' }, ref: { type: 'string' }, at: { type: 'string', multiple: true },
+  only: { type: 'string' }, full: { type: 'boolean' }, probe: { type: 'string' }, target: { type: 'string' },
+  search: { type: 'string' }, 'max-read': { type: 'string' }, minute: { type: 'boolean' }, av: { type: 'boolean' },
+  distance: { type: 'string' }, 'av-ref': { type: 'string' }, 'no-hwaccel': { type: 'boolean' }, json: { type: 'boolean' },
+  lang: { type: 'string' }, help: { type: 'boolean', short: 'h' } };
+
+// parseArgs refuses a value that starts with a dash ("--fps -30"), so a negative number is joined to its option
+// ("--fps=-30") and then rejected by the range check with a clear message.
+const joinNegatives = argv => argv.reduce((out, s) => {
+  const prev = out[out.length - 1], o = prev && /^--[\w-]+$/.test(prev) ? OPTIONS[prev.slice(2)] : null;
+  if (o && o.type === 'string' && /^-\.?\d/.test(s)) out[out.length - 1] = `${prev}=${s}`;
+  else out.push(s);
+  return out;
+}, []);
+
 function parse() {
   let a;
-  try {
-    a = parseArgs({ allowPositionals: true, options: {
-      channel: { type: 'string' }, fps: { type: 'string' }, ref: { type: 'string' }, at: { type: 'string', multiple: true },
-      only: { type: 'string' }, full: { type: 'boolean' }, probe: { type: 'string' }, target: { type: 'string' },
-      search: { type: 'string' }, 'max-read': { type: 'string' }, minute: { type: 'boolean' }, av: { type: 'boolean' },
-      distance: { type: 'string' }, 'av-ref': { type: 'string' }, 'no-hwaccel': { type: 'boolean' }, json: { type: 'boolean' },
-      lang: { type: 'string' }, help: { type: 'boolean', short: 'h' } } });
-  } catch (e) { fatal(`${e.message}\n\n${HELP}`); }
+  try { a = parseArgs({ args: joinNegatives(process.argv.slice(2)), allowPositionals: true, options: OPTIONS }); }
+  catch (e) { fatal(`${e.message}\n\n${HELP}`); }
   const o = a.values;
   if (o.help) { process.stdout.write(HELP + '\n'); process.exit(0); }
   if (!a.positionals.length) fatal(HELP);
-  const number = (name, int = false) => {
+  // min: the smallest value allowed; open: the value must be above it.
+  const number = (name, { int = false, min = -Infinity, open = false } = {}) => {
     if (o[name] === undefined) return undefined;
-    const v = Number(o[name]);
+    const v = o[name].trim() === '' ? NaN : Number(o[name]);
     if (!Number.isFinite(v) || (int && !Number.isInteger(v))) fatal(`--${name}：${o[name]} 不是${int ? '整數' : '數字'}`);
+    if (open ? v <= min : v < min) fatal(`--${name}：${o[name]} 必須${open ? '大於' : '大於或等於'} ${min}`);
     return v;
   };
   if (o.only !== undefined && !['head', 'tail'].includes(o.only)) fatal('--only 只能是 head 或 tail');
   const lang = o.lang ?? 'zh-Hant';
   if (!LANGS.includes(lang)) fatal(`--lang 只能是 ${LANGS.join('、')}`);
-  const probe = number('probe', true);
+  for (const spec of o.at ?? []) {
+    const i = spec.lastIndexOf('='), sec = spec.slice(i + 1).trim();
+    if (i <= 0 || sec === '' || !Number.isFinite(Number(sec))) fatal(`--at ${spec}：格式須為「檔名=秒」，例如 --at B002.MP4=125.5`);
+  }
+  const probe = number('probe', { int: true, min: 0 });
   return {
     files: a.positionals, ref: o.ref ?? null, at: o.at ?? [], json: !!o.json, lang, avRef: o['av-ref'] ?? null,
-    fps: number('fps') ?? null, hwaccel: !o['no-hwaccel'],
-    opts: { only: o.only ?? null, probe: probe ?? (o.full ? 3 : 0), minute: !!o.minute, av: !!o.av, distance: number('distance') ?? 0,
-      target: number('target') ?? 1.0, search: number('search') ?? 30, maxRead: number('max-read') ?? 120,
-      channel: number('channel', true) ?? null },
+    fps: number('fps', { min: 0, open: true }) ?? null, hwaccel: !o['no-hwaccel'],
+    opts: { only: o.only ?? null, probe: probe ?? (o.full ? 3 : 0), minute: !!o.minute, av: !!o.av,
+      distance: number('distance', { min: 0 }) ?? 0, target: number('target', { min: 0, open: true }) ?? 1.0,
+      search: number('search', { min: 0, open: true }) ?? 30, maxRead: number('max-read', { min: 0, open: true }) ?? 120,
+      channel: number('channel', { int: true, min: 0 }) ?? null },
   };
 }
 
@@ -112,7 +129,12 @@ async function main() {
   const results = [];
   for (const f of args.files) {
     let r;
-    try { r = await analyze(await openMedia(f, { fps: args.fps, hwaccel: args.hwaccel }), args.opts); }
+    try {
+      const m = await openMedia(f, { fps: args.fps, hwaccel: args.hwaccel }), ch = args.opts.channel;
+      if (ch !== null && m.hasAudio && ch >= m.channels)
+        throw new Error(`--channel ${ch} 超出聲道數：這個檔案有 ${m.channels} 個聲道（0 起算，可用 0～${m.channels - 1}）`);
+      r = await analyze(m, args.opts);
+    }
     catch (e) { r = { file: f, error: (e && e.i18n) || { raw: (e && e.message) || String(e) } }; }   // keep going with the other files
     results.push(r);
   }
