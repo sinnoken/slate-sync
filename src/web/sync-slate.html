@@ -313,6 +313,16 @@
   body.atag .ltc-now:empty { display: block; }
   /* Three sync choices share one row: each button takes room by its label length, and a label that still doesn't fit
      wraps between words (never inside a Japanese or Korean word) instead of spilling over. */
+  /* Mode row: five buttons share the full width on one line at 390 px in every language; each takes room by its label. */
+  .modes { flex: 1; min-width: 0; }
+  .modes button { flex: 1 1 auto; min-width: 0; padding-left: 6px; padding-right: 6px; }
+  footer .controls .seg.modes button { padding-left: 6px; padding-right: 6px; min-width: 0; }
+  /* Mute: the speaker keeps its waves when sound is on and shows a cross when muted. */
+  .mute .x, .mute[aria-pressed="true"] .w { display: none; }
+  .mute[aria-pressed="true"] .x { display: inline; }
+  .mute[aria-pressed="true"] { color: var(--ink); }
+  /* LTC mode: the line between the tag and the band shows the LTC time code instead of the digits. */
+  body.ltcm .clock { display: none; }
   #fsSeg button { flex: 1 1 auto; white-space: normal; word-break: keep-all; line-height: 1.1; padding-left: 8px; padding-right: 8px; }
 </style>
 </head>
@@ -320,6 +330,7 @@
   <header class="top">
     <h1 class="sr-only" data-i18n="appTitle">同步場記板</h1>
     <label class="scene"><span class="scene-k">SCENE</span><input class="tag" id="tag" placeholder="例：12A" maxlength="16" aria-label="場次" data-i18n-attr="placeholder:scenePh;aria-label:sceneAria" enterkeyhint="done" autocomplete="off"></label>
+    <button class="icon-btn mute" id="muteBtn" aria-pressed="false" aria-label="靜音" data-i18n-attr="aria-label:muteAria"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path class="w" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/><path class="x" d="M16 9l6 6M22 9l-6 6"/></svg></button>
     <button class="icon-btn" id="settingsBtn" aria-label="設定" data-i18n-attr="aria-label:settings" aria-haspopup="dialog"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg></button>
   </header>
 
@@ -338,21 +349,20 @@
   <footer>
     <div class="bar" aria-hidden="true"><i id="wave"></i></div>
     <div class="row controls">
-      <div class="seg" role="group" aria-label="模式" data-i18n-attr="aria-label:modeAria">
+      <div class="seg modes" role="group" aria-label="模式" data-i18n-attr="aria-label:modeAria">
         <button id="mClock" aria-pressed="true" data-i18n="modeClock">時鐘</button>
-        <button id="mCd" aria-pressed="false" data-i18n="modeCd">倒數</button>
         <button id="mUp" aria-pressed="false" data-i18n="modeUp">正數</button>
+        <button id="mCd" aria-pressed="false" data-i18n="modeCd">倒數</button>
+        <button id="mTag" aria-pressed="false" data-i18n="modeTag">Tag</button>
+        <button id="mLtc" aria-pressed="false" data-i18n="modeLtc">LTC</button>
       </div>
-      <span class="grow"></span>
-      <button id="fpsBtn" aria-haspopup="dialog">59.94 fps</button>
-      <div class="seg" id="audSeg" role="group" aria-label="音訊輸出" data-i18n-attr="aria-label:audAria"><button id="aBeep" aria-pressed="true" data-i18n="aBeep">嗶聲</button><button id="aWave" aria-pressed="false" data-i18n="aWave">波形碼</button><button id="aLtc" aria-pressed="false">LTC</button><button id="aOff" aria-pressed="false" data-i18n="aOff">關</button></div>
     </div>
     <div class="row cd" id="cdRow" hidden>
       <div class="chips" id="chips" role="group" aria-label="倒數長度" data-i18n-attr="aria-label:cdLen"></div>
       <button class="icon-btn" id="schedBtn" aria-label="排程開始時間" data-i18n-attr="aria-label:schedTitle"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5"/><path d="M9 2h6"/></svg><span class="lbl" data-i18n="schedLbl">排程</span></button>
       <button class="go" id="go2">開始倒數</button>
     </div>
-    <p class="hint" id="hint" data-i18n="hint">畫面黑變白就是整秒，白變黑是半秒。時鐘模式就是 free run。點數字可隱藏按鈕，讓畫面更大。</p>
+    <p class="hint" id="hint" data-i18n="hintClock">手機時鐘（free run），給人看與聽：畫面黑變白是整秒。點數字可隱藏按鈕。</p>
   </footer>
 
   <div class="page" id="sheetWrap" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
@@ -367,8 +377,8 @@
         </div>
         <div class="item">
           <div class="item-k" data-i18n="syncK">畫面同步訊號</div>
-          <p class="item-d" data-i18n="syncD">黑白方波：黑變白是整秒，遠處也清楚。短閃白：較省電、不刺眼。AprilTag：給只拍到畫面、沒錄到場記板聲音的攝影機用，分析器可自動對時；拍攝時讓整個碼清楚入鏡。</p>
-          <div class="seg" id="fsSeg" role="group" aria-label="畫面同步訊號" data-i18n-attr="aria-label:syncK"><button id="fsSquare" aria-pressed="true" data-i18n="fsSquare">黑白方波</button><button id="fsFlash" aria-pressed="false" data-i18n="fsFlash">短閃白</button><button id="fsTag" aria-pressed="false" data-i18n="fsTag">AprilTag</button></div>
+          <p class="item-d" data-i18n="syncD">時鐘、正數、倒數模式的畫面訊號。黑白方波：黑變白是整秒，遠處也清楚。短閃白：較省電、不刺眼。</p>
+          <div class="seg" id="fsSeg" role="group" aria-label="畫面同步訊號" data-i18n-attr="aria-label:syncK"><button id="fsSquare" aria-pressed="true" data-i18n="fsSquare">黑白方波</button><button id="fsFlash" aria-pressed="false" data-i18n="fsFlash">短閃白</button></div>
         </div>
       </section>
       <section class="grp">
@@ -393,7 +403,12 @@
       </section>
       <section class="grp">
         <h3 data-i18n="grpAudio">音訊輸出</h3>
-        <p class="item-d" data-i18n="audioD">在主畫面切換嗶聲、波形碼、LTC 或關，同一時間只輸出一種。接 MIC 輸入時需衰減。</p>
+        <p class="item-d" data-i18n="audioD">聲音由模式決定：時鐘、正數、倒數依下方設定，Tag 輸出波形碼，LTC 輸出 LTC；主畫面的靜音鈕對所有模式有效。接 MIC 輸入時需衰減。</p>
+        <div class="item">
+          <div class="item-k" data-i18n="soundK">數字模式的聲音</div>
+          <p class="item-d" data-i18n="soundD">時鐘、正數、倒數模式的聲音。嗶聲：每秒一聲，整分鐘較長。波形碼：在剪輯軟體的波形上看得出秒數，分析器可自動對時。</p>
+          <div class="seg" id="sndSeg" role="group" aria-label="數字模式的聲音" data-i18n-attr="aria-label:soundK"><button id="sndBeep" aria-pressed="true" data-i18n="sBeep">嗶聲</button><button id="sndWave" aria-pressed="false" data-i18n="sWave">波形碼</button></div>
+        </div>
         <div class="item">
           <div class="item-k" data-i18n="ltcK">LTC 格式</div>
           <p class="item-d" id="ltcRate"></p>

@@ -1,6 +1,7 @@
 // slate.js — 同步場記板的頁面程式：介面、聲音排程與畫面。編碼（波形碼、LTC、tag）在 src/core/slate.js，
 // 建置時由 scripts/build.mjs 打包後內嵌進 src/web/sync-slate.html。
 import { countToTC, cycleK, drawTag, ltcChunk, ltcParams, waveBursts, waveHz } from '../core/slate.js';
+import { DURS, FPS_LIST, MODES, audioKind, defaultState, hintKey, isCode, isCount, modeLocked, readState, screenOf, secondRow } from './slate-mode.js';
 
 // Monotonic wall clock: anchored to Date.now() once, then driven by performance.now() so OS clock steps can't jump the display.
 var WALL0 = Date.now() - performance.now();
@@ -8,8 +9,6 @@ function wallNow() { return WALL0 + performance.now(); }
 var $ = function (id) { return document.getElementById(id); };
 var clockEl = $('clock'), statusEl = $('status'), wave = $('wave'), tag = $('tag');
 var FLASH_MS = 120;
-var FPS_LIST = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60, 100, 119.88, 120];
-var DURS = [10, 30, 60, 180, 300, 600];
 var SEP = '<span class="sep">:</span>';
 
 // ---- i18n: every page uses the same detection; the choice is shared through localStorage ----
@@ -29,20 +28,29 @@ function pickLang() {
 // 所有語言的 key 必須相同；字串裡的 {name} 由 t() 代入。
 var I18N = {
   'zh-Hant': {
+    modeTag: 'Tag', modeLtc: 'LTC', muteAria: '靜音',
+    hintClock: '手機時鐘（free run），給人看與聽：畫面黑變白是整秒。點數字可隱藏按鈕。',
+    hintUp: '從 0 正數，可排程開始：畫面黑變白是整秒。點數字可隱藏按鈕。',
+    hintCd: '點選長度即開始倒數，可排程開始：畫面黑變白是整秒。點數字可隱藏按鈕。',
+    hintTag: '給只拍到畫面的攝影機用：頭尾各拍 5–10 秒，分析器自動對時。',
+    hintLtc: '把 LTC 接到錄音機或攝影機的音訊輸入，畫面同時拍進攝影機，分析器自動對時。接 MIC 輸入時需衰減。',
+    soundK: '數字模式的聲音',
+    soundD: '時鐘、正數、倒數模式的聲音。嗶聲：每秒一聲，整分鐘較長。波形碼：在剪輯軟體的波形上看得出秒數，分析器可自動對時。',
+    sBeep: '嗶聲',
+    sWave: '波形碼',
+    ltcMuted: 'LTC 已靜音',
     appTitle: '同步場記板', scenePh: '例：12A', sceneAria: '場次', settings: '設定', done: '完成',
     stageAria: '點一下隱藏或顯示按鈕', clockAria: '時間', modeAria: '模式', modeClock: '時鐘', modeCd: '倒數', modeUp: '正數',
-    audAria: '音訊輸出', aBeep: '嗶聲', aWave: '波形碼', aOff: '關', cdLen: '倒數長度', schedTitle: '排程開始時間', schedLbl: '排程',
-    goCd: '開始倒數', goUp: '開始正數', goStop: '停止', goCancelSched: '取消排程', fpsAria: '影格率 {fps}p，開啟設定',
-    hint: '畫面黑變白就是整秒，白變黑是半秒。時鐘模式就是 free run。點數字可隱藏按鈕，讓畫面更大。',
-    hintNoWake: '提醒：請在手機設定中暫時關閉自動鎖定，避免螢幕變暗。',
+    cdLen: '倒數長度', schedTitle: '排程開始時間', schedLbl: '排程',
+    goCd: '開始倒數', goUp: '開始正數', goStop: '停止', goCancelSched: '取消排程', hintNoWake: '提醒：請在手機設定中暫時關閉自動鎖定，避免螢幕變暗。',
     hintWakeFail: '提醒：無法自動保持螢幕常亮，請在手機設定中暫時關閉自動鎖定。',
     grpShoot: '拍攝', fpsK: '影格率', fpsD: '和攝影機相同。高於 30 fps 時，60Hz 的手機螢幕會跳過部分影格號碼。',
-    syncK: '畫面同步訊號', syncD: '黑白方波：黑變白是整秒，遠處也清楚。短閃白：較省電、不刺眼。AprilTag：給只拍到畫面、沒錄到場記板聲音的攝影機用，分析器可自動對時；拍攝時讓整個碼清楚入鏡。', fsSquare: '黑白方波', fsFlash: '短閃白', fsTag: 'AprilTag',
+    syncK: '畫面同步訊號', syncD: '時鐘、正數、倒數模式的畫面訊號。黑白方波：黑變白是整秒，遠處也清楚。短閃白：較省電、不刺眼。', fsSquare: '黑白方波', fsFlash: '短閃白',
     grpLook: '外觀', paletteK: '配色', paletteD: '全白：數字最好辨識。紅光：暗場不刺眼。淺色：控制區與設定頁改淺底。黑白方波不受影響。',
     pDefault: '預設', pWhite: '全白', pRed: '紅光', pLight: '淺色',
     langK: '語言', langD: '自動：跟隨手機的語言設定。', langAuto: '自動',
     grpCd: '倒數', customK: '自訂長度', edit: '修改',
-    grpAudio: '音訊輸出', audioD: '在主畫面切換嗶聲、波形碼、LTC 或關，同一時間只輸出一種。接 MIC 輸入時需衰減。',
+    grpAudio: '音訊輸出', audioD: '聲音由模式決定：時鐘、正數、倒數依下方設定，Tag 輸出波形碼，LTC 輸出 LTC；主畫面的靜音鈕對所有模式有效。接 MIC 輸入時需衰減。',
     ltcK: 'LTC 格式', ltcRate: '依目前影格率輸出：{label}', ltc23976: '23.976（24 格時間碼）', ltcWait: 'LTC 準備中',
     grpCal: '校準（每支手機做一次）', calD: '螢幕更新延遲已自動補償。實拍比對後仍有誤差再微調，正值代表提前。', ofsVideo: '畫面', ofsAudio: '聲音',
     grpTools: '其他工具', toolsD: '拍完後在電腦上分析素材：速度比例、校正後長度、對齊到基準檔。檔案不會上傳。', openAnalyzer: '開啟同步分析器（電腦用）',
@@ -61,20 +69,29 @@ var I18N = {
     pvToday: '將於今天 {t} 開始（還有 {left}）', pvTomorrow: '將於明天 {t} 開始（還有 {left}）', pvUp: '從 0 開始正數', pvCd: '結束於 {when}，倒數長度 {dur}'
   },
   en: {
+    modeTag: 'Tag', modeLtc: 'LTC', muteAria: 'Mute',
+    hintClock: 'Phone clock (free run) for people to see and hear: black to white is the top of each second. Tap the digits to hide the buttons.',
+    hintUp: 'Counts up from 0 and can be scheduled. Black to white is the top of each second. Tap the digits to hide the buttons.',
+    hintCd: 'Tap a length to start the countdown; it can also be scheduled. Black to white is the top of each second.',
+    hintTag: 'For cameras that only see the screen: shoot 5–10 s at the head and tail, and the analyzer syncs them automatically.',
+    hintLtc: 'Feed the LTC into a recorder or camera audio input and let the camera see the screen; the analyzer syncs automatically. Attenuate it for a MIC input.',
+    soundK: 'Sound in digit modes',
+    soundD: 'Sound for Clock, Count up and Countdown. Beep: one per second, longer on the minute. Waveform code: the seconds can be read in an editor’s waveform view, and the analyzer syncs it automatically.',
+    sBeep: 'Beep',
+    sWave: 'Waveform code',
+    ltcMuted: 'LTC muted',
     appTitle: 'Sync Slate', scenePh: 'e.g. 12A', sceneAria: 'Scene', settings: 'Settings', done: 'Done',
     stageAria: 'Tap to hide or show the controls', clockAria: 'Time', modeAria: 'Mode', modeClock: 'Clock', modeCd: 'Countdown', modeUp: 'Count up',
-    audAria: 'Audio output', aBeep: 'Beep', aWave: 'Wave', aOff: 'Off', cdLen: 'Countdown length', schedTitle: 'Schedule start', schedLbl: 'Schedule',
-    goCd: 'Start countdown', goUp: 'Start count-up', goStop: 'Stop', goCancelSched: 'Cancel schedule', fpsAria: 'Frame rate {fps}p, open settings',
-    hint: 'Black to white is the top of each second, white to black the half. Clock mode is free run. Tap the digits to hide the buttons.',
-    hintNoWake: 'Note: turn off auto-lock in your phone settings while shooting so the screen stays on.',
+    cdLen: 'Countdown length', schedTitle: 'Schedule start', schedLbl: 'Schedule',
+    goCd: 'Start countdown', goUp: 'Start count-up', goStop: 'Stop', goCancelSched: 'Cancel schedule', hintNoWake: 'Note: turn off auto-lock in your phone settings while shooting so the screen stays on.',
     hintWakeFail: 'Note: the screen can’t be kept on automatically. Turn off auto-lock in your phone settings for now.',
     grpShoot: 'Shooting', fpsK: 'Frame rate', fpsD: 'Match the camera. Above 30 fps, a 60Hz phone screen skips some frame numbers.',
-    syncK: 'Visual sync signal', syncD: 'Square wave: black to white marks the top of each second, easy to read from a distance. Short flash: saves battery and is easier on the eyes. AprilTag: for cameras that see the screen but don’t record the slate’s audio; the analyzer syncs them automatically. Keep the whole tag sharp and in frame while shooting.', fsSquare: 'Square wave', fsFlash: 'Short flash', fsTag: 'AprilTag',
+    syncK: 'Visual sync signal', syncD: 'Screen signal for Clock, Count up and Countdown. Square wave: black to white marks the top of each second, easy to read from a distance. Short flash: saves battery and is easier on the eyes.', fsSquare: 'Square wave', fsFlash: 'Short flash',
     grpLook: 'Appearance', paletteK: 'Colors', paletteD: 'White: most legible digits. Red: easy on the eyes on a dark set. Light: light background for the controls and settings. The square wave is unaffected.',
     pDefault: 'Default', pWhite: 'White', pRed: 'Red', pLight: 'Light',
     langK: 'Language', langD: 'Auto follows your phone’s language.', langAuto: 'Auto',
     grpCd: 'Countdown', customK: 'Custom length', edit: 'Edit',
-    grpAudio: 'Audio output', audioD: 'Switch between beep, waveform code, LTC and off on the main screen; only one plays at a time. Attenuate the signal when feeding a MIC input.',
+    grpAudio: 'Audio output', audioD: 'The mode sets the sound: Clock, Count up and Countdown follow the setting below, Tag plays the waveform code and LTC plays LTC; the mute button on the main screen silences every mode. Attenuate the signal when feeding a MIC input.',
     ltcK: 'LTC format', ltcRate: 'Follows the current frame rate: {label}', ltc23976: '23.976 (24-frame timecode)', ltcWait: 'LTC starting…',
     grpCal: 'Calibration (once per phone)', calD: 'Screen refresh delay is compensated automatically. Fine-tune only if test footage still shows an offset; positive values shift it earlier.', ofsVideo: 'Video', ofsAudio: 'Audio',
     grpTools: 'Other tools', toolsD: 'After the shoot, analyze footage on a computer: speed ratio, corrected length, alignment to a reference file. Files are never uploaded.', openAnalyzer: 'Open Sync Analyzer (for computers)',
@@ -93,20 +110,29 @@ var I18N = {
     pvToday: 'Starts today at {t} (in {left})', pvTomorrow: 'Starts tomorrow at {t} (in {left})', pvUp: 'Counts up from 0', pvCd: 'Ends {when}, countdown length {dur}'
   },
   ja: {
+    modeTag: 'Tag', modeLtc: 'LTC', muteAria: 'ミュート',
+    hintClock: '端末の時計（フリーラン）を人が見て聞くためのモード。黒→白が秒の頭です。数字をタップするとボタンが消えます。',
+    hintUp: '0 からカウントアップ。開始の予約もできます。黒→白が秒の頭です。',
+    hintCd: '長さをタップするとカウントダウン開始。開始の予約もできます。黒→白が秒の頭です。',
+    hintTag: '画面だけを撮るカメラ用：頭と終わりに 5〜10 秒ずつ撮ると、アナライザーが自動で同期します。',
+    hintLtc: 'LTC をレコーダーやカメラの音声入力へ送り、画面もカメラに映すと、アナライザーが自動で同期します。MIC 入力では減衰させてください。',
+    soundK: '数字モードの音',
+    soundD: '時計・アップ・ダウンの音。ビープ：毎秒 1 回、分の頭は長め。波形コード：編集ソフトの波形で秒数が読め、アナライザーで自動同期できます。',
+    sBeep: 'ビープ',
+    sWave: '波形コード',
+    ltcMuted: 'LTC ミュート中',
     appTitle: '同期カチンコ', scenePh: '例：12A', sceneAria: 'シーン', settings: '設定', done: '完了',
     stageAria: 'タップでボタンを表示／非表示', clockAria: '時刻', modeAria: 'モード', modeClock: '時計', modeCd: 'ダウン', modeUp: 'アップ',
-    audAria: '音声出力', aBeep: 'ビープ', aWave: '波形', aOff: 'オフ', cdLen: 'カウントダウン時間', schedTitle: '開始時刻の予約', schedLbl: '予約',
-    goCd: 'カウントダウン開始', goUp: 'カウントアップ開始', goStop: '停止', goCancelSched: '予約取消', fpsAria: 'フレームレート {fps}p、設定を開く',
-    hint: '黒→白が秒の頭、白→黒が 0.5 秒。時計モードはフリーランです。数字をタップするとボタンが消え、表示が大きくなります。',
-    hintNoWake: '注意：画面が暗くならないよう、端末の設定で自動ロックを一時的にオフにしてください。',
+    cdLen: 'カウントダウン時間', schedTitle: '開始時刻の予約', schedLbl: '予約',
+    goCd: 'カウントダウン開始', goUp: 'カウントアップ開始', goStop: '停止', goCancelSched: '予約取消', hintNoWake: '注意：画面が暗くならないよう、端末の設定で自動ロックを一時的にオフにしてください。',
     hintWakeFail: '注意：画面を点灯したままにできませんでした。端末の設定で自動ロックを一時的にオフにしてください。',
     grpShoot: '撮影', fpsK: 'フレームレート', fpsD: 'カメラと同じ値にします。30 fps を超えると、60Hz の画面では一部のフレーム番号が表示されません。',
-    syncK: '画面の同期信号', syncD: '白黒の矩形波：黒から白が秒の頭で、離れていても見やすい。ショートフラッシュ：省電力でまぶしくない。AprilTag：画面だけを撮り、スレートの音を録らないカメラ向け。アナライザーで自動的に同期できます。撮影中はコード全体をはっきり映してください。', fsSquare: '矩形波', fsFlash: 'フラッシュ', fsTag: 'AprilTag',
+    syncK: '画面の同期信号', syncD: '時計・アップ・ダウンの画面信号。白黒の矩形波：黒から白が秒の頭で、離れていても見やすい。ショートフラッシュ：省電力でまぶしくない。', fsSquare: '矩形波', fsFlash: 'フラッシュ',
     grpLook: '表示', paletteK: '配色', paletteD: '白：数字が最も読みやすい。赤：暗い現場でもまぶしくない。淡色：操作部と設定画面を明るい背景に。矩形波には影響しません。',
     pDefault: '標準', pWhite: '白', pRed: '赤', pLight: '淡色',
     langK: '言語', langD: '自動：端末の言語設定に合わせます。', langAuto: '自動',
     grpCd: 'カウントダウン', customK: 'カスタム時間', edit: '変更',
-    grpAudio: '音声出力', audioD: 'メイン画面でビープ・波形コード・LTC・オフを切り替えます。出力は常に 1 種類です。MIC 入力につなぐ場合は減衰させてください。',
+    grpAudio: '音声出力', audioD: '音はモードで決まります。時計・アップ・ダウンは下の設定、Tag は波形コード、LTC は LTC を出力します。メイン画面のミュートボタンはすべてのモードで有効です。MIC 入力につなぐ場合は減衰させてください。',
     ltcK: 'LTC 形式', ltcRate: '現在のフレームレートで出力：{label}', ltc23976: '23.976（24 フレームのタイムコード）', ltcWait: 'LTC 準備中',
     grpCal: 'キャリブレーション（端末ごとに 1 回）', calD: '画面の表示遅延は自動で補正しています。テスト撮影で比べてもずれが残る場合だけ微調整してください。プラスは早める方向です。', ofsVideo: '映像', ofsAudio: '音声',
     grpTools: 'その他のツール', toolsD: '撮影後にパソコンで素材を解析：速度比、補正後の長さ、基準ファイルへの位置合わせ。ファイルはアップロードされません。', openAnalyzer: '同期アナライザーを開く（PC 用）',
@@ -125,20 +151,29 @@ var I18N = {
     pvToday: '今日 {t} に開始（あと {left}）', pvTomorrow: '明日 {t} に開始（あと {left}）', pvUp: '0 からカウントアップ', pvCd: '{when} に終了、長さ {dur}'
   },
   ko: {
+    modeTag: 'Tag', modeLtc: 'LTC', muteAria: '음소거',
+    hintClock: '휴대폰 시계(프리런)를 보고 듣는 모드입니다. 검정→흰색이 매초 시작입니다. 숫자를 탭하면 버튼이 숨겨집니다.',
+    hintUp: '0부터 카운트업하며 시작을 예약할 수 있습니다. 검정→흰색이 매초 시작입니다.',
+    hintCd: '길이를 누르면 카운트다운이 시작되며 예약도 할 수 있습니다. 검정→흰색이 매초 시작입니다.',
+    hintTag: '화면만 찍는 카메라용: 처음과 끝에 5–10초씩 찍으면 분석기가 자동으로 싱크를 맞춥니다.',
+    hintLtc: 'LTC를 녹음기나 카메라의 오디오 입력에 연결하고 화면도 카메라에 담으면 분석기가 자동으로 싱크합니다. MIC 입력에는 감쇠가 필요합니다.',
+    soundK: '숫자 모드의 소리',
+    soundD: '시계·카운트업·카운트다운의 소리. 비프: 매초 한 번, 정분에는 길게. 파형 코드: 편집 프로그램의 파형에서 초를 읽을 수 있고 분석기가 자동으로 싱크합니다.',
+    sBeep: '비프',
+    sWave: '파형 코드',
+    ltcMuted: 'LTC 음소거됨',
     appTitle: '싱크 슬레이트', scenePh: '예: 12A', sceneAria: '씬', settings: '설정', done: '완료',
     stageAria: '탭하여 버튼 숨기기/표시', clockAria: '시간', modeAria: '모드', modeClock: '시계', modeCd: '카운트다운', modeUp: '카운트업',
-    audAria: '오디오 출력', aBeep: '비프', aWave: '파형', aOff: '끔', cdLen: '카운트다운 길이', schedTitle: '시작 시간 예약', schedLbl: '예약',
-    goCd: '카운트다운 시작', goUp: '카운트업 시작', goStop: '정지', goCancelSched: '예약 취소', fpsAria: '프레임 레이트 {fps}p, 설정 열기',
-    hint: '검정→흰색이 매초 시작, 흰색→검정이 0.5초입니다. 시계 모드는 프리런입니다. 숫자를 탭하면 버튼이 숨겨집니다.',
-    hintNoWake: '참고: 화면이 어두워지지 않도록 휴대폰 설정에서 자동 잠금을 잠시 꺼 주세요.',
+    cdLen: '카운트다운 길이', schedTitle: '시작 시간 예약', schedLbl: '예약',
+    goCd: '카운트다운 시작', goUp: '카운트업 시작', goStop: '정지', goCancelSched: '예약 취소', hintNoWake: '참고: 화면이 어두워지지 않도록 휴대폰 설정에서 자동 잠금을 잠시 꺼 주세요.',
     hintWakeFail: '참고: 화면 켜짐을 자동으로 유지할 수 없습니다. 휴대폰 설정에서 자동 잠금을 잠시 꺼 주세요.',
     grpShoot: '촬영', fpsK: '프레임 레이트', fpsD: '카메라와 같게 맞추세요. 30 fps를 넘으면 60Hz 휴대폰 화면에서는 일부 프레임 번호를 건너뜁니다.',
-    syncK: '화면 싱크 신호', syncD: '흑백 사각파: 검정에서 흰색이 매초 시작이며 멀리서도 잘 보입니다. 짧은 플래시: 배터리를 아끼고 덜 눈부십니다. AprilTag: 화면만 찍고 슬레이트 소리는 녹음하지 않는 카메라용으로, 분석기가 자동으로 싱크를 맞춥니다. 촬영할 때 코드 전체가 선명하게 화면에 들어오게 하세요.', fsSquare: '흑백 사각파', fsFlash: '짧은 플래시', fsTag: 'AprilTag',
+    syncK: '화면 싱크 신호', syncD: '시계·카운트업·카운트다운의 화면 신호. 흑백 사각파: 검정에서 흰색이 매초 시작이며 멀리서도 잘 보입니다. 짧은 플래시: 배터리를 아끼고 덜 눈부십니다.', fsSquare: '흑백 사각파', fsFlash: '짧은 플래시',
     grpLook: '화면', paletteK: '색상', paletteD: '화이트: 숫자가 가장 잘 보입니다. 레드: 어두운 현장에서 눈부시지 않습니다. 라이트: 조작부와 설정 화면을 밝은 배경으로 바꿉니다. 사각파에는 영향이 없습니다.',
     pDefault: '기본', pWhite: '화이트', pRed: '레드', pLight: '라이트',
     langK: '언어', langD: '자동: 휴대폰의 언어 설정을 따릅니다.', langAuto: '자동',
     grpCd: '카운트다운', customK: '맞춤 길이', edit: '변경',
-    grpAudio: '오디오 출력', audioD: '메인 화면에서 비프·파형 코드·LTC·끔을 전환하며, 한 번에 하나만 출력됩니다. MIC 입력에 연결할 때는 감쇠가 필요합니다.',
+    grpAudio: '오디오 출력', audioD: '소리는 모드가 정합니다. 시계·카운트업·카운트다운은 아래 설정을, Tag는 파형 코드를, LTC는 LTC를 출력합니다. 메인 화면의 음소거 버튼은 모든 모드에 적용됩니다. MIC 입력에 연결할 때는 감쇠가 필요합니다.',
     ltcK: 'LTC 형식', ltcRate: '현재 프레임 레이트로 출력: {label}', ltc23976: '23.976 (24프레임 타임코드)', ltcWait: 'LTC 준비 중',
     grpCal: '보정 (휴대폰마다 한 번)', calD: '화면 갱신 지연은 자동으로 보정됩니다. 테스트 촬영 후에도 오차가 있을 때만 미세 조정하세요. 양수 값은 더 이르게 맞춥니다.', ofsVideo: '영상', ofsAudio: '오디오',
     grpTools: '기타 도구', toolsD: '촬영 후 컴퓨터에서 소스를 분석합니다: 속도 비율, 보정 후 길이, 기준 파일에 맞추기. 파일은 업로드되지 않습니다.', openAnalyzer: '싱크 분석기 열기 (PC용)',
@@ -168,24 +203,14 @@ function t(key, vars) {
 // Text that changes at run time (hint, reset button) is swapped by key, so a language switch re-renders it too.
 function setKey(el, key) { el.setAttribute('data-i18n', key); el.textContent = t(key); }
 
-var state = { fps: 59.94, beep: true, mode: 'clock', dur: 60, custom: 7200, ltc: false, df: true, dispOfs: 0, audOfs: 0, wave: false, flashStyle: 'square', palette: 'default' };
+var state = defaultState();
 var running = false, endMs = 0, finished = false, waiting = false, startMs = 0, stoppedEl = 0;
 var ctx = null, lastKey = '', planSched = false;
+var MODE_BTNS = MODES.map(function (m) { return $('m' + { clock: 'Clock', up: 'Up', cd: 'Cd', tag: 'Tag', ltc: 'Ltc' }[m]); });
+var wakeKey = '';   // a screen wake-lock warning replaces the mode hint
 
 try {
-  var saved = JSON.parse(localStorage.getItem('slate-state') || '{}');
-  if (FPS_LIST.indexOf(saved.fps) >= 0) state.fps = saved.fps;
-  if (typeof saved.beep === 'boolean') state.beep = saved.beep;
-  if (saved.mode === 'clock' || saved.mode === 'cd' || saved.mode === 'up') state.mode = saved.mode;
-  if (saved.custom >= 1 && saved.custom <= 35999) state.custom = Math.floor(saved.custom);
-  if (typeof saved.ltc === 'boolean') state.ltc = saved.ltc;
-  if (typeof saved.df === 'boolean') state.df = saved.df;
-  if (typeof saved.wave === 'boolean') state.wave = saved.wave;
-  if (saved.flashStyle === 'square' || saved.flashStyle === 'flash' || saved.flashStyle === 'tag') state.flashStyle = saved.flashStyle;
-  if (['default', 'white', 'red', 'light'].indexOf(saved.palette) >= 0) state.palette = saved.palette;
-  if (typeof saved.dispOfs === 'number' && Math.abs(saved.dispOfs) <= 500) state.dispOfs = saved.dispOfs;
-  if (typeof saved.audOfs === 'number' && Math.abs(saved.audOfs) <= 500) state.audOfs = saved.audOfs;
-  if (DURS.indexOf(saved.dur) >= 0 || (state.custom && saved.dur === state.custom)) state.dur = saved.dur;
+  state = readState(JSON.parse(localStorage.getItem('slate-state') || '{}'));
   tag.value = localStorage.getItem('slate-tag') || '';
 } catch (e) {}
 // Restore a running or scheduled countdown after a reload.
@@ -216,18 +241,16 @@ function shortDur(s) {
 
 // ---- Controls ----
 function renderControls() {
-  $('mClock').setAttribute('aria-pressed', state.mode === 'clock');
-  $('mCd').setAttribute('aria-pressed', state.mode === 'cd');
-  $('mUp').setAttribute('aria-pressed', state.mode === 'up');
-  $('cdRow').hidden = state.mode === 'clock';
-  $('chips').hidden = state.mode !== 'cd';
+  var row = secondRow(state.mode), busy = running || waiting;
+  MODE_BTNS.forEach(function (b, i) {
+    b.setAttribute('aria-pressed', state.mode === MODES[i]);
+    b.disabled = modeLocked(MODES[i], state.mode, busy);
+  });
+  $('cdRow').hidden = !row;
+  $('chips').hidden = row !== 'cd';
   if (typeof chipsFade === 'function') requestAnimationFrame(chipsFade);
-  $('fpsBtn').textContent = state.fps + 'p';
-  $('fpsBtn').setAttribute('aria-label', t('fpsAria', { fps: state.fps }));
-  $('aBeep').setAttribute('aria-pressed', !state.ltc && !state.wave && state.beep);
-  $('aWave').setAttribute('aria-pressed', !state.ltc && state.wave);
-  $('aLtc').setAttribute('aria-pressed', state.ltc);
-  $('aOff').setAttribute('aria-pressed', !state.ltc && !state.wave && !state.beep);
+  if (!wakeKey) setKey($('hint'), hintKey(state.mode));
+  $('muteBtn').setAttribute('aria-pressed', state.muted);
   var chips = $('chips').children;
   for (var i = 0; i < chips.length; i++) if (chips[i].dataset.dur) {
     chips[i].setAttribute('aria-pressed', +chips[i].dataset.dur === state.dur);
@@ -237,11 +260,9 @@ function renderControls() {
   $('customVal').textContent = shortDur(state.custom || 7200);
   customChip.setAttribute('aria-pressed', !!state.custom && state.dur === state.custom);
   var g = $('go2'); g.textContent = running ? t('goStop') : waiting ? t('goCancelSched') : t(state.mode === 'up' ? 'goUp' : 'goCd');
-  var busy = running || waiting;
-  $('mCd').disabled = busy && state.mode !== 'cd'; $('mUp').disabled = busy && state.mode !== 'up';
   g.classList.toggle('stop', busy);
   g.hidden = state.mode === 'cd' && !busy;
-  $('schedBtn').hidden = busy; $('mClock').disabled = busy;
+  $('schedBtn').hidden = busy;
   lastKey = '';
 }
 DURS.forEach(function (s) {
@@ -285,7 +306,7 @@ $('customWrap').addEventListener('click', function (e) { if (e.target === this) 
 FPS_LIST.forEach(function (f) {
   var b = document.createElement('button');
   b.textContent = f; b.className = 'sel';
-  b.addEventListener('click', function () { state.fps = f; save(); renderControls(); renderFpsGrid(); renderLtc(); if (state.ltc && ctx) ltcStart(); });
+  b.addEventListener('click', function () { state.fps = f; save(); renderControls(); renderFpsGrid(); renderLtc(); if (ltc.on) ltcStart(); });
   $('fpsGrid').appendChild(b);
 });
 function renderFpsGrid() {
@@ -307,38 +328,36 @@ $('resetBtn2').addEventListener('click', function () {
 });
 function doReset() {
   try { ['slate-state', 'slate-tag', 'slate-fps', 'slate-beep', 'slate-cd', 'slate-lang'].forEach(function (k) { localStorage.removeItem(k); }); } catch (e) {}
-  state.fps = 59.94; state.beep = true; state.mode = 'clock'; state.dur = 60; state.custom = 7200; state.ltc = false; state.df = true; state.dispOfs = 0; state.audOfs = 0;
-  state.wave = false; renderWave();
-  state.flashStyle = 'square'; renderFlashStyle();
-  state.palette = 'default'; renderPalette();
-  renderOfs();
-  ltcStop(); renderLtc();
+  state = defaultState();
+  renderPalette(); renderOfs(); renderSound(); renderVisual(); renderLtc();
   running = false; waiting = false; finished = false; tag.value = '';
   lang = pickLang(); applyI18n();
-  renderControls(); renderFpsGrid(); resetAudio();
+  renderControls(); renderFpsGrid(); applyAudio();
 }
-function openSettings() { renderFpsGrid(); renderLtc(); renderOfs(); renderFlashStyle(); renderControls(); $('sheetWrap').hidden = false; $('sheetWrap').scrollTop = 0; }
-$('fpsBtn').addEventListener('click', openSettings);
+function openSettings() { renderFpsGrid(); renderLtc(); renderOfs(); renderSound(); renderVisual(); renderControls(); $('sheetWrap').hidden = false; $('sheetWrap').scrollTop = 0; }
 $('settingsBtn').addEventListener('click', openSettings);
 $('customEdit').addEventListener('click', openCustom);
 $('sheetClose').addEventListener('click', function () { $('sheetWrap').hidden = true; });
 
-$('mClock').addEventListener('click', function () { running = false; finished = false; state.mode = 'clock'; save(); renderControls(); resetAudio(); });
-$('mCd').addEventListener('click', function () { state.mode = 'cd'; finished = false; save(); renderControls(); resetAudio(); });
-$('mUp').addEventListener('click', function () { state.mode = 'up'; finished = false; save(); renderControls(); resetAudio(); });
-// Audio output: beep / waveform code / LTC / off. Only one signal at a time.
-function setAudio(kind) {
-  state.beep = kind === 'beep'; state.wave = kind === 'wave';
-  var wantLtc = kind === 'ltc';
+// Modes (docs/slate-ui.md): the mode sets the screen and the sound. Leaving for a mode without a count ends the
+// stopped count; while a count runs or waits, the other mode buttons are disabled.
+MODE_BTNS.forEach(function (b, i) {
+  b.addEventListener('click', function () {
+    if (!isCount(MODES[i])) running = false;
+    state.mode = MODES[i]; finished = false; save();
+    renderControls(); renderVisual(); applyAudio();
+  });
+});
+// Mute: silences every mode, the screen carries on.
+$('muteBtn').addEventListener('click', function () { state.muted = !state.muted; save(); renderControls(); applyAudio(); });
+// Start or stop LTC to match the mode and mute, then queue beeps / waveform code again from now.
+function applyAudio() {
+  var kind = audioKind(state);
   if (kind !== 'off' && ctx && ctx.state === 'suspended') ctx.resume();
-  if (wantLtc && !state.ltc) { state.ltc = true; if (ctx) ltcStart(); }
-  else if (!wantLtc && state.ltc) { state.ltc = false; ltcStop(); }
-  save(); renderControls(); renderLtc(); renderWave(); resetAudio();
+  if (kind === 'ltc' && !ltc.on) ltcStart();
+  else if (kind !== 'ltc' && ltc.on) ltcStop();
+  resetAudio();
 }
-$('aBeep').addEventListener('click', function () { setAudio('beep'); });
-$('aWave').addEventListener('click', function () { setAudio('wave'); });
-$('aLtc').addEventListener('click', function () { setAudio('ltc'); });
-$('aOff').addEventListener('click', function () { setAudio('off'); });
 function startPlan(start, scheduled) {
   startMs = start; endMs = state.mode === 'up' ? 0 : start + state.dur * 1000; finished = false;
   waiting = !!scheduled; running = !scheduled; planSched = !!scheduled;
@@ -478,7 +497,7 @@ function resetAudio() {
 function track(node, start, end) { pendingNodes.push({ node: node, start: start, end: end }); }
 
 function scheduleBeep(targetMs, kind) {
-  if (!ctx || !state.beep || state.ltc || state.wave) return;
+  if (!ctx || audioKind(state) !== 'beep') return;
   var when = ctxTimeForWall(targetMs) - state.audOfs / 1000;
   if (when < ctx.currentTime) return;
   var t = TONES[kind], osc = ctx.createOscillator(), g = ctx.createGain();
@@ -536,6 +555,7 @@ function ltcLabel(p) {
   return String(p.nominal);
 }
 function ltcNowText(W) {
+  if (state.mode === 'ltc' && state.muted) return t('ltcMuted');
   if (!ltc.on || !ctx) return '';
   var k = Math.floor((W - ltc.bWall) * ltc.p.rate / 1000);
   if (k < 0) return t('ltcWait');
@@ -547,7 +567,7 @@ function renderLtc() {
   $('dfSeg').hidden = !(state.fps === 29.97 || state.fps === 59.94 || state.fps === 119.88);
   $('dfBtn').setAttribute('aria-pressed', state.df); $('ndfBtn').setAttribute('aria-pressed', !state.df);
 }
-function setDf(v) { state.df = v; save(); renderLtc(); if (state.ltc && ctx) ltcStart(); }
+function setDf(v) { state.df = v; save(); renderLtc(); if (ltc.on) ltcStart(); }
 $('dfBtn').addEventListener('click', function () { setDf(true); });
 $('ndfBtn').addEventListener('click', function () { setDf(false); });
 // ---- Waveform code (bursts and pitch in src/core/slate.js) ----
@@ -563,23 +583,29 @@ function wavePlay(ac, dest, when, val, isMin, hz) {
   return osc;
 }
 function scheduleWave(targetMs) {
-  if (!ctx || !state.wave) return;
+  if (!ctx || audioKind(state) !== 'wave') return;
   var when = ctxTimeForWall(targetMs) - state.audOfs / 1000;
   if (when < ctx.currentTime) return;
   var d = new Date(targetMs), sec = d.getSeconds(), isMin = sec === 0;
   track(wavePlay(ctx, ctx.destination, when, isMin ? d.getMinutes() : sec, isMin, waveHz(cycleK(targetMs))), when, when + 0.96);
 }
-function renderWave() { /* output selection lives in the main screen's four-way switch */ }
-function renderFlashStyle() {
-  var sq = state.flashStyle === 'square', vt = state.flashStyle === 'tag';
-  $('fsSquare').setAttribute('aria-pressed', sq); $('fsFlash').setAttribute('aria-pressed', state.flashStyle === 'flash');
-  $('fsTag').setAttribute('aria-pressed', vt);
-  document.body.classList.toggle('sq', sq);
-  if (vt !== document.body.classList.contains('atag')) { document.body.classList.toggle('atag', vt); relayout(); }
+// Digit-mode sound (settings): beep or waveform code.
+function renderSound() {
+  $('sndBeep').setAttribute('aria-pressed', state.sound === 'beep'); $('sndWave').setAttribute('aria-pressed', state.sound === 'wave');
 }
-$('fsSquare').addEventListener('click', function () { state.flashStyle = 'square'; save(); renderFlashStyle(); });
-$('fsFlash').addEventListener('click', function () { state.flashStyle = 'flash'; save(); renderFlashStyle(); });
-$('fsTag').addEventListener('click', function () { state.flashStyle = 'tag'; save(); renderFlashStyle(); });
+$('sndBeep').addEventListener('click', function () { state.sound = 'beep'; save(); renderSound(); applyAudio(); });
+$('sndWave').addEventListener('click', function () { state.sound = 'wave'; save(); renderSound(); applyAudio(); });
+// Screen: the digit modes use the sync signal setting; Tag and LTC show the AprilTag (body.atag), LTC with its time
+// code line instead of the digits (body.ltcm).
+function renderVisual() {
+  var sc = screenOf(state);
+  $('fsSquare').setAttribute('aria-pressed', state.flashStyle === 'square'); $('fsFlash').setAttribute('aria-pressed', state.flashStyle === 'flash');
+  document.body.classList.toggle('sq', sc.sync === 'square');
+  document.body.classList.toggle('ltcm', !sc.digits);
+  if (sc.tag !== document.body.classList.contains('atag')) { document.body.classList.toggle('atag', sc.tag); relayout(); }
+}
+$('fsSquare').addEventListener('click', function () { state.flashStyle = 'square'; save(); renderVisual(); });
+$('fsFlash').addEventListener('click', function () { state.flashStyle = 'flash'; save(); renderVisual(); });
 
 // ---- Visual code (AprilTag), see docs/visual-code.md; code table and bit layout in src/core/slate.js ----
 var vtBand = $('vtBand'), vtTag = $('vtTag'), vtCtx = vtTag.getContext('2d', { alpha: false }), tagId = -1, bandOn = null;
@@ -588,7 +614,7 @@ function showTag(id) { drawTag(vtCtx, vtTag.width / 12, id); tagId = id; }
 // into grey, centred and snapped to the device pixel grid. Along the long side, each end gets a band strip at least
 // 12 px wide if the leftover space allows, and the one-line digits go between the tag and the far strip.
 function layoutTag() {
-  if (state.flashStyle !== 'tag') return;
+  if (!isCode(state.mode)) return;
   var W = stageEl.clientWidth, H = stageEl.clientHeight, dpr = window.devicePixelRatio || 1;
   var up = W <= H, shortS = up ? W : H, longS = up ? H : W;
   var cell = Math.max(1, Math.floor(shortS * dpr / 12)), side = cell * 12 / dpr;
@@ -668,7 +694,7 @@ Array.prototype.forEach.call(document.querySelectorAll('.ofs-row button'), funct
     var k = btn.getAttribute('data-k');
     state[k] = Math.max(-500, Math.min(500, state[k] + Number(btn.getAttribute('data-d'))));
     save(); renderOfs();
-    if (k === 'audOfs' && state.ltc && ctx) ltcStart();
+    if (k === 'audOfs' && ltc.on) ltcStart();
     if (k === 'audOfs') resetAudio();
   });
 });
@@ -698,7 +724,7 @@ var elH = $('cH'), elM = $('cM'), elS = $('cS'), elF = $('cF'), elNeg = $('cNeg'
 var flashEl = $('flash'), stageEl = $('stage'), headerEl = document.querySelector('header.top');
 function setText(el, k, v) { if (cache[k] !== v) { cache[k] = v; el.textContent = v; } }
 function statusFor() {
-  if (state.mode === 'clock') return ['', false];
+  if (!isCount(state.mode)) return ['', false];
   if (state.mode === 'up') {
     if (waiting) return [t('stUpWait', { when: whenLabel(startMs) }), false];
     if (running) return [t('stUpRun', { t: clockText(startMs) }), false];
@@ -717,7 +743,7 @@ function frame(ts) {
   var fps = state.fps, fw = fps >= 100 ? 3 : 2, maxF = Math.ceil(fps) - 1;
   var h, m, s, f, active, neg = false, ms;
 
-  if (state.mode === 'clock') {
+  if (!isCount(state.mode)) {     // clock, Tag and LTC: the phone clock
     var sec = Math.floor(now / 1000), d = new Date(sec * 1000);
     h = d.getHours(); m = d.getMinutes(); s = d.getSeconds(); ms = now - sec * 1000;
     active = true;
@@ -751,11 +777,11 @@ function frame(ts) {
   }
   var sk = [state.mode, running, waiting, finished, startMs, state.dur].join('|');
   if (sk !== statusKey) { statusKey = sk; var st = statusFor(); statusEl.textContent = st[0]; statusEl.classList.toggle('done', st[1]); }
-  if (ltc.on ? ts - ltcShownAt >= 100 : cache.ltc) { ltcShownAt = ts; setText(elLtc, 'ltc', ltcNowText(now)); }
+  if (ltc.on || (state.mode === 'ltc' && state.muted) ? ts - ltcShownAt >= 100 : cache.ltc) { ltcShownAt = ts; setText(elLtc, 'ltc', ltcNowText(now)); }
 
   var realPart = ((now % 1000) + 1000) % 1000;
-  var wOn = active && realPart < 500, vt = state.flashStyle === 'tag';
-  var fOn = vt ? false : state.flashStyle === 'square' ? wOn : active && realPart < FLASH_MS;
+  var wOn = active && realPart < 500, sync = screenOf(state).sync, vt = sync === 'band';
+  var fOn = sync === 'square' ? wOn : sync === 'flash' && active && realPart < FLASH_MS;
   if (fOn !== flashOn) {
     flashOn = fOn; flashEl.style.opacity = fOn ? '1' : '0';
     stageEl.classList.toggle('inv', fOn); headerEl.classList.toggle('inv', fOn);
@@ -811,16 +837,16 @@ document.addEventListener('keydown', function (e) {
 
 // ---- Start / keep awake ----
 function keepAwake() {
-  if (!('wakeLock' in navigator)) { setKey($('hint'), 'hintNoWake'); return; }
+  if (!('wakeLock' in navigator)) { wakeKey = 'hintNoWake'; setKey($('hint'), wakeKey); return; }
   navigator.wakeLock.request('screen').catch(function () {
-    setKey($('hint'), 'hintWakeFail');
+    wakeKey = 'hintWakeFail'; setKey($('hint'), wakeKey);
   });
 }
 document.addEventListener('visibilitychange', function () {
   if (document.visibilityState === 'visible') WALL0 = Date.now() - performance.now(); // re-anchor after sleep
   if (document.visibilityState === 'visible' && ctx) {
     keepAwake();
-    if (state.ltc) { if (ctx.state !== 'running') ctx.resume(); ltcStart(); }
+    if (audioKind(state) === 'ltc') { if (ctx.state !== 'running') ctx.resume(); ltcStart(); }
     resetAudio();
   }
 });
@@ -833,7 +859,7 @@ $('go').addEventListener('click', function () {
     var AC = window.AudioContext || window.webkitAudioContext;
     ctx = new AC({ latencyHint: 'interactive' });
     var resumed = ctx.state === 'suspended' ? ctx.resume() : null;
-    Promise.resolve(resumed).then(function () { if (state.ltc) ltcStart(); resetAudio(); });
+    Promise.resolve(resumed).then(applyAudio);
     setInterval(audioTick, 100);
   } catch (e) { ctx = null; }
   keepAwake();
@@ -841,7 +867,7 @@ $('go').addEventListener('click', function () {
 });
 
 applyI18n();
-renderControls(); renderLtc(); renderOfs(); renderWave(); renderFlashStyle(); renderPalette();
+renderControls(); renderLtc(); renderOfs(); renderSound(); renderVisual(); renderPalette();
 // Installable app: offline cache (only where a service worker can run: https or localhost).
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   navigator.serviceWorker.register('sw.js').catch(function () {});

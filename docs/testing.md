@@ -18,6 +18,7 @@ npm test                              # 全部：npm run check 加上 node --tes
 | `tests/visual-code.test.mjs` | 共用的 tag 碼表、場記板畫的 ID 0–539（四種旋轉）、ID 公式 | 官方 `tag36h11.c`（`tests/data/tag36h11.json`）、固定期望值 |
 | `tests/wave-pitch.test.mjs` | 場記板的 `cycleK()`／`waveHz()` 兩天逐秒（UTC、UTC+8）與音高表、分析核心的 `kFromPitch()` | 獨立寫的規格公式與抽查值 |
 | `tests/ltc-bits.test.mjs` | 場記板的 `countToTC()`／`ltcBits()`／`ltcChunk()` | 獨立的參考實作、DF 固定期望值、分析核心的解碼器 |
+| `tests/slate-mode.test.mjs` | 場記板五種模式的畫面與聲音、靜音、進行中的鎖定、舊設定退回預設（`src/web/slate-mode.js`）、按鈕與頂列順序 | [slate-ui.md](slate-ui.md) 的表格（固定期望值） |
 | `tests/read-audio.test.mjs` | 命令列從任何位置讀取音訊都不錯位（AAC 與 WAV） | ffmpeg 整段解碼 |
 | `tests/cli-encoding.test.mjs` | 主控台不是 UTF-8（如 cp950）時報告仍完整印出 | — |
 | `tests/clock-format.test.mjs` | 起點時鐘不出現 60 秒（五種週期） | 固定字串 |
