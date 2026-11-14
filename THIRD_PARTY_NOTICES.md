@@ -2,7 +2,7 @@
 
 ## AprilTag (tag36h11 code table)
 
-`web/sync-slate.html`, the analysis core (`src/core/visual.js`, built into `sync-analyzer.html` and used by the command line) and `tests/data/tag36h11.json` contain the tag36h11 code table and bit layout from [AprilRobotics/apriltag](https://github.com/AprilRobotics/apriltag) (`tag36h11.c`, commit `b7c0ebe9aa20f82ec7a828579004f9e706bfecd9`); `tests/make_test_media.mjs` draws tags with the slate's copy.
+`src/core/slate.js` (built into `sync-slate.html` and `sync-analyzer.html`, and used by the command line and `tests/make_test_media.mjs`) and `tests/data/tag36h11.json` contain the tag36h11 code table and bit layout from [AprilRobotics/apriltag](https://github.com/AprilRobotics/apriltag) (`tag36h11.c`, commit `b7c0ebe9aa20f82ec7a828579004f9e706bfecd9`).
 
 ```
 BSD 2-Clause License

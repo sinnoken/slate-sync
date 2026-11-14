@@ -3,7 +3,7 @@
 //       src/cv.js、src/aruco.js（MIT 授權，原檔版權與授權聲明保留於下方）。未使用 posit*.js、svd.js。
 // slate-sync 的修改：
 //   1. 刪除未使用的部分：內建字典、串流／MJPEG 輸入、SVG 產生、高斯模糊，以及模組載入用的程式碼（改為 ES module 匯出）。
-//   2. 字典不用內建表：由 visual.js 的 TAG36H11_* 常數在執行時產生。
+//   2. 字典不用內建表：由 slate.js 的 TAG36H11_* 常數在執行時產生（visual.js）。
 //   3. findMarkers 的二值化門檻改為明暗兩端中點（CV.midLevel），取代 Otsu。
 export const { AR, CV } = (function () {
 /*!

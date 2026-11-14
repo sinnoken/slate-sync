@@ -2,7 +2,7 @@
 //
 // 比對對象：
 // - 這裡獨立寫的參考實作（與測試產生器的算法相同：SMPTE 12M 的位元位置、DF 丟格、極性位元、雙相位標記的取樣位置）。
-//   以 vm 執行場記板的 countToTC()／ltcBits()，24、25、29.97 DF、29.97 NDF、30、23.976 各約 5400 格逐格比對
+//   場記板（src/core/slate.js）的 countToTC()／ltcBits()，24、25、29.97 DF、29.97 NDF、30、23.976 各約 5400 格逐格比對
 //   （午夜前後、每分鐘與每 10 分鐘的邊界、全天抽查）；再以模擬的 AudioContext 執行 ltcChunk()（漂移鎖定不介入），
 //   連續 4 個區塊跨過午夜，與參考實作逐個取樣比對（位元、極性、振幅 0.5、格起點的取樣位置、跨區塊連續）。
 // - 固定的期望值：DF 丟格規則（每分鐘跳過 ;00、;01，每 10 分鐘不跳、一天 2589408 格）、同步字與振幅。
@@ -11,7 +11,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ROOT, loadSlate } from './lib/slate.mjs';
+import * as slate from '../src/core/slate.js';
+import { ROOT } from './lib/root.mjs';
 
 const core = await import(pathToFileURL(path.join(ROOT, 'src', 'core', 'ltc.js')));
 const AMP = 0.5;
@@ -78,7 +79,6 @@ test('參考實作與固定期望值：DF 丟格規則', () => {
   const p = { rate: 30000 / 1001, nominal: 30, df: true };
   const expect = [[1799, [0, 0, 59, 29]], [1800, [0, 1, 0, 2]], [17981, [0, 9, 59, 29]], [17982, [0, 10, 0, 0]],
     [17982 + 1800, [0, 11, 0, 2]], [2589407, [23, 59, 59, 29]], [2589408, [0, 0, 0, 0]]];
-  const slate = loadSlate(['countToTC']);
   for (const [n, tc] of expect) {
     assert.deepEqual(refTC(n, p), tc, `參考實作第 ${n} 格`);
     const t = slate.countToTC(n, p);
@@ -87,21 +87,19 @@ test('參考實作與固定期望值：DF 丟格規則', () => {
 });
 
 test('同步字與振幅', () => {
-  const slate = loadSlate(['LTC_AMP', 'LTC_SYNC']);
   assert.equal(slate.LTC_AMP, AMP);
-  assert.deepEqual(Array.from(slate.LTC_SYNC), SYNC);
-  assert.deepEqual(Array.from(core.LTC_SYNC), SYNC);
+  assert.deepEqual(slate.LTC_SYNC, SYNC);
 });
 
 for (const [name, rate, nominal, df] of CASES) {
   const p = { rate, nominal, df };
   test(`${name}：時間碼與 80 個位元逐格相同`, () => {
-    const slate = loadSlate(['countToTC', 'LTC_SYNC', 'ltcBits']), ns = frames(p), day = dayOf(p);
+    const ns = frames(p), day = dayOf(p);
     let n0 = 0;
     for (const n of ns) {
       const t = slate.countToTC(n, p), tc = [t.h, t.m, t.s, t.f], want = refTC(n, p);
       if (tc.join() !== want.join()) assert.fail(`第 ${n} 格：場記板 ${tc}，參考 ${want}`);
-      const bits = Array.from(slate.ltcBits(n, p)), wb = refBits(n, p);
+      const bits = slate.ltcBits(n, p), wb = refBits(n, p);
       if (bits.join('') !== wb.join('')) assert.fail(`第 ${n} 格的位元不同：\n場記板 ${bits.join('')}\n參考   ${wb.join('')}`);
       if (core.tcToCount(...tc, nominal, df) !== n % day) assert.fail(`第 ${n} 格：分析核心換回 ${core.tcToCount(...tc, nominal, df)}`);
       n0++;
@@ -118,8 +116,7 @@ for (const [name, rate, nominal, df] of CASES) {
     };
     const startCount = dayOf(p) - 12;                    // 午夜前 12 格開始
     const ltc = { p, sr: SR, T0: 0, startCount, frame: 0, sample: 0, level: 1, adj: 0, err: 0, sources: [] };
-    const slate = loadSlate(['countToTC', 'LTC_SYNC', 'ltcBits', 'LTC_AMP', 'ltcChunk'], { ctx, ltc, state: { audOfs: 0 } });
-    for (let i = 0; i < CHUNKS; i++) slate.ltcChunk(8);
+    for (let i = 0; i < CHUNKS; i++) slate.ltcChunk(ltc, ctx, 8);
     const got = new Float64Array(bufs.reduce((a, d) => a + d.length, 0));
     let o = 0;
     for (const d of bufs) { got.set(d, o); o += d.length; }

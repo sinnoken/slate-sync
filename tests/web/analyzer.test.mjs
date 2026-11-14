@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT } from '../lib/slate.mjs';
+import { ROOT } from '../lib/root.mjs';
 import { FIXTURES, fixture, hasFfmpeg, tempDir } from '../lib/tools.mjs';
 import { run } from './run-analyzer.mjs';
 import { Checker, checkCli, checkPair, checkTimezone, checkTruth, normalize } from './checks.mjs';

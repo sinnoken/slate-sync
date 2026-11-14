@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>同步場記板</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sync Slate">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700&family=Atkinson+Hyperlegible+Mono:wght@700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink:#ffffff; --ground:#000000; --dim:#8a8f98; --line:#2a2d33; --panel:#15171b;
+    --hm:#4fc3ff; --ss:#ffffff; --ff:#ffd400; --mark:#ffd400; --bad:#ff8a80; --bad-line:#5a2a2a;
+    color-scheme: dark;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  /* Colour palettes (settings → 外觀). They recolour digits and controls only; the full-screen sync flash
+     stays pure white on black (.flash-ov, main.inv) because the camera records it as the sync reference. */
+  :root[data-palette="white"] { --hm:#ffffff; --ss:#ffffff; --ff:#ffffff; --dim:#c2c6cc; --line:#5a5f68; }
+  :root[data-palette="red"] { --ink:#ff4a3d; --dim:#c8625a; --line:#3d1512; --panel:#140808; --hm:#b3261e; --ss:#ff4a3d; --ff:#ff8060; --mark:#ff4a3d; }
+  /* Light controls: only the control panel, settings page and dialogs turn light; the digit stage stays black. */
+  :root[data-palette="light"] footer, :root[data-palette="light"] .page, :root[data-palette="light"] .sheet {
+    --ink:#111111; --ground:#ffffff; --dim:#5d6168; --line:#d0d2d6; --panel:#f1f1ef; --mark:#7a6000; --bad:#b3261e; --bad-line:#e8b4b0;
+    color: var(--ink); color-scheme: light;
+  }
+  *, *::before, *::after { box-sizing: inherit; }
+  html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); background: var(--ground); }
+  body {
+    height: 100%; margin: 0; background: var(--ground); color: var(--ink);
+    font-family: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+    display: grid; grid-template-rows: auto 1fr auto; grid-template-columns: minmax(0, 1fr); width: 100%; overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
+  }
+
+  header { padding: 12px max(16px, env(safe-area-inset-left, 0px)) 0 max(16px, env(safe-area-inset-left, 0px)); }
+  .tag {
+    width: 100%; min-height: 52px; background: transparent; border: none; border-bottom: 2px solid var(--line);
+    color: var(--ink); font-family: inherit; font-weight: 700; font-size: clamp(28px, 8vw, 52px); line-height: 1;
+    padding: 4px 0; outline: none; -webkit-user-select: text; user-select: text;
+  }
+  .tag:focus-visible { border-bottom-color: var(--mark); }
+  .tag::placeholder { color: var(--dim); }
+
+  main { min-height: 0; container-type: size; display: grid; place-items: center; cursor: pointer; position: relative; z-index: 21; }
+  .clock {
+    font-family: "Atkinson Hyperlegible Mono", "Roboto Mono", Menlo, Consolas, monospace;
+    font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+    line-height: 0.88; white-space: nowrap; text-align: center; display: grid; justify-items: center;
+    transform-origin: center center; contain: layout paint;
+  }
+  .clock .hm { color: var(--hm); font-size: calc(min(22cqw, 26cqh) * var(--k, 1)); }
+  .clock .sf { font-size: calc(min(37cqw, 54cqh) * var(--k, 1)); }
+  .clock.wide .sf { font-size: calc(min(30cqw, 54cqh) * var(--k, 1)); }
+  .clock .ss { color: var(--ss); }
+  .clock .ff { color: var(--ff); }
+  .clock .sep { opacity: .55; margin: 0 -0.12em; }
+  .status { min-height: 1.3em; color: var(--dim); font-size: min(5.5cqw, 7cqh); line-height: 1.3; text-align: center; margin: .2em auto 0; max-width: 90cqw; contain: layout paint; }
+  .status.done { color: var(--mark); }
+
+  /* Control area: a panel with its own top padding and rounded top corners, so the white half-second
+     meets a finished edge instead of cutting straight into the buttons. */
+  footer { padding: 16px max(16px, env(safe-area-inset-left, 0px)) 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px;
+    position: relative; z-index: 21; background: var(--panel); border-radius: 20px 20px 0 0; }
+  .bar { height: 20px; background: var(--line); border-radius: 4px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 100%; background: var(--mark); transform: scaleX(0); transform-origin: left center; will-change: transform; }
+
+  .row { display: flex; gap: 12px; align-items: center; }
+  .chips { display: flex; gap: 8px; overflow-x: auto; flex: 1; min-width: 0; scrollbar-width: none; padding: 2px; }
+  .chips::-webkit-scrollbar { display: none; }
+  button {
+    font-family: inherit; font-size: 22px; font-weight: 500; color: var(--ink);
+    background: transparent; border: 2px solid var(--line); border-radius: 999px;
+    min-height: 52px; min-width: 52px; padding: 8px 18px; cursor: pointer; white-space: nowrap;
+    touch-action: manipulation; transition: background-color .1s;
+  }
+  button:active { background: var(--line); }
+  button:focus-visible { outline: 3px solid var(--mark); outline-offset: 2px; }
+  button[aria-pressed="true"].sel, .chip[aria-pressed="true"] { border-color: var(--mark); color: var(--mark); }
+  button.off { color: var(--dim); }
+  .seg { display: flex; border: 2px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .seg button { border: none; border-radius: 0; min-width: 64px; }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--ground); }
+  .grow { flex: 1; }
+  .go { border-color: var(--mark); color: var(--mark); font-weight: 700; min-width: 96px; }
+  .go.stop { background: var(--mark); color: var(--ground); }
+  .hint { margin: 0; color: var(--dim); font-size: 17px; line-height: 1.35; }
+  .cd[hidden] { display: none; }
+  .controls { flex-wrap: wrap; }
+  .controls button, .seg button { font-size: 20px; padding: 8px 14px; }
+  .chips.locked .chip { opacity: .35; pointer-events: none; }
+  .chip { flex: none; }
+  body.clean .tag::placeholder { color: transparent; }
+
+  body.clean .controls, body.clean .cd, body.clean .hint { display: none; }
+  body.clean .tag { border-bottom-color: transparent; pointer-events: none; }
+  @media (max-height: 500px) {
+    .hint { display: none; }
+    header { padding-top: 6px; }
+    .tag { font-size: 26px; min-height: 44px; }
+    .clock .hm { font-size: calc(min(20cqw, 30cqh) * var(--k, 1)); }
+    .clock .sf { font-size: calc(min(37cqw, 62cqh) * var(--k, 1)); }
+    .clock.wide .sf { font-size: calc(min(30cqw, 62cqh) * var(--k, 1)); }
+    footer { grid-template-columns: auto minmax(0, 1fr); align-items: center; padding-top: 10px; padding-bottom: 8px; }
+    footer .bar { grid-column: 1 / -1; height: 16px; }
+    footer .cd { min-width: 0; }
+  }
+
+  .sheet-wrap { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; }
+  .sheet-wrap[hidden] { display: none; }
+  .sheet {
+    width: 100%; max-width: 560px; background: var(--panel); border-radius: 20px 20px 0 0;
+    padding: 18px 16px calc(16px + env(safe-area-inset-bottom, 0px)); max-height: 100%; overflow-y: auto;
+  }
+  .sheet h2 { margin: 0 0 4px; font-size: 26px; }
+  .sheet p { margin: 0 0 14px; color: var(--dim); font-size: 16px; line-height: 1.35; }
+  .fps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin-bottom: 14px; }
+  .fps-grid button { border-radius: 12px; font-variant-numeric: tabular-nums; }
+  .sheet .close { width: 100%; }
+  header.top { display: flex; align-items: center; gap: 10px; position: relative; z-index: 21; }
+  header.top .scene { flex: 1; min-width: 0; }
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: var(--dim); padding: 8px 13px; font-size: 18px; }
+  .icon-btn .lbl:empty { display: none; }
+  .icon-btn.armed { background: var(--bad); border-color: var(--bad); color: var(--ground); }
+  body.clean .icon-btn { display: none; }
+  .icon-btn[hidden] { display: none; }
+  .chips[hidden] { display: none; }
+  button:disabled { opacity: .35; pointer-events: none; }
+  .clock .neg { color: var(--bad); }
+  .time-field { display: flex; align-items: center; gap: 12px; margin: 4px 0 12px; font-size: 20px; flex-wrap: wrap; }
+  .time-field input {
+    font-family: inherit; font-size: 30px; font-weight: 700; min-height: 56px; padding: 4px 12px;
+    color: var(--ink); background: var(--ground); border: 2px solid var(--line); border-radius: 12px;
+    color-scheme: dark; -webkit-user-select: text; user-select: text;
+  }
+  .time-field input.on { border-color: var(--mark); }
+  #schedPreview { color: var(--ink); font-size: 19px; white-space: pre-line; min-height: 2.7em; }
+  #schedPreview.warn { color: var(--mark); }
+  #schedQuick { grid-template-columns: repeat(2, 1fr); }
+  .sheet .sub { margin: 18px 0 4px; font-size: 22px; }
+  .ltc-row { margin-bottom: 14px; flex-wrap: wrap; }
+  /* Flash is a compositor-only overlay: toggling its opacity never restyles or relayouts the page. */
+  .flash-ov { position: fixed; inset: 0; background: #ffffff; opacity: 0; pointer-events: none; z-index: 20; will-change: opacity; }
+  header.inv .tag, header.inv .scene-k { color: #000000; }
+  header.inv .scene { border-bottom-color: transparent; }
+  body.sq .bar { display: none; }
+  main.inv .clock .hm, main.inv .clock .ss, main.inv .clock .ff, main.inv .clock .neg, main.inv .status, main.inv .ltc-now { color: #000000; }
+  main.inv .clock .sep { opacity: 1; color: #000000; }
+  .ltc-now { width: 100%; height: 1.3em; line-height: 1.3; font-size: min(5.5cqw, 7cqh); color: var(--dim); text-align: center; font-variant-numeric: tabular-nums; contain: strict; margin-top: .2em; }
+  .ltc-now:empty { display: none; }
+  .ofs-row { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+  .ofs-row button { flex: 1; min-width: 48px; padding: 8px 0; border-radius: 12px; font-size: 20px; }
+  .ofs-row output { min-width: 80px; text-align: center; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .ofs-k { min-width: 40px; flex: none; font-size: 18px; color: var(--dim); }
+  /* Label + four 48px buttons + value need about 342px; a 360px phone has about 296px inside the card, so the
+     label moves above the buttons there and the touch targets keep their size. */
+  @media (max-width: 400px) {
+    .ofs-row { flex-wrap: wrap; row-gap: 4px; }
+    .ofs-k { flex: 0 0 100%; }
+    .ofs-row output { min-width: 72px; }
+  }
+  .seg[hidden] { display: none; }
+  button.ltc { border-color: var(--mark); color: var(--mark); }
+  .scene { display: flex; align-items: center; gap: 12px; border-bottom: 2px solid var(--line); }
+  .scene .tag { border-bottom: none; flex: 1; min-width: 0; }
+  .scene:focus-within { border-bottom-color: var(--mark); }
+  .scene-k { color: var(--dim); font-weight: 700; font-size: clamp(18px, 4.5vw, 28px); letter-spacing: .04em; }
+  body.clean .scene { border-bottom-color: transparent; }
+  .sheet .reset, .page .reset { width: 100%; margin-bottom: 10px; color: var(--bad); border-color: var(--bad-line); }
+  .page .reset.armed, .sheet .reset.armed { background: var(--bad); color: var(--ground); border-color: var(--bad); }
+  .page { position: fixed; inset: 0; z-index: 30; background: var(--ground); overflow-y: auto; overscroll-behavior: contain;
+    padding: 0 max(16px, env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) max(16px, env(safe-area-inset-left, 0px)); }
+  .page[hidden] { display: none; }
+  .page-bar { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) max(0px, calc((100% - 560px) / 2)) 10px;
+    background: var(--ground); border-bottom: 1px solid var(--line); }
+  .page-bar h2 { margin: 0; font-size: 30px; }
+  .page-body { max-width: 560px; margin: 0 auto; padding-bottom: 32px; }
+  .grp { margin-top: 24px; }
+  .grp h3 { margin: 0 0 8px; font-size: 16px; font-weight: 500; color: var(--dim); }
+  .item { background: var(--panel); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+  .item-k { font-size: 21px; font-weight: 700; line-height: 1.2; }
+  .item-d { margin: 6px 0 14px; font-size: 15px; line-height: 1.45; color: var(--dim); }
+  .item-d.num { font-size: 26px; color: var(--ink); font-variant-numeric: tabular-nums; margin-bottom: 0; }
+  .row-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  #customWrap, #schedWrap { z-index: 35; }
+  .dur-inputs { display: flex; gap: 16px; margin-bottom: 14px; }
+  .dur-inputs label { display: flex; align-items: baseline; gap: 6px; font-size: 24px; }
+  .dur-inputs input {
+    width: 120px; min-height: 64px; font-family: inherit; font-size: 44px; font-weight: 700; text-align: center;
+    color: var(--ink); background: var(--ground); border: 2px solid var(--line); border-radius: 12px;
+    -webkit-user-select: text; user-select: text;
+  }
+  .dur-inputs input:focus-visible { outline: 3px solid var(--mark); outline-offset: 2px; }
+  .sheet .err { color: var(--bad); }
+  .sheet .err[hidden] { display: none; }
+
+  .gate {
+    position: fixed; inset: 0; z-index: 40; background: var(--ground);
+    display: grid; place-items: center; text-align: center; padding: 24px;
+    padding-top: calc(24px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  }
+  .gate h1 { font-size: clamp(40px, 12vw, 80px); margin: 0 0 8px; line-height: 1; }
+  .gate p { color: var(--dim); font-size: 20px; max-width: 30ch; margin: 0 auto 24px; line-height: 1.4; }
+  .gate button { min-height: 64px; min-width: 200px; font-size: 28px; border-color: var(--mark); }
+  .gate[hidden] { display: none; }
+
+  /* ---- Layout rhythm: one spacing scale (8 / 12 / 16 / 24) ---- */
+  /* Wide screens: keep header and controls in one centered column instead of pinning them to the far edges. */
+  header.top, footer {
+    padding-left: max(16px, env(safe-area-inset-left, 0px), calc((100vw - 760px) / 2));
+    padding-right: max(16px, env(safe-area-inset-right, 0px), calc((100vw - 760px) / 2));
+  }
+  /* Settings page: segmented controls fill the card and split it evenly. */
+  .page .seg { display: flex; width: 100%; }
+  .page .seg button { flex: 1 1 0; min-width: 0; }
+  #ltcRate { color: var(--dim); font-weight: 400; }
+  .item > :last-child { margin-bottom: 0; }
+  .grp > .item-d { margin: 0 0 12px; }
+  .row-item .item-d.num { margin: 6px 0 0; }
+  .ofs-row:last-child { margin-bottom: 0; }
+  body.clean footer { background: transparent; border-radius: 0; padding-top: 0; }
+  /* Countdown row: durations get a full-width line of their own; the edge fades while more chips are off-screen. */
+  .cd { flex-wrap: nowrap; }
+  /* Durations: one joined group (like the mode switch); tap = start now, tap again = restart. */
+  .chips { gap: 0; padding: 0; border: 2px solid var(--line); border-radius: 999px; }
+  .chips .chip { border: none; border-radius: 0; flex: none; padding: 8px 14px; }
+  .chips .chip + .chip { box-shadow: inset 1px 0 0 var(--line); }
+  .chips .chip[aria-pressed="true"] { background: var(--mark); color: var(--ground); }
+  .go[hidden] { display: none; }
+  /* The duration group hugs its options (no empty tail inside the border); it may shrink and scroll on narrow
+     screens. Schedule / stop sit at the right edge in every state. */
+  .cd .chips { flex: 0 1 auto; }
+  .cd .icon-btn { margin-left: auto; }
+  .cd .icon-btn:not([hidden]) + .go { margin-left: 0; }
+  .cd .icon-btn[hidden] + .go { margin-left: auto; }
+  .cd .icon-btn, .cd .go { flex: none; }
+  .sched-k { font-size: 18px; margin: 4px 0 8px; }
+  .chips.more { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+  /* Landscape: the countdown row spans the full width on one line (durations scroll, buttons stay put). */
+  @media (max-height: 500px) {
+    footer .cd { grid-column: 1 / -1; flex-wrap: nowrap; }
+  }
+  /* Schedule sheet durations: buttons size to their label and wrap, so "自訂 2:00:00" never spills over. */
+  #schedDur { display: flex; flex-wrap: wrap; gap: 8px; }
+  #schedDur button { flex: 1 1 auto; min-width: 88px; border-radius: 12px; white-space: nowrap; }
+  #schedDur[hidden] { display: none; }
+  /* Language: five choices don't fit one segmented row on a 360px phone, so "Auto" takes the first row
+     and the four languages sit two by two. */
+  .lang-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .lang-grid button { min-width: 0; border-radius: 12px; }
+  .lang-grid button:first-child { grid-column: 1 / -1; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .gate .warn-flash { font-size: 16px; opacity: .85; }
+  .linkbtn { display: flex; align-items: center; justify-content: center; min-height: 48px; padding: 8px 14px;
+    border: 2px solid var(--line); border-radius: 999px; color: var(--ink); text-decoration: none; font-size: 18px; }
+  /* Small phones held sideways (e.g. 667 x 375): keep the top controls on one line so the digits keep their
+     room. Only text size and side padding shrink; button height (touch target) stays the same. */
+  @media (max-height: 500px) and (max-width: 760px) {
+    .controls { flex-wrap: nowrap; gap: 8px; }
+    .controls button, .seg button, .chips .chip, .cd .go, .cd .icon-btn { font-size: 17px; padding-left: 10px; padding-right: 10px; }
+    .seg button { min-width: 48px; }
+    .cd .go { min-width: 80px; }
+  }
+  /* Phones held upright: width, not height, limits two-row digits, so stack hours / minutes / seconds / frames
+     on four rows. Hours and minutes stay about half size so seconds and frames get the room. The minus sign
+     sits left of the hours in its own column, keeping the digits centred. */
+  @media (orientation: portrait) and (min-height: 501px) {
+    .clock .sep { display: none; }
+    .clock .hm, .clock .sf { display: grid; justify-items: center; }
+    .clock .hm { grid-template-columns: 1fr auto 1fr; font-size: calc(min(40cqw, 14cqh) * var(--k, 1)); }
+    .clock .hm #cNeg { grid-area: 1 / 1; justify-self: end; }
+    .clock .hm #cH { grid-area: 1 / 2; }
+    .clock .hm #cM { grid-area: 2 / 2; }
+    .clock .sf { font-size: calc(min(76cqw, 29cqh) * var(--k, 1)); }
+    .clock.wide .sf { font-size: calc(min(52cqw, 29cqh) * var(--k, 1)); }
+  }
+  /* English, Japanese and Korean labels run longer than Chinese: tighter side padding keeps the controls on two
+     rows on a 360px phone, so the digits keep their room. Chinese keeps the original spacing. */
+  :root:not([lang="zh-Hant"]) .controls button, :root:not([lang="zh-Hant"]) .chips .chip,
+  :root:not([lang="zh-Hant"]) .cd .icon-btn { padding-left: 10px; padding-right: 10px; }
+  :root:not([lang="zh-Hant"]) .controls .seg button { min-width: 48px; }
+  /* AprilTag (settings → 畫面同步訊號, docs/visual-code.md): the tag with its white quiet zone takes the digit
+     area's short side, centred. In the space left over, a frame band strip sits at each end (top and bottom when
+     upright, left and right when sideways) and the digits shrink to one line between the tag and the far strip.
+     Tag and band are pure black and white in every palette; the full-screen flash is not used. Positions and sizes
+     come from layoutTag(), so the tag never moves when the text changes. */
+  .vt-band, .vt-tag { display: none; }
+  body.atag main { background: #000000; }
+  body.atag .vt-band { display: block; position: absolute; inset: 0; opacity: 0; pointer-events: none; will-change: opacity; }
+  body.atag .vt-band i { position: absolute; background: #ffffff; }
+  body.atag .vt-tag { display: block; position: absolute; image-rendering: crisp-edges; image-rendering: pixelated; }
+  body.atag #stageText { position: absolute; left: var(--vt-tx); top: var(--vt-ty); width: var(--vt-tw); height: var(--vt-th);
+    visibility: var(--vt-tv); container-type: size; overflow: hidden; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+  body.atag .bar { display: none; }
+  body.atag .clock { display: flex; justify-content: center; align-items: baseline; }
+  body.atag .clock .hm, body.atag .clock .sf { display: block; font-size: calc(min(14cqw, 45cqh) * var(--k, 1)); }
+  body.atag .clock .sep { display: inline; }
+  body.atag .clock .sf::before { content: ":"; opacity: .55; margin: 0 -0.12em; }
+  body.atag .status, body.atag .ltc-now { width: 100%; max-width: 100%; font-size: min(4.5cqw, 14cqh); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  body.atag .ltc-now:empty { display: block; }
+  /* Three sync choices share one row: each button takes room by its label length, and a label that still doesn't fit
+     wraps between words (never inside a Japanese or Korean word) instead of spilling over. */
+  #fsSeg button { flex: 1 1 auto; white-space: normal; word-break: keep-all; line-height: 1.1; padding-left: 8px; padding-right: 8px; }
+</style>
+</head>
+<body>
+  <header class="top">
+    <h1 class="sr-only" data-i18n="appTitle">同步場記板</h1>
+    <label class="scene"><span class="scene-k">SCENE</span><input class="tag" id="tag" placeholder="例：12A" maxlength="16" aria-label="場次" data-i18n-attr="placeholder:scenePh;aria-label:sceneAria" enterkeyhint="done" autocomplete="off"></label>
+    <button class="icon-btn" id="settingsBtn" aria-label="設定" data-i18n-attr="aria-label:settings" aria-haspopup="dialog"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg></button>
+  </header>
+
+  <main id="stage" aria-label="點一下隱藏或顯示按鈕" data-i18n-attr="aria-label:stageAria">
+    <div class="vt-band" id="vtBand" aria-hidden="true"><i></i><i></i></div>
+    <canvas class="vt-tag" id="vtTag" aria-hidden="true"></canvas>
+    <div id="stageText">
+      <div class="clock" id="clock" role="timer" aria-label="時間" data-i18n-attr="aria-label:clockAria"><div class="hm"><span class="neg" id="cNeg" hidden>−</span><span id="cH">00</span><span class="sep">:</span><span id="cM">00</span></div><div class="sf"><span class="ss" id="cS">00</span><span class="sep">:</span><span class="ff" id="cF">00</span></div></div>
+      <div class="ltc-now" id="ltcNow"></div>
+      <div class="status" id="status" role="status" aria-live="polite"></div>
+    </div>
+  </main>
+
+  <div class="flash-ov" id="flash" aria-hidden="true"></div>
+
+  <footer>
+    <div class="bar" aria-hidden="true"><i id="wave"></i></div>
+    <div class="row controls">
+      <div class="seg" role="group" aria-label="模式" data-i18n-attr="aria-label:modeAria">
+        <button id="mClock" aria-pressed="true" data-i18n="modeClock">時鐘</button>
+        <button id="mCd" aria-pressed="false" data-i18n="modeCd">倒數</button>
+        <button id="mUp" aria-pressed="false" data-i18n="modeUp">正數</button>
+      </div>
+      <span class="grow"></span>
+      <button id="fpsBtn" aria-haspopup="dialog">59.94 fps</button>
+      <div class="seg" id="audSeg" role="group" aria-label="音訊輸出" data-i18n-attr="aria-label:audAria"><button id="aBeep" aria-pressed="true" data-i18n="aBeep">嗶聲</button><button id="aWave" aria-pressed="false" data-i18n="aWave">波形碼</button><button id="aLtc" aria-pressed="false">LTC</button><button id="aOff" aria-pressed="false" data-i18n="aOff">關</button></div>
+    </div>
+    <div class="row cd" id="cdRow" hidden>
+      <div class="chips" id="chips" role="group" aria-label="倒數長度" data-i18n-attr="aria-label:cdLen"></div>
+      <button class="icon-btn" id="schedBtn" aria-label="排程開始時間" data-i18n-attr="aria-label:schedTitle"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5"/><path d="M9 2h6"/></svg><span class="lbl" data-i18n="schedLbl">排程</span></button>
+      <button class="go" id="go2">開始倒數</button>
+    </div>
+    <p class="hint" id="hint" data-i18n="hint">畫面黑變白就是整秒，白變黑是半秒。時鐘模式就是 free run。點數字可隱藏按鈕，讓畫面更大。</p>
+  </footer>
+
+  <div class="page" id="sheetWrap" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="page-bar"><h2 id="sheetTitle" data-i18n="settings">設定</h2><button class="go" id="sheetClose" data-i18n="done">完成</button></div>
+    <div class="page-body">
+      <section class="grp">
+        <h3 data-i18n="grpShoot">拍攝</h3>
+        <div class="item">
+          <div class="item-k" data-i18n="fpsK">影格率</div>
+          <p class="item-d" data-i18n="fpsD">和攝影機相同。高於 30 fps 時，60Hz 的手機螢幕會跳過部分影格號碼。</p>
+          <div class="fps-grid" id="fpsGrid"></div>
+        </div>
+        <div class="item">
+          <div class="item-k" data-i18n="syncK">畫面同步訊號</div>
+          <p class="item-d" data-i18n="syncD">黑白方波：黑變白是整秒，遠處也清楚。短閃白：較省電、不刺眼。AprilTag：給只拍到畫面、沒錄到場記板聲音的攝影機用，分析器可自動對時；拍攝時讓整個碼清楚入鏡。</p>
+          <div class="seg" id="fsSeg" role="group" aria-label="畫面同步訊號" data-i18n-attr="aria-label:syncK"><button id="fsSquare" aria-pressed="true" data-i18n="fsSquare">黑白方波</button><button id="fsFlash" aria-pressed="false" data-i18n="fsFlash">短閃白</button><button id="fsTag" aria-pressed="false" data-i18n="fsTag">AprilTag</button></div>
+        </div>
+      </section>
+      <section class="grp">
+        <h3 data-i18n="grpLook">外觀</h3>
+        <div class="item">
+          <div class="item-k" data-i18n="paletteK">配色</div>
+          <p class="item-d" data-i18n="paletteD">全白：數字最好辨識。紅光：暗場不刺眼。淺色：控制區與設定頁改淺底。黑白方波不受影響。</p>
+          <div class="seg" role="group" aria-label="配色" data-i18n-attr="aria-label:paletteK" id="paletteSeg"><button data-p="default" data-i18n="pDefault">預設</button><button data-p="white" data-i18n="pWhite">全白</button><button data-p="red" data-i18n="pRed">紅光</button><button data-p="light" data-i18n="pLight">淺色</button></div>
+        </div>
+        <div class="item">
+          <div class="item-k" data-i18n="langK">語言</div>
+          <p class="item-d" data-i18n="langD">自動：跟隨手機的語言設定。</p>
+          <div class="lang-grid" role="group" aria-label="語言" data-i18n-attr="aria-label:langK" id="langSeg"><button class="sel" data-l="auto" data-i18n="langAuto">自動</button><button class="sel" data-l="zh-Hant" lang="zh-Hant">繁體中文</button><button class="sel" data-l="en" lang="en">English</button><button class="sel" data-l="ja" lang="ja">日本語</button><button class="sel" data-l="ko" lang="ko">한국어</button></div>
+        </div>
+      </section>
+      <section class="grp">
+        <h3 data-i18n="grpCd">倒數</h3>
+        <div class="item row-item">
+          <div><div class="item-k" data-i18n="customK">自訂長度</div><p class="item-d num" id="customVal"></p></div>
+          <button id="customEdit" data-i18n="edit">修改</button>
+        </div>
+      </section>
+      <section class="grp">
+        <h3 data-i18n="grpAudio">音訊輸出</h3>
+        <p class="item-d" data-i18n="audioD">在主畫面切換嗶聲、波形碼、LTC 或關，同一時間只輸出一種。接 MIC 輸入時需衰減。</p>
+        <div class="item">
+          <div class="item-k" data-i18n="ltcK">LTC 格式</div>
+          <p class="item-d" id="ltcRate"></p>
+          <div class="seg" id="dfSeg" role="group" aria-label="Drop frame"><button id="dfBtn" aria-pressed="true">DF</button><button id="ndfBtn" aria-pressed="false">NDF</button></div>
+        </div>
+      </section>
+      <section class="grp">
+        <h3 data-i18n="grpCal">校準（每支手機做一次）</h3>
+        <p class="item-d" data-i18n="calD">螢幕更新延遲已自動補償。實拍比對後仍有誤差再微調，正值代表提前。</p>
+        <div class="item">
+          <div class="ofs-row"><span class="ofs-k" data-i18n="ofsVideo">畫面</span><button data-k="dispOfs" data-d="-10">−10</button><button data-k="dispOfs" data-d="-1">−1</button><output id="dispOfsV">0 ms</output><button data-k="dispOfs" data-d="1">+1</button><button data-k="dispOfs" data-d="10">+10</button></div>
+          <div class="ofs-row"><span class="ofs-k" data-i18n="ofsAudio">聲音</span><button data-k="audOfs" data-d="-10">−10</button><button data-k="audOfs" data-d="-1">−1</button><output id="audOfsV">0 ms</output><button data-k="audOfs" data-d="1">+1</button><button data-k="audOfs" data-d="10">+10</button></div>
+        </div>
+      </section>
+      <section class="grp">
+        <h3 data-i18n="grpTools">其他工具</h3>
+        <p class="item-d" data-i18n="toolsD">拍完後在電腦上分析素材：速度比例、校正後長度、對齊到基準檔。檔案不會上傳。</p>
+        <a class="linkbtn" href="sync-analyzer.html" target="_blank" rel="noopener" data-i18n="openAnalyzer">開啟同步分析器（電腦用）</a>
+      </section>
+      <section class="grp">
+        <h3 data-i18n="grpReset">重設</h3>
+        <p class="item-d" data-i18n="resetD">恢復所有預設值並清除場次。設定平時會自動記住，需再按一次確認才會執行。</p>
+        <button class="reset" id="resetBtn2" data-i18n="resetAll">重設所有設定</button>
+      </section>
+    </div>
+  </div>
+
+  <div class="sheet-wrap" id="schedWrap" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="schedTitle">
+      <h2 id="schedTitle" data-i18n="schedTitle">排程開始時間</h2>
+      <p data-i18n="schedP">會在指定時間自動開始，開始前畫面顯示負的時間。倒數請在下方選擇長度；正數從 0 起算。</p>
+      <div class="fps-grid" id="schedQuick"></div>
+      <div class="item-k sched-k" id="schedDurK" data-i18n="cdLen">倒數長度</div>
+      <div class="fps-grid" id="schedDur"></div>
+      <label class="time-field"><span data-i18n="schedAt">或指定時間</span><input id="schedTime" type="time" step="1" aria-label="開始時間" data-i18n-attr="aria-label:startTime"></label>
+      <p id="schedPreview"></p>
+      <p class="err" id="schedErr" role="alert" hidden></p>
+      <div class="row">
+        <button class="grow" id="schedCancel" data-i18n="cancel">取消</button>
+        <button class="grow go" id="schedOk" data-i18n="schedOk">確定排程</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="sheet-wrap" id="customWrap" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="customTitle">
+      <h2 id="customTitle" data-i18n="customTitle">自訂倒數</h2>
+      <p data-i18n="customP">儲存後會記住。之後點「自訂」即開始倒數；要修改請到設定頁。</p>
+      <div class="dur-inputs">
+        <label><input id="cMin" type="number" inputmode="numeric" min="0" max="599" aria-label="分鐘" data-i18n-attr="aria-label:minutesAria"><span data-i18n="minUnit">分</span></label>
+        <label><input id="cSec" type="number" inputmode="numeric" min="0" max="59" aria-label="秒" data-i18n-attr="aria-label:secondsAria"><span data-i18n="secUnit">秒</span></label>
+      </div>
+      <p class="err" id="cErr" role="alert" hidden data-i18n="cErr">請輸入 1 秒以上的時間。</p>
+      <div class="row">
+        <button class="grow" id="cCancel" data-i18n="cancel">取消</button>
+        <button class="grow go" id="cSave" data-i18n="cSave">儲存並使用</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="gate" id="gate" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
+    <div>
+      <h1 id="gateTitle" data-i18n="appTitle">同步場記板</h1>
+      <p data-i18n="gateP">對準每台攝影機拍 3～5 秒，開頭和結尾各一次。錄音機請靠近收嗶聲。</p>
+      <p class="warn-flash" data-i18n="gateWarn">注意：本工具會全螢幕黑白閃爍（每秒一次）。</p>
+      <button id="go" data-i18n="gateGo">開始使用</button>
+    </div>
+  </div>
+
+<!-- 建置時由 scripts/build.mjs 把 src/web/slate.js 打包後內嵌於此 -->
+<script src="slate.js"></script>
+</body>
+</html>

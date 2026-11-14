@@ -9,7 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { ROOT } from './lib/slate.mjs';
+import { ROOT } from './lib/root.mjs';
 import { fixture, tempDir } from './lib/tools.mjs';
 
 test('非 UTF-8 主控台：報告完整印出', t => {

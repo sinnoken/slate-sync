@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // check_web.js — 檢查三個網頁：程式語法正確；四種語言的字串 key 完全相同、{var} 一致；程式與標記用到的 key 都有定義。
-// 首頁與場記板檢查 web/ 內嵌的 <script>；分析器檢查原始碼（src/web/sync-analyzer.html 範本與 src/ 下的模組），
-// 語法以 esbuild 打包檢查（需先 npm ci）。
+// 首頁檢查 web/ 內嵌的 <script>；場記板與分析器檢查原始碼（src/web/ 的範本與打包的程式），語法以 esbuild 打包檢查
+// （需先 npm ci）。場記板的字串在 src/web/slate.js，分析器的在 src/ 的其他模組。
 // 用法：node tests/check_web.js
 import * as esbuild from 'esbuild';
 import fs from 'node:fs';
@@ -33,16 +33,21 @@ function inlinePage(rel) {
   const h = fs.readFileSync(path.join(ROOT, rel), 'utf8'), src = scripts(h).join('\n;\n');
   try { new vm.Script(src, { filename: rel }); return [rel, h, src, null]; } catch (e) { return [rel, h, src, e.message]; }
 }
-function analyzerPage() {
-  const h = fs.readFileSync(path.join(ROOT, 'src/web/sync-analyzer.html'), 'utf8');
-  const src = jsUnder(path.join(ROOT, 'src')).map(f => fs.readFileSync(f, 'utf8')).join('\n;\n');
+// A bundled page: its template, the sources whose strings it uses, and the esbuild syntax check of its entry.
+function bundledPage(name, template, entry, sources) {
+  const h = fs.readFileSync(path.join(ROOT, template), 'utf8');
+  const src = sources.map(f => fs.readFileSync(f, 'utf8')).join('\n;\n');
   try {
-    esbuild.buildSync({ entryPoints: [path.join(ROOT, 'src/web/main.js')], bundle: true, write: false, logLevel: 'silent' });
-    return ['分析器（src/）', h, src, null];
-  } catch (e) { return ['分析器（src/）', h, src, e.message]; }
+    esbuild.buildSync({ entryPoints: [path.join(ROOT, entry)], bundle: true, write: false, logLevel: 'silent' });
+    return [name, h, src, null];
+  } catch (e) { return [name, h, src, e.message]; }
 }
+const SLATE_JS = path.join(ROOT, 'src/web/slate.js');
+const slatePage = () => bundledPage('場記板（src/web/slate.js）', 'src/web/sync-slate.html', 'src/web/slate.js', [SLATE_JS]);
+const analyzerPage = () => bundledPage('分析器（src/）', 'src/web/sync-analyzer.html', 'src/web/main.js',
+  jsUnder(path.join(ROOT, 'src')).filter(f => f !== SLATE_JS));
 
-for (const [name, h, src, err] of [inlinePage('web/index.html'), inlinePage('web/sync-slate.html'), analyzerPage()]) {
+for (const [name, h, src, err] of [inlinePage('web/index.html'), slatePage(), analyzerPage()]) {
   if (err) {
     console.log(`✗ ${name}：語法錯誤 ${err}`);
     failed++;

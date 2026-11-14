@@ -1,4 +1,5 @@
 // wave.js — 波形碼解讀（docs/waveform-code.md）：從取樣值找出每一秒的前緣、秒數與音高，再標上 9 分鐘循環內的位置。
+import { WAVE_PITCHES } from './slate.js';
 import { mod, percentile } from './util.js';
 import { VIS_MOD } from './visual.js';
 
@@ -16,11 +17,9 @@ export function runs(mask, sr) {
   return out.filter(([a, b]) => b - a >= minLen);
 }
 
-// The 11 legal carrier pitches (pentatonic D5–D7, docs/waveform-code.md); same values as the slate's WAVE_PITCHES.
-export const WAVE_HZ = [587.33, 659.26, 783.99, 880.00, 987.77, 1174.66, 1318.51, 1567.98, 1760.00, 1975.53, 2349.32];
 // k (position in the 9-minute cycle, 0–539) from a second's number and its pitch number; null when the minute part
-// comes out as 9 or 10, i.e. the second's number or its pitch was misread. Inverse of the slate's waveHz().
-export const cycleK = (sec, pitch) => { const q = mod(pitch - 4 * sec, 11); return q <= 8 ? 60 * q + sec : null; };
+// comes out as 9 or 10, i.e. the second's number or its pitch was misread. Inverse of waveHz() in slate.js.
+export const kFromPitch = (sec, pitch) => { const q = mod(pitch - 4 * sec, 11); return q <= 8 ? 60 * q + sec : null; };
 // Leading edge of a burst whose carrier is at `phase` (rad) when its gate opens: first sample above 40 % of
 // the burst amplitude, interpolated, minus the time the sine needs from `phase` to first reach |sin| = 0.4.
 export function edgeTime(a, s, e, hz, phase, sr) {
@@ -36,7 +35,7 @@ export function edgeTime(a, s, e, hz, phase, sr) {
 export function burstPitch(x, s, e, sr) {
   let best = 0, bestM = -1;
   const n = e - s;
-  for (const [p, f] of WAVE_HZ.entries()) {
+  for (const [p, f] of WAVE_PITCHES.entries()) {
     let re = 0, im = 0;
     for (let i = 0; i < n; i++) {
       const w = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1)), v = x[s + i] * w, ang = 2 * Math.PI * f * i / sr;
@@ -73,7 +72,7 @@ export function decode(x, t0, sr) {
     const [s, e] = on[i], dur = (e - s) / sr;
     let isMin;
     if (dur >= 0.025 && dur <= 0.07) isMin = false; else if (dur >= 0.2 && dur <= 0.3) isMin = true; else continue;
-    const pitch = burstPitch(x, s, e, sr), hz = WAVE_HZ[pitch];   // one oscillator per second, phase 0 at the sync
+    const pitch = burstPitch(x, s, e, sr), hz = WAVE_PITCHES[pitch];   // one oscillator per second, phase 0 at the sync
     const onset = edgeTime(a, s, e, hz, 0, sr);
     if (onset + 0.95 > N / sr) continue;
     const pulses = bursts.slice(i + 1).filter(q => q[0] < onset + 0.97);
@@ -125,7 +124,7 @@ export function label(seconds) {
   // Rules 5 and 6 of docs/waveform-code.md. Each second's k, carried back to the first good second, is a vote; most
   // seconds agreeing (at least 3, so one or two seconds of an old-slate recording cannot pass by chance) means the
   // pitch carries the 9-minute cycle. Seconds whose pitch disagrees are dropped and counted (pitchRejected).
-  const g0 = good[0], kOf = s => s.pitch === undefined ? null : cycleK(s.isMin ? 0 : s.val, s.pitch);
+  const g0 = good[0], kOf = s => s.pitch === undefined ? null : kFromPitch(s.isMin ? 0 : s.val, s.pitch);
   const votes = new Map();
   for (const s of good) {
     const k = kOf(s);

@@ -1,8 +1,7 @@
 // ltc.js — LTC 解讀與擬合（docs/ltc.md）。
+import { LTC_DF_DAY, LTC_SYNC } from './slate.js';
 import { fitKeep, mod, percentile, wrap } from './util.js';
 
-export const LTC_SYNC = [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1];
-export const LTC_DF_DAY = 2589408;                      // frames in a day at 29.97 DF
 export const ltcDay = (nominal, df) => df ? LTC_DF_DAY : nominal * 86400;
 // Real frame rates of each time-code frame count (23.976 and 29.97 count 24 and 30 frames a second).
 export const ltcRates = (nominal, df) => df ? [30000 / 1001] : nominal === 25 ? [25] : [nominal * 1000 / 1001, nominal];

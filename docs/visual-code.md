@@ -111,8 +111,8 @@ ID = (手機本地時間自午夜起的秒數) mod 540
 
 ## 產生端與參考實作
 
-- `web/sync-slate.html`：碼表、繪製與切換（參考實作）；ID 由與波形碼載波共用的 `cycleK()` 算出。
+- `src/core/slate.js`：碼表與 `drawTag()`（參考實作，場記板、分析核心與測試產生器共用）；ID 由與波形碼載波共用的 `cycleK()` 算出。切換時序與版面在場記板頁面 `src/web/slate.js`。
 - `tests/make_test_media.mjs`：產生含畫面碼與波形碼的測試影片，繪製方式與場記板相同。
-- `tests/visual-code.test.mjs`：比對場記板與分析核心的碼表和官方碼表 `tests/data/tag36h11.json`（取自 `tag36h11.c`）一致，並把場記板 `drawTag()` 畫出的全部 540 個 ID 依格子取樣成位元，與官方碼表比對。
+- `tests/visual-code.test.mjs`：比對共用的碼表和官方碼表 `tests/data/tag36h11.json`（取自 `tag36h11.c`）一致，並把場記板 `drawTag()` 畫出的全部 540 個 ID 依格子取樣成位元，與官方碼表比對。
 - 偵測（`src/core/`，網頁與命令列共用）：內嵌的 js-aruco2（MIT），字典在執行時由同一份碼表換算（js-aruco2 逐列讀 6 × 6 資料格，資料位元 `i` 位於第 `(bit_y[i] − 1) × 6 + (bit_x[i] − 1)` 格）。每個候選四邊形以校正後影像第 5 與第 95 百分位的中點二值化；選這個門檻的依據是：新舊 tag 混合的轉換格，以此判讀的結果與 AprilTag 官方程式庫（pupil-apriltags 包裝的 C 程式庫）相同。
 - 解碼：網頁版用 WebCodecs `VideoDecoder`；命令列用 ffmpeg 解出縮小的灰階影格，交給共用核心。

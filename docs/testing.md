@@ -15,8 +15,8 @@ npm test                              # 全部：npm run check 加上 node --tes
 |---|---|---|
 | `node tests/check_web.js` | 網頁語法正確、四種語言的字串 key 一致 | — |
 | `node tests/check_core.js` | 分析核心不用瀏覽器 API；node 直接分析 WAV 測試檔 | 真值（週期固定） |
-| `tests/visual-code.test.mjs` | 場記板與分析核心的 tag 碼表、場記板畫的 ID 0–539（四種旋轉）、ID 公式 | 官方 `tag36h11.c`（`tests/data/tag36h11.json`）、固定期望值 |
-| `tests/wave-pitch.test.mjs` | 場記板的 `cycleK()`／`waveHz()` 兩天逐秒（UTC、UTC+8）、分析核心的 `WAVE_HZ`／`cycleK()` | 獨立寫的規格公式與抽查值 |
+| `tests/visual-code.test.mjs` | 共用的 tag 碼表、場記板畫的 ID 0–539（四種旋轉）、ID 公式 | 官方 `tag36h11.c`（`tests/data/tag36h11.json`）、固定期望值 |
+| `tests/wave-pitch.test.mjs` | 場記板的 `cycleK()`／`waveHz()` 兩天逐秒（UTC、UTC+8）與音高表、分析核心的 `kFromPitch()` | 獨立寫的規格公式與抽查值 |
 | `tests/ltc-bits.test.mjs` | 場記板的 `countToTC()`／`ltcBits()`／`ltcChunk()` | 獨立的參考實作、DF 固定期望值、分析核心的解碼器 |
 | `tests/read-audio.test.mjs` | 命令列從任何位置讀取音訊都不錯位（AAC 與 WAV） | ffmpeg 整段解碼 |
 | `tests/cli-encoding.test.mjs` | 主控台不是 UTF-8（如 cp950）時報告仍完整印出 | — |
@@ -24,7 +24,7 @@ npm test                              # 全部：npm run check 加上 node --tes
 | `tests/web/checks.test.mjs` | 網頁測試的每項檢查遇到錯的結果都會失敗 | 人工改壞的結果 |
 | `tests/web/analyzer.test.mjs` | 建置後以 headless Chrome／Edge 跑網頁分析器 | 真值、命令列版、報告快照 |
 
-場記板 `web/sync-slate.html` 的程式內嵌在頁面裡，測試以 `tests/lib/slate.mjs` 取出指定的函式，在 node 的 `vm` 執行。網頁測試的瀏覽器時區須與 `cam.mp4` 的真值相同（UTC+8）：Linux 以 `TZ=Asia/Taipei` 執行，Windows 的 Edge 不理會 `TZ`，用系統時區；不符時測試明確報錯。單獨執行網頁分析器：`node tests/web/run-analyzer.mjs 檔案… --av --out result.json --report report.txt`；報告措辭刻意修改時以 `node tests/web/analyzer.test.mjs --update` 更新快照。
+場記板的編碼函式在 `src/core/slate.js`（場記板頁面 `src/web/slate.js`、分析核心與測試產生器共用），測試直接 import。網頁測試的瀏覽器時區須與 `cam.mp4` 的真值相同（UTC+8）：Linux 以 `TZ=Asia/Taipei` 執行，Windows 的 Edge 不理會 `TZ`，用系統時區；不符時測試明確報錯。單獨執行網頁分析器：`node tests/web/run-analyzer.mjs 檔案… --av --out result.json --report report.txt`；報告措辭刻意修改時以 `node tests/web/analyzer.test.mjs --update` 更新快照。
 
 測試產生器（`node tests/make_test_media.mjs --help` 列出全部選項）：`--minutes`、`--ppm`、`--ppm-end`（與 `--ppm` 之間線性變化，模擬機身變熱）、`--start`、`--plug`（只在頭尾各幾秒放波形碼）；`--ltc 24|25|29.97|30|23.976`（`--df`、`--ltc-channel`、`--ltc-with code|scene`、`--ltc-noise`、`--ltc-invert`，搭配 `--ppm`、`--start` 與 .m4a／.mp4 輸出的 AAC）；`--created start|end`、`--created-offset`、`--date`、`--tz`（MP4／MOV／M4A 寫 creation_time，WAV 寫 BWF time_reference）。產生器會印出 LTC 第一格的時間碼與位置、建立時間與 r 的真值。
 
@@ -36,7 +36,7 @@ npm run build                   # 建置到 dist/
 npm run dev                     # 開發：改檔後自動重建，開啟 http://localhost:8000/sync-analyzer.html
 ```
 
-產生器只需要 Node 與 ffmpeg（PATH 中；輸出 WAV 且不寫建立時間時不需要 ffmpeg）：音訊在 JS 以陣列合成，畫面算成灰階 raw 影格經 stdin 交給 ffmpeg 編碼。波形碼的脈衝與載波、tag 的繪製與 LTC 的取樣都以 vm 執行場記板本身的函式，與場記板一致；場記板本身算錯時由上表的獨立比對抓到。畫面碼（AprilTag，規格見 [visual-code.md](visual-code.md)）：
+產生器只需要 Node 與 ffmpeg（PATH 中；輸出 WAV 且不寫建立時間時不需要 ffmpeg）：音訊在 JS 以陣列合成，畫面算成灰階 raw 影格經 stdin 交給 ffmpeg 編碼。波形碼的脈衝與載波、tag 的繪製與 LTC 的取樣都直接用場記板本身的函式（`src/core/slate.js`），與場記板一致；場記板本身算錯時由上表的獨立比對抓到。畫面碼（AprilTag，規格見 [visual-code.md](visual-code.md)）：
 
 ```bash
 node tests/make_test_media.mjs test-media/v.mp4 --visual --minutes 3 --plug 60 --fps 29.97 --av-offset 25
@@ -143,7 +143,7 @@ H.264／H.265 × AAC、MOV 的 sowt／twos／in24（大小端）／fl32、MP4 �
 
 ### 波形碼音高的 9 分鐘循環（Python 版）
 
-`tests/wave-pitch.test.mjs`：以 vm 執行場記板的 `cycleK()`／`waveHz()`，連續兩天逐秒（UTC 與 UTC+8，含跨午夜，另抽查整秒內的毫秒）與獨立寫的規格公式（與產生器相同）比對，172800 秒全部一致；場記板與分析核心的 11 個音高與固定的音高表相同；相鄰兩秒都不同音；分析核心的 `cycleK()` 由秒數與音高解回全部 540 個 k（都在 0–539、各一次），其餘 120 種組合判為讀錯。
+`tests/wave-pitch.test.mjs`：場記板的 `cycleK()`／`waveHz()`，連續兩天逐秒（UTC 與 UTC+8，含跨午夜，另抽查整秒內的毫秒）與獨立寫的規格公式（與產生器相同）比對，172800 秒全部一致；場記板與分析核心共用的 11 個音高與固定的音高表相同；相鄰兩秒都不同音；分析核心的 `kFromPitch()` 由秒數與音高解回全部 540 個 k（都在 0–539、各一次），其餘 120 種組合判為讀錯。
 
 回歸：5 個 WAV（4 分鐘 +833 ppm；−694 ppm 頭尾各 70 秒；10 分鐘 +200 ppm 頭尾各 30 秒；20 分鐘 +800 → +900 ppm `--full`；跨午夜 −300 ppm），各以預設、`--minute`、`--only head` 與三檔對齊執行，與修改前的分析器比較：
 
@@ -157,7 +157,7 @@ H.264／H.265 × AAC、MOV 的 sowt／twos／in24（大小端）／fl32、MP4 �
 
 ### 測試產生器的 LTC
 
-`tests/ltc-bits.test.mjs`：以 vm 執行場記板的 `countToTC()`／`ltcBits()`，與獨立的參考實作（與產生器相同的算法）逐格比對 24、25、29.97 DF、29.97 NDF、30、23.976 各約 5400 格（午夜前後、每分鐘與每 10 分鐘邊界、全天隨機 3000 格），時間碼與 80 個位元全部相同；再以模擬的 AudioContext 執行場記板的 `ltcChunk()`（4 個區塊、32 格、跨午夜），輸出的 51200–64064 個取樣與參考實作逐點相同（位元、極性、振幅 0.5、格起點、跨區塊連續），分析核心的 `ltcDecode()` 從這些取樣解回連續的格數，`tcToCount()` 把每個時間碼換回同一個格數。DF 抽查（固定期望值）：每分鐘跳過 ;00、;01，每 10 分鐘不跳，一天 2589408 格。
+`tests/ltc-bits.test.mjs`：場記板的 `countToTC()`／`ltcBits()`，與獨立的參考實作（與產生器相同的算法）逐格比對 24、25、29.97 DF、29.97 NDF、30、23.976 各約 5400 格（午夜前後、每分鐘與每 10 分鐘邊界、全天隨機 3000 格），時間碼與 80 個位元全部相同；再以模擬的 AudioContext 執行場記板的 `ltcChunk()`（4 個區塊、32 格、跨午夜），輸出的 51200–64064 個取樣與參考實作逐點相同（位元、極性、振幅 0.5、格起點、跨區塊連續），分析核心的 `ltcDecode()` 從這些取樣解回連續的格數，`tcToCount()` 把每個時間碼換回同一個格數。DF 抽查（固定期望值）：每分鐘跳過 ;00、;01，每 10 分鐘不跳，一天 2589408 格。
 
 錄音端以錄音設備的時鐘、每個取樣取前後半個取樣間隔的平均值合成。以零交越檢查：25 fps +833 ppm 的第一個交越在 30.2752 ms（理論 30.2752），半位元間隔擬合為 +833.000 ppm；29.97 NDF −694 ppm 為 −694.000 ppm；AAC、反相、訊雜比 20 dB 時 −500 ppm 擬合為 −499.943 ppm。
 

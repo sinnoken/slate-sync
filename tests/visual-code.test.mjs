@@ -1,9 +1,9 @@
 // visual-code.test.mjs — 畫面碼（AprilTag，規格見 docs/visual-code.md）的碼表、繪製與 ID 公式。
 //
 // 比對對象是官方 tag36h11.c（tests/data/tag36h11.json，取自 AprilRobotics/apriltag，BSD-2-Clause）：
-// 1. 碼表：場記板（web/sync-slate.html）與分析核心（src/core/visual.js）的 TAG36H11_CODES／BIT_X／BIT_Y 與官方相同；
+// 1. 碼表：src/core/slate.js（場記板與分析核心共用）的 TAG36H11_CODES／BIT_X／BIT_Y 與官方相同；
 //    官方碼表本身的最小漢明距離（含四種旋轉）為 11，抄錯一個位元就會被發現。
-// 2. 繪製：以 vm 執行場記板的 drawTag()（模擬 canvas），每格取樣成位元，外框（靜區、白圈、黑圈）正確、每格顏色均勻；
+// 2. 繪製：執行場記板的 drawTag()（模擬 canvas），每格取樣成位元，外框（靜區、白圈、黑圈）正確、每格顏色均勻；
 //    畫面依四種角度旋轉後解碼，只有轉回正確方向時與官方的同一個 ID 完全相符，其餘方向與所有碼都相差 11 位元以上。
 //    測試產生器（tests/make_test_media.mjs）畫的 tag 與場記板逐格相同。
 // 3. ID 公式：場記板的 cycleK() 與測試產生器的 tagId()（ID = 本地時間午夜起秒數 mod 540）對照固定的期望值，
@@ -12,8 +12,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { ROOT, loadSlate } from './lib/slate.mjs';
+import * as slate from '../src/core/slate.js';
+import { ROOT } from './lib/root.mjs';
 import * as gen from './make_test_media.mjs';
 
 const OFFICIAL = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests', 'data', 'tag36h11.json'), 'utf8'));
@@ -48,13 +48,10 @@ function nearest(word) {
   return best;
 }
 
-test('碼表：場記板與分析核心與官方 tag36h11.c 相同', async () => {
+test('碼表：場記板與分析核心共用的碼表與官方 tag36h11.c 相同', () => {
   assert.equal(CODES.length, 587);
   assert.equal(OFFICIAL.bitX.length, 36);
-  const slate = loadSlate(NAMES);
-  const core = await import(pathToFileURL(path.join(ROOT, 'src', 'core', 'visual.js')));
-  for (const [where, tab] of [['場記板', slate], ['分析核心', core]])
-    for (const n of NAMES) assert.deepEqual(Array.from(tab[n]), official[n], `${where}的 ${n} 與官方不同`);
+  for (const n of NAMES) assert.deepEqual(slate[n], official[n], `${n} 與官方不同`);
 });
 
 test('官方碼表：任兩個碼（含旋轉後）至少相差 11 位元', () => {
@@ -85,8 +82,7 @@ function slateDrawer(cell) {
       for (let j = y; j < y + h; j++) px.fill(v, j * side + x, j * side + x + w);
     },
   };
-  const slate = loadSlate([...NAMES, 'drawTag'], { vtTag: { width: side, height: side }, vtCtx });
-  return id => { px.fill(128); slate.drawTag(id); return { px, side }; };
+  return id => { px.fill(128); slate.drawTag(vtCtx, cell, id); return { px, side }; };
 }
 
 // 像素依格子取樣成 12 × 12 的位元；每格必須是同一個顏色。
@@ -105,7 +101,7 @@ test('繪製：場記板畫的 ID 0–539 以四種角度解碼都讀回同一�
     const slateDraw = slateDrawer(cell), side = 12 * cell;
     for (let id = 0; id < VIS_MOD; id++) {
       const g = sample(slateDraw(id), cell);
-      // 測試產生器畫的 tag（以 vm 執行同一個 drawTag()，再貼到手機畫面上）必須逐格相同。
+      // 測試產生器畫的 tag（同一個 drawTag()，再貼到手機畫面上）必須逐格相同。
       assert.deepEqual(sample({ px: gen.drawTag(id, cell), side }, cell), g, `ID ${id}：測試產生器畫的 tag 與場記板不同`);
       for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) {
         const ring = Math.min(x, y, 11 - x, 11 - y);
@@ -128,7 +124,7 @@ test('ID 公式：場記板的 cycleK() 為本地時間午夜起秒數 mod 540',
   const tz = process.env.TZ;
   process.env.TZ = 'UTC';
   try {
-    const slate = loadSlate(['cycleK']), day = Date.UTC(2026, 10, 12);
+    const day = Date.UTC(2026, 10, 12);
     const cases = [['10:24:37', 217], ['10:26:59', 359], ['10:27:00', 360], ['10:30:00', 0], ['10:59:59', 179], ['11:00:00', 180],
       ['23:59:59', 539], ['00:00:00', 0], ['00:08:59', 539], ['00:09:00', 0]];
     for (const [clock, want] of cases) {

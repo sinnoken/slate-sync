@@ -4,8 +4,8 @@
 // 輸出立體聲：左聲道為模擬現場收音，右聲道為波形碼（格式見 docs/waveform-code.md）。
 // 檔案時間 = (真實時間 − 起點) × 速率，速率 = 1 + ppm × 10⁻⁶。
 //
-// 波形碼的脈衝排程（waveBursts）、載波（waveHz）、畫面碼的 tag（drawTag）與 LTC 的取樣（ltcChunk）都以 vm 執行
-// 場記板 web/sync-slate.html 本身的函式，保證和場記板一致；場記板本身算錯時由 tests/*.test.mjs 的獨立比對抓到。
+// 波形碼的脈衝排程（waveBursts）、載波（waveHz）、畫面碼的 tag（drawTag）與 LTC 的取樣（ltcChunk）都直接用
+// 場記板本身的函式（src/core/slate.js），保證和場記板一致；場記板本身算錯時由 tests/*.test.mjs 的獨立比對抓到。
 //
 // 加 --ltc 時一個聲道改放場記板的 LTC（docs/ltc.md），合成方式與場記板相同（手機以真實時間輸出、錄音設備以自己的
 // 時鐘取樣，每個取樣取區間平均以保留取樣之間的邊緣），另一個聲道放現場聲音或波形碼（--ltc-with）。
@@ -22,7 +22,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { loadSlate } from './lib/slate.mjs';
+import * as slate from '../src/core/slate.js';
 
 export const SR = 48000;
 export const VIS_MOD = 540;                // ID = 午夜起秒數 mod 540（9 分鐘一輪，一天剛好 160 輪）
@@ -30,9 +30,6 @@ const FPS = { '23.976': [24000, 1001], '24': [24, 1], '25': [25, 1], '29.97': [3
   '59.94': [60000, 1001], '60': [60, 1] };
 const LTC_FPS = { '23.976': [24000 / 1001, 24], '24': [24, 24], '25': [25, 25], '29.97': [30000 / 1001, 30], '30': [30, 30] };
 
-// 場記板本身的函式（vm 執行）。
-const slate = loadSlate(['WAVE_HI', 'waveBursts', 'WAVE_PITCHES', 'waveHz', 'countToTC', 'LTC_SYNC', 'ltcBits', 'LTC_AMP',
-  'ltcChunk', 'TAG36H11_CODES', 'TAG36H11_BIT_X', 'TAG36H11_BIT_Y', 'drawTag']);
 
 // ---------------------------------------------------------------- 參數
 const OPTIONS = [
@@ -216,9 +213,8 @@ export function ltcLevels(p, startCount, nFrames, sr = SR) {
     createBufferSource: () => ({ connect() {}, start() {} }),
   };
   const ltc = { p, sr, T0: 0, startCount, frame: 0, sample: 0, level: 1, adj: 0, err: 0, sources: [] };
-  const s = loadSlate(['countToTC', 'LTC_SYNC', 'ltcBits', 'LTC_AMP', 'ltcChunk'], { ctx, ltc, state: { audOfs: 0 } });
   for (let done = 0; done < nFrames; done += 200) {
-    s.ltcChunk(Math.min(200, nFrames - done));
+    slate.ltcChunk(ltc, ctx, Math.min(200, nFrames - done));
     for (const d of bufs.splice(0)) {
       for (let i = 0; i < d.length; i++) if (d[i] !== last) { pos.push(total + i); level.push(d[i]); last = d[i]; }
       total += d.length;
@@ -314,8 +310,7 @@ export function drawTag(idx, cell) {
   const side = 12 * cell, px = new Uint8Array(side * side);
   const vtCtx = { fillStyle: '#000000',
     fillRect(x, y, w, h) { const v = this.fillStyle === '#ffffff' ? 255 : 0; for (let j = y; j < y + h; j++) px.fill(v, j * side + x, j * side + x + w); } };
-  const s = loadSlate(['TAG36H11_CODES', 'TAG36H11_BIT_X', 'TAG36H11_BIT_Y', 'drawTag'], { vtTag: { width: side, height: side }, vtCtx });
-  s.drawTag(idx);
+  slate.drawTag(vtCtx, cell, idx);
   return px;
 }
 

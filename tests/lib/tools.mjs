@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { ROOT } from './slate.mjs';
+import { ROOT } from './root.mjs';
 
 export const FIXTURES = path.join(ROOT, 'tests', 'fixtures');
 

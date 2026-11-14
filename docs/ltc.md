@@ -4,7 +4,7 @@ LTC（Linear Timecode，SMPTE 12M）每一格以 80 個位元的雙相位標記�
 
 ## 場記板輸出
 
-參考實作：`web/sync-slate.html` 的 `ltcParams()`、`countToTC()`、`ltcBits()`、`ltcChunk()`。
+參考實作：`src/core/slate.js` 的 `ltcParams()`、`countToTC()`、`ltcBits()`、`ltcChunk()`（場記板與測試產生器共用）。
 
 | 場記板影格率 | LTC 影格率 | 時間碼計數 |
 |---|---|---|

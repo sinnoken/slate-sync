@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ROOT } from './lib/slate.mjs';
+import { ROOT } from './lib/root.mjs';
 
 const { createReport } = await import(pathToFileURL(path.join(ROOT, 'src', 'core', 'report.js')));
 const { translator } = await import(pathToFileURL(path.join(ROOT, 'src', 'core', 'i18n.js')));

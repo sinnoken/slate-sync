@@ -9,7 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { ROOT } from './lib/slate.mjs';
+import { ROOT } from './lib/root.mjs';
 import { run, tempDir } from './lib/tools.mjs';
 
 const GEN = path.join(ROOT, 'tests', 'make_test_media.mjs');

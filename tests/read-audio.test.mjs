@@ -8,7 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ROOT } from './lib/slate.mjs';
+import { ROOT } from './lib/root.mjs';
 import { run, tempDir } from './lib/tools.mjs';
 
 const SR = 48000, DUR = 12, LEN = 0.5, MAX_LAG = 2048, N = 8192;
