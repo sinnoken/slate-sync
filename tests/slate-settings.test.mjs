@@ -35,14 +35,16 @@ test('排版規則 1：每個設定是一張卡片（標題、一行說明、控
 test('排版規則 2：選取只有白底黑字一種樣式，黃色不用於選取（主畫面的倒數長度與靜音鈕除外）', () => {
   assert.match(HTML, /\.seg button\[aria-pressed="true"\] \{ background: var\(--ink\); color: var\(--ground\); \}/);
   assert.match(HTML, /button\[aria-pressed="true"\]\.sel \{ background: var\(--ink\); border-color: var\(--ink\); color: var\(--ground\); \}/);
-  const css = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>')).replace(/\/\*[\s\S]*?\*\//g, '');
-  const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter(([, sel]) => sel.includes('[aria-pressed="true"]'));
-  assert.ok(rules.length >= 3, `只找到 ${rules.length} 條選取規則`);
-  for (const [, sel, body] of rules) {
-    const own = sel.split(',').filter(s => s.includes('[aria-pressed="true"]') && !/\.chip|\.mute/.test(s));
-    if (own.length) assert.ok(!body.includes('--mark'), `${sel.trim()} 用了 --mark`);
-  }
-  assert.ok(!/\.time-field input\.on \{[^}]*--mark/.test(css), '排程的指定時間也不用 --mark');
+  // 去掉註解與 @media 的外層再逐條解析（否則 @media 裡的第一條規則會連同 @media 一起被當成選擇器）。
+  const css = HTML.slice(HTML.indexOf('<style>') + 7, HTML.indexOf('</style>')).replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/@media[^{]*\{/g, '');
+  const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].map(([, sel, body]) => [sel.trim(), body]);
+  // 設定頁與排程對話框的選擇器：選取狀態與排程的指定時間。
+  const SETTINGS = /\.page|\.seg|\.sel|\.lang-grid|\.fps-grid|\.time-field/;
+  const chosen = rules.filter(([sel]) => sel.split(',').some(s => SETTINGS.test(s) && /\[aria-pressed="true"\]|\.on\b/.test(s)));
+  assert.ok(chosen.length >= 3, `只找到 ${chosen.length} 條選取規則`);
+  for (const [sel, body] of chosen) assert.ok(!body.includes('--mark'), `${sel} 用了 --mark`);
+  assert.ok(chosen.some(([sel]) => sel.includes('.time-field input.on')), '有檢查到排程的指定時間');
 });
 
 test('排版規則 3：4 個以內用分段按鈕，超過 4 個用格狀（「自動」在同一個格子裡）', () => {
