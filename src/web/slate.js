@@ -645,13 +645,14 @@ function ltcLabel(p) {
   if (p.rate === 30000 / 1001) return p.df ? '29.97 DF' : '29.97 NDF';
   return String(p.nominal);
 }
-function ltcNowText(W) {
-  if (state.mode === 'ltc' && state.muted) return t('ltcMuted');
-  if (!ltc.on || !ctx) return '';
+// The LTC time code leaving the jack at wall time W, or a status word when there is none. (Translated here: frame()
+// has a local t.)
+function ltcNow(W) {
+  if (state.muted) return { msg: t('ltcMuted') };
+  if (!ltc.on || !ctx) return { msg: t('ltcWait') };
   var k = Math.floor((W - ltc.bWall) * ltc.p.rate / 1000);
-  if (k < 0) return t('ltcWait');
-  var tc = countToTC(ltc.startCount + k, ltc.p);
-  return 'LTC ' + pad(tc.h) + ':' + pad(tc.m) + ':' + pad(tc.s) + (ltc.p.df ? ';' : ':') + pad(tc.f);
+  if (k < 0) return { msg: t('ltcWait') };
+  return { tc: countToTC(ltc.startCount + k, ltc.p), df: ltc.p.df };
 }
 // Settings → LTC: the frame rate card says what the chosen rate does; DF / NDF can only be chosen for the 29.97 family.
 function renderLtc() {
@@ -691,8 +692,8 @@ function renderSound() {
 }
 $('sndBeep').addEventListener('click', function () { state.sound = 'beep'; save(); renderSound(); applyAudio(); });
 $('sndWave').addEventListener('click', function () { state.sound = 'wave'; save(); renderSound(); applyAudio(); });
-// Screen: the digit modes use the sync signal setting; Tag and LTC show the AprilTag (body.atag), LTC with its time
-// code line instead of the digits (body.ltcm).
+// Screen: the digit modes use the sync signal setting; Tag and LTC show the AprilTag (body.atag); LTC's clock line
+// shows the time code (body.ltcm marks it, so a switch between Tag and LTC refits the line).
 function renderVisual() {
   var sc = screenOf(state);
   $('fsSquare').setAttribute('aria-pressed', state.flashStyle === 'square'); $('fsFlash').setAttribute('aria-pressed', state.flashStyle === 'flash');
@@ -820,9 +821,8 @@ if (document.fonts && document.fonts.ready) document.fonts.ready.then(relayout);
 // ---- Main loop ----
 // Each frame is drawn for the instant it reaches the screen: vsync time + one refresh interval + user offset.
 // DOM is written only where a value actually changed; flash and square wave are compositor-only.
-var ltcShownAt = -1e9;
 var frameInt = 1000 / 60, lastTs = 0, cache = {}, flashOn = null, waveOn = null, statusKey = '';
-var elH = $('cH'), elM = $('cM'), elS = $('cS'), elF = $('cF'), elNeg = $('cNeg'), elLtc = $('ltcNow');
+var elH = $('cH'), elM = $('cM'), elS = $('cS'), elF = $('cF'), elNeg = $('cNeg'), elSepF = $('cSepF'), elMsg = $('cMsg'), lastMsg = '';
 var flashEl = $('flash'), stageEl = $('stage'), headerEl = document.querySelector('header.top');
 function setText(el, k, v) { if (cache[k] !== v) { cache[k] = v; el.textContent = v; } }
 function statusFor() {
@@ -843,9 +843,14 @@ function frame(ts) {
   lastTs = ts;
   var now = WALL0 + ts + frameInt + state.dispOfs;
   var fps = state.fps, fw = fps >= 100 ? 3 : 2, maxF = Math.ceil(fps) - 1;
-  var h, m, s, f, active, neg = false, ms;
+  var h, m, s, f, active, neg = false, ms, msg = '', sepF = ':';
 
-  if (!isCount(state.mode)) {     // clock, Tag and LTC: the phone clock
+  if (state.mode === 'ltc') {     // LTC: the time code being sent, on the same line and scale as Tag's clock
+    var lt = ltcNow(now);
+    active = true; fw = 2;
+    if (lt.tc) { h = lt.tc.h; m = lt.tc.m; s = lt.tc.s; f = lt.tc.f; if (lt.df) sepF = ';'; }
+    else { msg = lt.msg; h = m = s = f = 0; }
+  } else if (!isCount(state.mode)) {     // clock and Tag: the phone clock
     var sec = Math.floor(now / 1000), d = new Date(sec * 1000);
     h = d.getHours(); m = d.getMinutes(); s = d.getSeconds(); ms = now - sec * 1000;
     active = true;
@@ -870,16 +875,17 @@ function frame(ts) {
     var tsec = Math.floor(t / 1000);
     h = Math.floor(tsec / 3600); m = Math.floor(tsec % 3600 / 60); s = tsec % 60; ms = t - tsec * 1000;
   }
-  f = Math.min(maxF, Math.floor(ms * fps / 1000));
+  if (state.mode !== 'ltc') f = Math.min(maxF, Math.floor(ms * fps / 1000));
 
   setText(elH, 'h', pad(h)); setText(elM, 'm', pad(m)); setText(elS, 's', pad(s)); setText(elF, 'f', pad(f, fw));
-  if (fw !== lastFw || neg !== lastNeg) {
-    lastFw = fw; lastNeg = neg;
+  setText(elSepF, 'sepF', sepF);
+  if (fw !== lastFw || neg !== lastNeg || msg !== lastMsg) {
+    lastFw = fw; lastNeg = neg; lastMsg = msg;
+    elMsg.textContent = msg; clockEl.classList.toggle('msg-on', !!msg);
     clockEl.classList.toggle('wide', fw === 3); elNeg.hidden = !neg; fit();
   }
   var sk = [state.mode, running, waiting, finished, startMs, state.dur].join('|');
   if (sk !== statusKey) { statusKey = sk; var st = statusFor(); statusEl.textContent = st[0]; statusEl.classList.toggle('done', st[1]); }
-  if (ltc.on || (state.mode === 'ltc' && state.muted) ? ts - ltcShownAt >= 100 : cache.ltc) { ltcShownAt = ts; setText(elLtc, 'ltc', ltcNowText(now)); }
 
   var realPart = ((now % 1000) + 1000) % 1000;
   var wOn = active && realPart < 500, sync = screenOf(state).sync, vt = sync === 'band';
