@@ -43,13 +43,12 @@ export function audioKind(s) {
   return s.sound;
 }
 
-// What the screen shows. sync: 'square' (black-and-white square wave), 'flash' (short white flash) or 'band' (the
-// AprilTag's frame band); digits: what the big digits count ('clock', 'elapsed', 'remaining', or null when hidden);
-// line: the one small line under them in Tag / LTC ('ltc' for the LTC time code, or null).
+// What the screen shows. tag: the AprilTag layout; sync: 'square' (black-and-white square wave), 'flash' (short white
+// flash) or 'band' (the AprilTag's frame band); ltcLine: the LTC time code line replaces the digits (LTC mode).
 export function screenOf(s) {
-  if (s.mode === 'tag') return { tag: true, sync: 'band', digits: 'clock', line: null };
-  if (s.mode === 'ltc') return { tag: true, sync: 'band', digits: null, line: 'ltc' };
-  return { tag: false, sync: s.flashStyle, digits: s.mode === 'up' ? 'elapsed' : s.mode === 'cd' ? 'remaining' : 'clock', line: null };
+  if (s.mode === 'tag') return { tag: true, sync: 'band', ltcLine: false };
+  if (s.mode === 'ltc') return { tag: true, sync: 'band', ltcLine: true };
+  return { tag: false, sync: s.flashStyle, ltcLine: false };
 }
 
 // Second control row: countdown has lengths, custom, schedule and start / stop; count-up schedule and start / stop.

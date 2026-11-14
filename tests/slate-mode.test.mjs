@@ -34,13 +34,11 @@ test('聲音：數字模式依設定，Tag 為波形碼，LTC 為 LTC；靜音�
   }
 });
 
-test('畫面：數字模式的大字與同步訊號；Tag 與 LTC 是 AprilTag 加外框帶，跟著手機時鐘', () => {
+test('畫面：數字模式用設定的同步訊號；Tag 與 LTC 是 AprilTag 加外框帶，LTC 以時間碼行取代大字', () => {
   for (const flashStyle of ['square', 'flash']) {
-    assert.deepEqual(m.screenOf(st({ mode: 'clock', flashStyle })), { tag: false, sync: flashStyle, digits: 'clock', line: null });
-    assert.deepEqual(m.screenOf(st({ mode: 'up', flashStyle })), { tag: false, sync: flashStyle, digits: 'elapsed', line: null });
-    assert.deepEqual(m.screenOf(st({ mode: 'cd', flashStyle })), { tag: false, sync: flashStyle, digits: 'remaining', line: null });
-    assert.deepEqual(m.screenOf(st({ mode: 'tag', flashStyle })), { tag: true, sync: 'band', digits: 'clock', line: null });
-    assert.deepEqual(m.screenOf(st({ mode: 'ltc', flashStyle })), { tag: true, sync: 'band', digits: null, line: 'ltc' });
+    for (const mode of ['clock', 'up', 'cd']) assert.deepEqual(m.screenOf(st({ mode, flashStyle })), { tag: false, sync: flashStyle, ltcLine: false }, mode);
+    assert.deepEqual(m.screenOf(st({ mode: 'tag', flashStyle })), { tag: true, sync: 'band', ltcLine: false });
+    assert.deepEqual(m.screenOf(st({ mode: 'ltc', flashStyle })), { tag: true, sync: 'band', ltcLine: true });
   }
   // 靜音只關聲音，畫面不變。
   for (const mode of m.MODES) assert.deepEqual(m.screenOf(st({ mode, muted: true })), m.screenOf(st({ mode })), mode);

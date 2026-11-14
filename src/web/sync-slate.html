@@ -96,6 +96,7 @@
   .go { border-color: var(--mark); color: var(--mark); font-weight: 700; min-width: 96px; }
   .go.stop { background: var(--mark); color: var(--ground); }
   .hint { margin: 0; color: var(--dim); font-size: 17px; line-height: 1.35; }
+  .hint[hidden] { display: none; }
   .cd[hidden] { display: none; }
   .controls { flex-wrap: wrap; }
   .controls button, .seg button { font-size: 20px; padding: 8px 14px; }
@@ -304,8 +305,7 @@
      wraps between words (never inside a Japanese or Korean word) instead of spilling over. */
   /* Mode row: five buttons share the full width on one line at 390 px in every language; each takes room by its label. */
   .modes { flex: 1; min-width: 0; }
-  .modes button { flex: 1 1 auto; min-width: 0; padding-left: 6px; padding-right: 6px; }
-  footer .controls .seg.modes button { padding-left: 6px; padding-right: 6px; min-width: 0; }
+  footer .controls .seg.modes button { flex: 1 1 auto; min-width: 0; padding-left: 6px; padding-right: 6px; }
   /* Mute: the speaker keeps its waves when sound is on and shows a cross when muted. */
   .mute .x, .mute[aria-pressed="true"] .w { display: none; }
   .mute[aria-pressed="true"] .x { display: inline; }
@@ -351,7 +351,8 @@
       <button class="icon-btn" id="schedBtn" aria-label="排程開始時間" data-i18n-attr="aria-label:schedTitle"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5"/><path d="M9 2h6"/></svg><span class="lbl" data-i18n="schedLbl">排程</span></button>
       <button class="go" id="go2">開始倒數</button>
     </div>
-    <p class="hint" id="hint" data-i18n="hintClock">手機時鐘（free run），給人看與聽：畫面黑變白是整秒。點數字可隱藏按鈕。</p>
+    <p class="hint" id="hint" data-i18n="hintClock">手機時鐘（free run），給人看與聽。畫面黑變白是整秒，點數字可隱藏按鈕。</p>
+    <p class="hint" id="wakeHint" hidden></p>
   </footer>
 
   <div class="page" id="sheetWrap" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle">

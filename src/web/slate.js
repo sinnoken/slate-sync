@@ -52,9 +52,9 @@ var I18N = {
     analyzerK: '同步分析器',
     resetK: '重設',
     modeTag: 'Tag', modeLtc: 'LTC', muteAria: '靜音',
-    hintClock: '手機時鐘（free run），給人看與聽：畫面黑變白是整秒。點數字可隱藏按鈕。',
-    hintUp: '從 0 正數，可排程開始：畫面黑變白是整秒。點數字可隱藏按鈕。',
-    hintCd: '點選長度即開始倒數，可排程開始：畫面黑變白是整秒。點數字可隱藏按鈕。',
+    hintClock: '手機時鐘（free run），給人看與聽。畫面黑變白是整秒，點數字可隱藏按鈕。',
+    hintUp: '從 0 正數，可排程開始。畫面黑變白是整秒，點數字可隱藏按鈕。',
+    hintCd: '點選長度即開始倒數，可排程開始。畫面黑變白是整秒，點數字可隱藏按鈕。',
     hintTag: '給只拍到畫面的攝影機用：頭尾各拍 5–10 秒，分析器自動對時。',
     hintLtc: '把 LTC 接到錄音機或攝影機的音訊輸入，畫面同時拍進攝影機，分析器自動對時。接 MIC 輸入時需衰減。',
     soundK: '聲音',
@@ -113,9 +113,9 @@ var I18N = {
     analyzerK: 'Sync Analyzer',
     resetK: 'Reset',
     modeTag: 'Tag', modeLtc: 'LTC', muteAria: 'Mute',
-    hintClock: 'Phone clock (free run) for people to see and hear: black to white is the top of each second. Tap the digits to hide the buttons.',
-    hintUp: 'Counts up from 0 and can be scheduled. Black to white is the top of each second. Tap the digits to hide the buttons.',
-    hintCd: 'Tap a length to start the countdown; it can also be scheduled. Black to white is the top of each second.',
+    hintClock: 'Phone clock (free run) for people to see and hear. Black to white is the top of each second; tap the digits to hide the buttons.',
+    hintUp: 'Counts up from 0 and can be scheduled. Black to white is the top of each second; tap the digits to hide the buttons.',
+    hintCd: 'Tap a length to start the countdown; it can also be scheduled. Black to white is the top of each second; tap the digits to hide the buttons.',
     hintTag: 'For cameras that only see the screen: shoot 5–10 s at the head and tail, and the analyzer syncs them automatically.',
     hintLtc: 'Feed the LTC into a recorder or camera audio input and let the camera see the screen; the analyzer syncs automatically. Attenuate it for a MIC input.',
     soundK: 'Sound',
@@ -175,8 +175,8 @@ var I18N = {
     resetK: 'リセット',
     modeTag: 'Tag', modeLtc: 'LTC', muteAria: 'ミュート',
     hintClock: '端末の時計（フリーラン）を人が見て聞くためのモード。黒→白が秒の頭です。数字をタップするとボタンが消えます。',
-    hintUp: '0 からカウントアップ。開始の予約もできます。黒→白が秒の頭です。',
-    hintCd: '長さをタップするとカウントダウン開始。開始の予約もできます。黒→白が秒の頭です。',
+    hintUp: '0 からカウントアップ。開始の予約もできます。黒→白が秒の頭です。数字をタップするとボタンが消えます。',
+    hintCd: '長さをタップするとカウントダウン開始。開始の予約もできます。黒→白が秒の頭です。数字をタップするとボタンが消えます。',
     hintTag: '画面だけを撮るカメラ用：頭と終わりに 5〜10 秒ずつ撮ると、アナライザーが自動で同期します。',
     hintLtc: 'LTC をレコーダーやカメラの音声入力へ送り、画面もカメラに映すと、アナライザーが自動で同期します。MIC 入力では減衰させてください。',
     soundK: '音',
@@ -236,8 +236,8 @@ var I18N = {
     resetK: '초기화',
     modeTag: 'Tag', modeLtc: 'LTC', muteAria: '음소거',
     hintClock: '휴대폰 시계(프리런)를 보고 듣는 모드입니다. 검정→흰색이 매초 시작입니다. 숫자를 탭하면 버튼이 숨겨집니다.',
-    hintUp: '0부터 카운트업하며 시작을 예약할 수 있습니다. 검정→흰색이 매초 시작입니다.',
-    hintCd: '길이를 누르면 카운트다운이 시작되며 예약도 할 수 있습니다. 검정→흰색이 매초 시작입니다.',
+    hintUp: '0부터 카운트업하며 시작을 예약할 수 있습니다. 검정→흰색이 매초 시작입니다. 숫자를 탭하면 버튼이 숨겨집니다.',
+    hintCd: '길이를 누르면 카운트다운이 시작되며 예약도 할 수 있습니다. 검정→흰색이 매초 시작입니다. 숫자를 탭하면 버튼이 숨겨집니다.',
     hintTag: '화면만 찍는 카메라용: 처음과 끝에 5–10초씩 찍으면 분석기가 자동으로 싱크를 맞춥니다.',
     hintLtc: 'LTC를 녹음기나 카메라의 오디오 입력에 연결하고 화면도 카메라에 담으면 분석기가 자동으로 싱크합니다. MIC 입력에는 감쇠가 필요합니다.',
     soundK: '소리',
@@ -287,7 +287,6 @@ var state = defaultState();
 var running = false, endMs = 0, finished = false, waiting = false, startMs = 0, stoppedEl = 0;
 var ctx = null, lastKey = '', planSched = false;
 var MODE_BTNS = MODES.map(function (m) { return $('m' + { clock: 'Clock', up: 'Up', cd: 'Cd', tag: 'Tag', ltc: 'Ltc' }[m]); });
-var wakeKey = '';   // a screen wake-lock warning replaces the mode hint
 
 try {
   state = readState(JSON.parse(localStorage.getItem('slate-state') || '{}'));
@@ -329,7 +328,7 @@ function renderControls() {
   $('cdRow').hidden = !row;
   $('chips').hidden = row !== 'cd';
   if (typeof chipsFade === 'function') requestAnimationFrame(chipsFade);
-  if (!wakeKey) setKey($('hint'), hintKey(state.mode));
+  setKey($('hint'), hintKey(state.mode));
   $('muteBtn').setAttribute('aria-pressed', state.muted);
   var chips = $('chips').children;
   for (var i = 0; i < chips.length; i++) if (chips[i].dataset.dur) {
@@ -685,9 +684,12 @@ function renderVisual() {
   var sc = screenOf(state);
   $('fsSquare').setAttribute('aria-pressed', state.flashStyle === 'square'); $('fsFlash').setAttribute('aria-pressed', state.flashStyle === 'flash');
   setKey($('syncD'), descKeys(state).sync);
-  document.body.classList.toggle('sq', sc.sync === 'square');
-  document.body.classList.toggle('ltcm', !sc.digits);
-  if (sc.tag !== document.body.classList.contains('atag')) { document.body.classList.toggle('atag', sc.tag); relayout(); }
+  var cl = document.body.classList, changed = sc.tag !== cl.contains('atag') || sc.ltcLine !== cl.contains('ltcm');
+  cl.toggle('sq', sc.sync === 'square');
+  cl.toggle('ltcm', sc.ltcLine);
+  cl.toggle('atag', sc.tag);
+  // The digits' size depends on both: the Tag clock line is measured again after LTC mode hid it.
+  if (changed) relayout();
 }
 $('fsSquare').addEventListener('click', function () { state.flashStyle = 'square'; save(); renderVisual(); });
 $('fsFlash').addEventListener('click', function () { state.flashStyle = 'flash'; save(); renderVisual(); });
@@ -924,9 +926,10 @@ document.addEventListener('keydown', function (e) {
 
 // ---- Start / keep awake ----
 function keepAwake() {
-  if (!('wakeLock' in navigator)) { wakeKey = 'hintNoWake'; setKey($('hint'), wakeKey); return; }
-  navigator.wakeLock.request('screen').catch(function () {
-    wakeKey = 'hintWakeFail'; setKey($('hint'), wakeKey);
+  var w = $('wakeHint');
+  if (!('wakeLock' in navigator)) { setKey(w, 'hintNoWake'); w.hidden = false; return; }
+  navigator.wakeLock.request('screen').then(function () { w.hidden = true; }, function () {
+    setKey(w, 'hintWakeFail'); w.hidden = false;
   });
 }
 document.addEventListener('visibilitychange', function () {
