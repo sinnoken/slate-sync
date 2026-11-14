@@ -564,11 +564,12 @@ function beepKind(S) {
   if (r === 0) return 'end';
   return r > 0 ? (r <= 5000 ? 'warn' : 'tick') : null;
 }
-// Drop everything queued for the future (state changed) and queue again from now.
+// Drop everything queued or playing (state changed) and queue again from now.
 function resetAudio() {
+  // Sounds already playing stop too, so muting or a new mode takes effect at once instead of up to a second later.
   if (ctx) {
     var t = ctx.currentTime;
-    pendingNodes.forEach(function (n) { if (n.start > t) { try { n.node.stop(); } catch (e) {} } });
+    pendingNodes.forEach(function (n) { if (n.end > t) { try { n.node.stop(); } catch (e) {} } });
   }
   pendingNodes = []; schedUntil = 0;
   audioTick();
