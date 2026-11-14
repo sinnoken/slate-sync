@@ -44,6 +44,22 @@ test('畫面：數字模式用設定的同步訊號；Tag 與 LTC 是 AprilTag �
   for (const mode of m.MODES) assert.deepEqual(m.screenOf(st({ mode, muted: true })), m.screenOf(st({ mode })), mode);
 });
 
+test('切換時只有聲音種類改變才停掉正在播的聲音（靜音也算），波形碼之間切換讓當秒播完', () => {
+  const hard = (a, b) => m.hardStop(m.audioKind(st(a)), m.audioKind(st(b)));
+  // 數字模式用波形碼時，與 Tag 之間或數字模式之間切換：同樣是波形碼，不硬停。
+  for (const a of ['clock', 'up', 'cd', 'tag']) for (const b of ['clock', 'up', 'cd', 'tag'])
+    assert.equal(hard({ mode: a, sound: 'wave' }, { mode: b, sound: 'wave' }), false, `${a} → ${b}（波形碼）`);
+  assert.equal(hard({ mode: 'clock' }, { mode: 'cd' }), false, '嗶聲之間');
+  assert.equal(hard({ mode: 'clock' }, { mode: 'tag' }), true, '嗶聲 → 波形碼');
+  assert.equal(hard({ mode: 'tag' }, { mode: 'ltc' }), true, '波形碼 → LTC');
+  assert.equal(hard({ mode: 'ltc' }, { mode: 'clock' }), true, 'LTC → 嗶聲');
+  assert.equal(hard({ mode: 'clock', sound: 'beep' }, { mode: 'clock', sound: 'wave' }), true, '設定改成波形碼');
+  for (const mode of m.MODES) {
+    assert.equal(hard({ mode }, { mode, muted: true }), true, mode + ' 靜音');
+    assert.equal(hard({ mode, muted: true }, { mode: m.MODES[(m.MODES.indexOf(mode) + 1) % 5], muted: true }), false, mode + ' 靜音中切換');
+  }
+});
+
 test('第二列：倒數有長度與排程，正數有排程，時鐘、Tag、LTC 沒有', () => {
   assert.deepEqual(m.MODES.map(m.secondRow), [null, 'up', 'cd', null, null]);
   assert.deepEqual(m.MODES.map(m.isCount), [false, true, true, false, false]);

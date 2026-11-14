@@ -1,7 +1,7 @@
 // slate.js — 同步場記板的頁面程式：介面、聲音排程與畫面。編碼（波形碼、LTC、tag）在 src/core/slate.js，
 // 建置時由 scripts/build.mjs 打包後內嵌進 src/web/sync-slate.html。
 import { countToTC, cycleK, drawTag, ltcChunk, ltcParams, waveBursts, waveHz } from '../core/slate.js';
-import { DURS, FPS_LIST, MODES, audioKind, defaultState, descKeys, dfSelectable, hintKey, isCode, isCount, modeLocked, readState, screenOf, secondRow } from './slate-mode.js';
+import { DURS, FPS_LIST, MODES, audioKind, defaultState, descKeys, dfSelectable, hardStop, hintKey, isCode, isCount, modeLocked, readState, screenOf, secondRow } from './slate-mode.js';
 
 // Monotonic wall clock: anchored to Date.now() once, then driven by performance.now() so OS clock steps can't jump the display.
 var WALL0 = Date.now() - performance.now();
@@ -429,13 +429,16 @@ MODE_BTNS.forEach(function (b, i) {
 });
 // Mute: silences every mode, the screen carries on.
 $('muteBtn').addEventListener('click', function () { state.muted = !state.muted; save(); renderControls(); applyAudio(); });
-// Start or stop LTC to match the mode and mute, then queue beeps / waveform code again from now.
+// Start or stop LTC to match the mode and mute, then queue beeps / waveform code again from now. Sounds already
+// playing are cut only when the kind of sound changed (lastKind is what was playing before).
+var lastKind = 'off';
 function applyAudio() {
-  var kind = audioKind(state);
+  var kind = audioKind(state), hard = hardStop(lastKind, kind);
+  lastKind = kind;
   if (kind !== 'off' && ctx && ctx.state === 'suspended') ctx.resume();
   if (kind === 'ltc' && !ltc.on) ltcStart();
   else if (kind !== 'ltc' && ltc.on) ltcStop();
-  resetAudio();
+  resetAudio(hard);
 }
 function startPlan(start, scheduled) {
   startMs = start; endMs = state.mode === 'up' ? 0 : start + state.dur * 1000; finished = false;
@@ -564,17 +567,25 @@ function beepKind(S) {
   if (r === 0) return 'end';
   return r > 0 ? (r <= 5000 ? 'warn' : 'tick') : null;
 }
-// Drop everything queued or playing (state changed) and queue again from now.
-function resetAudio() {
-  // Sounds already playing stop too, so muting or a new mode takes effect at once instead of up to a second later.
+// Drop everything queued for the future (state changed) and queue again from now. hard: also stop what is playing
+// (mute, or another kind of sound), fading it out over 5 ms so the cut does not click.
+function resetAudio(hard) {
   if (ctx) {
     var t = ctx.currentTime;
-    pendingNodes.forEach(function (n) { if (n.end > t) { try { n.node.stop(); } catch (e) {} } });
+    pendingNodes.forEach(function (n) {
+      try {
+        if (n.start > t) n.node.stop();
+        else if (hard && n.end > t) {
+          n.gain.gain.cancelScheduledValues(t); n.gain.gain.setValueAtTime(n.gain.gain.value, t);
+          n.gain.gain.linearRampToValueAtTime(0, t + 0.005); n.node.stop(t + 0.006);
+        }
+      } catch (e) {}
+    });
   }
   pendingNodes = []; schedUntil = 0;
   audioTick();
 }
-function track(node, start, end) { pendingNodes.push({ node: node, start: start, end: end }); }
+function track(node, gain, start, end) { pendingNodes.push({ node: node, gain: gain, start: start, end: end }); }
 
 function scheduleBeep(targetMs, kind) {
   if (!ctx || audioKind(state) !== 'beep') return;
@@ -588,7 +599,7 @@ function scheduleBeep(targetMs, kind) {
   g.gain.exponentialRampToValueAtTime(0.0001, when + t[1] + 0.01);
   osc.connect(g).connect(ctx.destination);
   osc.start(when - 0.002); osc.stop(when + t[1] + 0.03);
-  track(osc, when - 0.002, when + t[1] + 0.03);
+  track(osc, g, when - 0.002, when + t[1] + 0.03);
 }
 
 // ---- LTC timecode output (SMPTE 12M, bits and samples in src/core/slate.js) ----
@@ -663,14 +674,15 @@ function wavePlay(ac, dest, when, val, isMin, hz) {
   waveBursts(val, isMin).forEach(function (b) { g.gain.setValueAtTime(b[2], when + b[0]); g.gain.setValueAtTime(0, when + b[1]); });
   osc.connect(g).connect(dest);
   osc.start(when); osc.stop(when + 0.96);
-  return osc;
+  return { osc: osc, gain: g };
 }
 function scheduleWave(targetMs) {
   if (!ctx || audioKind(state) !== 'wave') return;
   var when = ctxTimeForWall(targetMs) - state.audOfs / 1000;
   if (when < ctx.currentTime) return;
   var d = new Date(targetMs), sec = d.getSeconds(), isMin = sec === 0;
-  track(wavePlay(ctx, ctx.destination, when, isMin ? d.getMinutes() : sec, isMin, waveHz(cycleK(targetMs))), when, when + 0.96);
+  var w = wavePlay(ctx, ctx.destination, when, isMin ? d.getMinutes() : sec, isMin, waveHz(cycleK(targetMs)));
+  track(w.osc, w.gain, when, when + 0.96);
 }
 // Digit-mode sound (settings): beep or waveform code.
 function renderSound() {

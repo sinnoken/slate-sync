@@ -72,3 +72,7 @@ export function descKeys(s, langPref) {
     lang: langPref === 'auto' ? 'langDAuto' : 'langDFixed',
   };
 }
+
+// Whether sounds already playing must stop now: only when the kind of sound changes (muting counts, going to 'off').
+// Moving between modes that all play the waveform code is no change, so the current second's code plays out whole.
+export function hardStop(prevKind, nextKind) { return prevKind !== nextKind; }
