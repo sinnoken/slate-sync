@@ -1,7 +1,7 @@
 // slate.js — 同步場記板的頁面程式：介面、聲音排程與畫面。編碼（波形碼、LTC、tag）在 src/core/slate.js，
 // 建置時由 scripts/build.mjs 打包後內嵌進 src/web/sync-slate.html。
 import { countToTC, cycleK, drawTag, ltcChunk, ltcParams, waveBursts, waveHz } from '../core/slate.js';
-import { DURS, FPS_LIST, MODES, audioKind, defaultState, hintKey, isCode, isCount, modeLocked, readState, screenOf, secondRow } from './slate-mode.js';
+import { DURS, FPS_LIST, MODES, audioKind, defaultState, descKeys, dfSelectable, hintKey, isCode, isCount, modeLocked, readState, screenOf, secondRow } from './slate-mode.js';
 
 // Monotonic wall clock: anchored to Date.now() once, then driven by performance.now() so OS clock steps can't jump the display.
 var WALL0 = Date.now() - performance.now();
@@ -28,14 +28,36 @@ function pickLang() {
 // 所有語言的 key 必須相同；字串裡的 {name} 由 t() 代入。
 var I18N = {
   'zh-Hant': {
+    grpDigit: '數字模式',
+    grpLtc: 'LTC',
+    grpOther: '其他',
+    sndDBeep: '每秒一聲嗶，整分鐘較長，錄音機靠近就收得到。',
+    sndDWave: '波形碼：剪輯軟體的波形上看得出秒數，分析器可自動對時。',
+    syncDSquare: '畫面每秒黑白各半，黑變白是整秒，遠處也清楚。',
+    syncDFlash: '每個整秒短閃一下白，較省電、不刺眼。',
+    fpsHigh: '60Hz 的手機螢幕會跳過部分影格號碼。',
+    dfK: 'DF／NDF',
+    dfD: 'DF：時間碼依規則跳號，與實際時間一致。',
+    ndfD: 'NDF：時間碼不跳號，每小時比實際時間慢約 3.6 秒。',
+    dfNa: '只在 29.97、59.94、119.88 fps 可選；目前的影格率不需要。',
+    customD: '點主畫面的「自訂」即以這個長度開始倒數。',
+    calVideoD: '螢幕更新延遲已自動補償；實拍比對仍有誤差再微調，正值代表提前。每支手機做一次。',
+    calAudioD: '聲音輸出延遲；實拍比對仍有誤差再微調，正值代表提前。每支手機做一次。',
+    palDDefault: '時分藍色、秒白色、格黃色。',
+    palDWhite: '數字全白，最好辨識。',
+    palDRed: '紅色調，暗場不刺眼。',
+    palDLight: '控制區與設定頁改淺底；數字區仍是黑底。',
+    langDAuto: '跟隨手機的語言設定。',
+    langDFixed: '固定使用這個語言，不跟隨手機設定。',
+    analyzerK: '同步分析器',
+    resetK: '重設',
     modeTag: 'Tag', modeLtc: 'LTC', muteAria: '靜音',
     hintClock: '手機時鐘（free run），給人看與聽：畫面黑變白是整秒。點數字可隱藏按鈕。',
     hintUp: '從 0 正數，可排程開始：畫面黑變白是整秒。點數字可隱藏按鈕。',
     hintCd: '點選長度即開始倒數，可排程開始：畫面黑變白是整秒。點數字可隱藏按鈕。',
     hintTag: '給只拍到畫面的攝影機用：頭尾各拍 5–10 秒，分析器自動對時。',
     hintLtc: '把 LTC 接到錄音機或攝影機的音訊輸入，畫面同時拍進攝影機，分析器自動對時。接 MIC 輸入時需衰減。',
-    soundK: '數字模式的聲音',
-    soundD: '時鐘、正數、倒數模式的聲音。嗶聲：每秒一聲，整分鐘較長。波形碼：在剪輯軟體的波形上看得出秒數，分析器可自動對時。',
+    soundK: '聲音',
     sBeep: '嗶聲',
     sWave: '波形碼',
     ltcMuted: 'LTC 已靜音',
@@ -44,17 +66,15 @@ var I18N = {
     cdLen: '倒數長度', schedTitle: '排程開始時間', schedLbl: '排程',
     goCd: '開始倒數', goUp: '開始正數', goStop: '停止', goCancelSched: '取消排程', hintNoWake: '提醒：請在手機設定中暫時關閉自動鎖定，避免螢幕變暗。',
     hintWakeFail: '提醒：無法自動保持螢幕常亮，請在手機設定中暫時關閉自動鎖定。',
-    grpShoot: '拍攝', fpsK: '影格率', fpsD: '和攝影機相同。高於 30 fps 時，60Hz 的手機螢幕會跳過部分影格號碼。',
-    syncK: '畫面同步訊號', syncD: '時鐘、正數、倒數模式的畫面訊號。黑白方波：黑變白是整秒，遠處也清楚。短閃白：較省電、不刺眼。', fsSquare: '黑白方波', fsFlash: '短閃白',
-    grpLook: '外觀', paletteK: '配色', paletteD: '全白：數字最好辨識。紅光：暗場不刺眼。淺色：控制區與設定頁改淺底。黑白方波不受影響。',
-    pDefault: '預設', pWhite: '全白', pRed: '紅光', pLight: '淺色',
-    langK: '語言', langD: '自動：跟隨手機的語言設定。', langAuto: '自動',
+    fpsK: '影格率', fpsD: '{fps} fps，和攝影機相同；時鐘的「格」與 LTC（{label}）依此計算。',
+    syncK: '畫面同步訊號', fsSquare: '黑白方波', fsFlash: '短閃白',
+    grpLook: '外觀', paletteK: '配色', pDefault: '預設', pWhite: '全白', pRed: '紅光', pLight: '淺色',
+    langK: '語言', langAuto: '自動',
     grpCd: '倒數', customK: '自訂長度', edit: '修改',
-    grpAudio: '音訊輸出', audioD: '聲音由模式決定：時鐘、正數、倒數依下方設定，Tag 輸出波形碼，LTC 輸出 LTC；主畫面的靜音鈕對所有模式有效。接 MIC 輸入時需衰減。',
-    ltcK: 'LTC 格式', ltcRate: '依目前影格率輸出：{label}', ltc23976: '23.976（24 格時間碼）', ltcWait: 'LTC 準備中',
-    grpCal: '校準（每支手機做一次）', calD: '螢幕更新延遲已自動補償。實拍比對後仍有誤差再微調，正值代表提前。', ofsVideo: '畫面', ofsAudio: '聲音',
-    grpTools: '其他工具', toolsD: '拍完後在電腦上分析素材：速度比例、校正後長度、對齊到基準檔。檔案不會上傳。', openAnalyzer: '開啟同步分析器（電腦用）',
-    grpReset: '重設', resetD: '恢復所有預設值並清除場次。設定平時會自動記住，需再按一次確認才會執行。',
+    ltc23976: '23.976（24 格時間碼）', ltcWait: 'LTC 準備中',
+    grpCal: '校準', ofsVideo: '畫面', ofsAudio: '聲音',
+    toolsD: '拍完後在電腦上分析素材：速度比例、校正後長度、對齊到基準檔。檔案不會上傳。', openAnalyzer: '開啟同步分析器（電腦用）',
+    resetD: '恢復所有預設值並清除場次。設定平時會自動記住，需再按一次確認才會執行。',
     resetAll: '重設所有設定', resetConfirm: '再按一次重設', resetDone: '已重設',
     schedP: '會在指定時間自動開始，開始前畫面顯示負的時間。倒數請在下方選擇長度；正數從 0 起算。',
     schedAt: '或指定時間', startTime: '開始時間', cancel: '取消', schedOk: '確定排程', quick: '{n} 分鐘後',
@@ -69,14 +89,36 @@ var I18N = {
     pvToday: '將於今天 {t} 開始（還有 {left}）', pvTomorrow: '將於明天 {t} 開始（還有 {left}）', pvUp: '從 0 開始正數', pvCd: '結束於 {when}，倒數長度 {dur}'
   },
   en: {
+    grpDigit: 'Digit modes',
+    grpLtc: 'LTC',
+    grpOther: 'Other',
+    sndDBeep: 'A beep every second, longer on the minute; keep the recorder close enough to pick it up.',
+    sndDWave: 'Waveform code: the seconds can be read in an editor’s waveform view, and the analyzer syncs it automatically.',
+    syncDSquare: 'Half of each second white, half black; black to white is the top of the second, easy to read from a distance.',
+    syncDFlash: 'A short white flash at the top of each second; saves battery and is easier on the eyes.',
+    fpsHigh: ' A 60Hz phone screen skips some frame numbers.',
+    dfK: 'DF / NDF',
+    dfD: 'DF: frame numbers are skipped by rule so the time code stays on real time.',
+    ndfD: 'NDF: no frame numbers are skipped; the time code falls about 3.6 s per hour behind real time.',
+    dfNa: 'Only for 29.97, 59.94 and 119.88 fps; the current frame rate doesn’t need it.',
+    customD: 'Tap “Custom” on the main screen to start a countdown of this length.',
+    calVideoD: 'Screen refresh delay is compensated automatically. Fine-tune only if test footage still shows an offset; positive values shift it earlier. Once per phone.',
+    calAudioD: 'Audio output delay. Fine-tune only if test footage still shows an offset; positive values shift it earlier. Once per phone.',
+    palDDefault: 'Hours and minutes blue, seconds white, frames yellow.',
+    palDWhite: 'All digits white, the most legible.',
+    palDRed: 'Red tones, easy on the eyes on a dark set.',
+    palDLight: 'Light background for the controls and settings; the digits stay on black.',
+    langDAuto: 'Follows your phone’s language.',
+    langDFixed: 'Always uses this language, whatever the phone is set to.',
+    analyzerK: 'Sync Analyzer',
+    resetK: 'Reset',
     modeTag: 'Tag', modeLtc: 'LTC', muteAria: 'Mute',
     hintClock: 'Phone clock (free run) for people to see and hear: black to white is the top of each second. Tap the digits to hide the buttons.',
     hintUp: 'Counts up from 0 and can be scheduled. Black to white is the top of each second. Tap the digits to hide the buttons.',
     hintCd: 'Tap a length to start the countdown; it can also be scheduled. Black to white is the top of each second.',
     hintTag: 'For cameras that only see the screen: shoot 5–10 s at the head and tail, and the analyzer syncs them automatically.',
     hintLtc: 'Feed the LTC into a recorder or camera audio input and let the camera see the screen; the analyzer syncs automatically. Attenuate it for a MIC input.',
-    soundK: 'Sound in digit modes',
-    soundD: 'Sound for Clock, Count up and Countdown. Beep: one per second, longer on the minute. Waveform code: the seconds can be read in an editor’s waveform view, and the analyzer syncs it automatically.',
+    soundK: 'Sound',
     sBeep: 'Beep',
     sWave: 'Waveform code',
     ltcMuted: 'LTC muted',
@@ -85,17 +127,15 @@ var I18N = {
     cdLen: 'Countdown length', schedTitle: 'Schedule start', schedLbl: 'Schedule',
     goCd: 'Start countdown', goUp: 'Start count-up', goStop: 'Stop', goCancelSched: 'Cancel schedule', hintNoWake: 'Note: turn off auto-lock in your phone settings while shooting so the screen stays on.',
     hintWakeFail: 'Note: the screen can’t be kept on automatically. Turn off auto-lock in your phone settings for now.',
-    grpShoot: 'Shooting', fpsK: 'Frame rate', fpsD: 'Match the camera. Above 30 fps, a 60Hz phone screen skips some frame numbers.',
-    syncK: 'Visual sync signal', syncD: 'Screen signal for Clock, Count up and Countdown. Square wave: black to white marks the top of each second, easy to read from a distance. Short flash: saves battery and is easier on the eyes.', fsSquare: 'Square wave', fsFlash: 'Short flash',
-    grpLook: 'Appearance', paletteK: 'Colors', paletteD: 'White: most legible digits. Red: easy on the eyes on a dark set. Light: light background for the controls and settings. The square wave is unaffected.',
-    pDefault: 'Default', pWhite: 'White', pRed: 'Red', pLight: 'Light',
-    langK: 'Language', langD: 'Auto follows your phone’s language.', langAuto: 'Auto',
+    fpsK: 'Frame rate', fpsD: '{fps} fps, matching the camera; the clock’s frame digits and LTC ({label}) follow it.',
+    syncK: 'Visual sync signal', fsSquare: 'Square wave', fsFlash: 'Short flash',
+    grpLook: 'Appearance', paletteK: 'Colors', pDefault: 'Default', pWhite: 'White', pRed: 'Red', pLight: 'Light',
+    langK: 'Language', langAuto: 'Auto',
     grpCd: 'Countdown', customK: 'Custom length', edit: 'Edit',
-    grpAudio: 'Audio output', audioD: 'The mode sets the sound: Clock, Count up and Countdown follow the setting below, Tag plays the waveform code and LTC plays LTC; the mute button on the main screen silences every mode. Attenuate the signal when feeding a MIC input.',
-    ltcK: 'LTC format', ltcRate: 'Follows the current frame rate: {label}', ltc23976: '23.976 (24-frame timecode)', ltcWait: 'LTC starting…',
-    grpCal: 'Calibration (once per phone)', calD: 'Screen refresh delay is compensated automatically. Fine-tune only if test footage still shows an offset; positive values shift it earlier.', ofsVideo: 'Video', ofsAudio: 'Audio',
-    grpTools: 'Other tools', toolsD: 'After the shoot, analyze footage on a computer: speed ratio, corrected length, alignment to a reference file. Files are never uploaded.', openAnalyzer: 'Open Sync Analyzer (for computers)',
-    grpReset: 'Reset', resetD: 'Restores all defaults and clears the scene. Settings are saved automatically; tap again to confirm the reset.',
+    ltc23976: '23.976 (24-frame timecode)', ltcWait: 'LTC starting…',
+    grpCal: 'Calibration', ofsVideo: 'Video', ofsAudio: 'Audio',
+    toolsD: 'After the shoot, analyze footage on a computer: speed ratio, corrected length, alignment to a reference file. Files are never uploaded.', openAnalyzer: 'Open Sync Analyzer (for computers)',
+    resetD: 'Restores all defaults and clears the scene. Settings are saved automatically; tap again to confirm the reset.',
     resetAll: 'Reset all settings', resetConfirm: 'Tap again to reset', resetDone: 'Reset done',
     schedP: 'Starts automatically at the set time; until then the display shows negative time. For a countdown, pick the length below; a count-up starts from 0.',
     schedAt: 'Or set a time', startTime: 'Start time', cancel: 'Cancel', schedOk: 'Schedule', quick: 'In {n} min',
@@ -110,14 +150,36 @@ var I18N = {
     pvToday: 'Starts today at {t} (in {left})', pvTomorrow: 'Starts tomorrow at {t} (in {left})', pvUp: 'Counts up from 0', pvCd: 'Ends {when}, countdown length {dur}'
   },
   ja: {
+    grpDigit: '数字モード',
+    grpLtc: 'LTC',
+    grpOther: 'その他',
+    sndDBeep: '毎秒ビープ、分の頭は長め。レコーダーは音が録れるよう近くに置いてください。',
+    sndDWave: '波形コード：編集ソフトの波形で秒数が読め、アナライザーで自動同期できます。',
+    syncDSquare: '毎秒半分が白、半分が黒。黒から白が秒の頭で、離れていても見やすい。',
+    syncDFlash: '秒の頭に短く白く光ります。省電力でまぶしくない。',
+    fpsHigh: '60Hz の画面では一部のフレーム番号が表示されません。',
+    dfK: 'DF／NDF',
+    dfD: 'DF：規則に従ってフレーム番号を飛ばし、実時間に合わせます。',
+    ndfD: 'NDF：フレーム番号を飛ばさず、1 時間で実時間より約 3.6 秒遅れます。',
+    dfNa: '29.97・59.94・119.88 fps のときだけ選べます。現在のフレームレートでは不要です。',
+    customD: 'メイン画面の「カスタム」をタップすると、この長さでカウントダウンを始めます。',
+    calVideoD: '画面の表示遅延は自動で補正しています。テスト撮影でずれが残る場合だけ微調整してください。プラスは早める方向です。端末ごとに 1 回。',
+    calAudioD: '音声出力の遅延です。テスト撮影でずれが残る場合だけ微調整してください。プラスは早める方向です。端末ごとに 1 回。',
+    palDDefault: '時分は青、秒は白、フレームは黄。',
+    palDWhite: '数字をすべて白に。最も読みやすい。',
+    palDRed: '赤系の色で、暗い現場でもまぶしくない。',
+    palDLight: '操作部と設定画面を明るい背景に。数字は黒背景のままです。',
+    langDAuto: '端末の言語設定に合わせます。',
+    langDFixed: '端末の設定に関係なく、この言語を使います。',
+    analyzerK: '同期アナライザー',
+    resetK: 'リセット',
     modeTag: 'Tag', modeLtc: 'LTC', muteAria: 'ミュート',
     hintClock: '端末の時計（フリーラン）を人が見て聞くためのモード。黒→白が秒の頭です。数字をタップするとボタンが消えます。',
     hintUp: '0 からカウントアップ。開始の予約もできます。黒→白が秒の頭です。',
     hintCd: '長さをタップするとカウントダウン開始。開始の予約もできます。黒→白が秒の頭です。',
     hintTag: '画面だけを撮るカメラ用：頭と終わりに 5〜10 秒ずつ撮ると、アナライザーが自動で同期します。',
     hintLtc: 'LTC をレコーダーやカメラの音声入力へ送り、画面もカメラに映すと、アナライザーが自動で同期します。MIC 入力では減衰させてください。',
-    soundK: '数字モードの音',
-    soundD: '時計・アップ・ダウンの音。ビープ：毎秒 1 回、分の頭は長め。波形コード：編集ソフトの波形で秒数が読め、アナライザーで自動同期できます。',
+    soundK: '音',
     sBeep: 'ビープ',
     sWave: '波形コード',
     ltcMuted: 'LTC ミュート中',
@@ -126,17 +188,15 @@ var I18N = {
     cdLen: 'カウントダウン時間', schedTitle: '開始時刻の予約', schedLbl: '予約',
     goCd: 'カウントダウン開始', goUp: 'カウントアップ開始', goStop: '停止', goCancelSched: '予約取消', hintNoWake: '注意：画面が暗くならないよう、端末の設定で自動ロックを一時的にオフにしてください。',
     hintWakeFail: '注意：画面を点灯したままにできませんでした。端末の設定で自動ロックを一時的にオフにしてください。',
-    grpShoot: '撮影', fpsK: 'フレームレート', fpsD: 'カメラと同じ値にします。30 fps を超えると、60Hz の画面では一部のフレーム番号が表示されません。',
-    syncK: '画面の同期信号', syncD: '時計・アップ・ダウンの画面信号。白黒の矩形波：黒から白が秒の頭で、離れていても見やすい。ショートフラッシュ：省電力でまぶしくない。', fsSquare: '矩形波', fsFlash: 'フラッシュ',
-    grpLook: '表示', paletteK: '配色', paletteD: '白：数字が最も読みやすい。赤：暗い現場でもまぶしくない。淡色：操作部と設定画面を明るい背景に。矩形波には影響しません。',
-    pDefault: '標準', pWhite: '白', pRed: '赤', pLight: '淡色',
-    langK: '言語', langD: '自動：端末の言語設定に合わせます。', langAuto: '自動',
+    fpsK: 'フレームレート', fpsD: '{fps} fps：カメラと同じ値にします。時計のフレーム数字と LTC（{label}）はこれに従います。',
+    syncK: '画面の同期信号', fsSquare: '矩形波', fsFlash: 'フラッシュ',
+    grpLook: '表示', paletteK: '配色', pDefault: '標準', pWhite: '白', pRed: '赤', pLight: '淡色',
+    langK: '言語', langAuto: '自動',
     grpCd: 'カウントダウン', customK: 'カスタム時間', edit: '変更',
-    grpAudio: '音声出力', audioD: '音はモードで決まります。時計・アップ・ダウンは下の設定、Tag は波形コード、LTC は LTC を出力します。メイン画面のミュートボタンはすべてのモードで有効です。MIC 入力につなぐ場合は減衰させてください。',
-    ltcK: 'LTC 形式', ltcRate: '現在のフレームレートで出力：{label}', ltc23976: '23.976（24 フレームのタイムコード）', ltcWait: 'LTC 準備中',
-    grpCal: 'キャリブレーション（端末ごとに 1 回）', calD: '画面の表示遅延は自動で補正しています。テスト撮影で比べてもずれが残る場合だけ微調整してください。プラスは早める方向です。', ofsVideo: '映像', ofsAudio: '音声',
-    grpTools: 'その他のツール', toolsD: '撮影後にパソコンで素材を解析：速度比、補正後の長さ、基準ファイルへの位置合わせ。ファイルはアップロードされません。', openAnalyzer: '同期アナライザーを開く（PC 用）',
-    grpReset: 'リセット', resetD: 'すべて初期値に戻し、シーンも消去します。設定は自動で保存されます。2 回押すと実行します。',
+    ltc23976: '23.976（24 フレームのタイムコード）', ltcWait: 'LTC 準備中',
+    grpCal: 'キャリブレーション', ofsVideo: '映像', ofsAudio: '音声',
+    toolsD: '撮影後にパソコンで素材を解析：速度比、補正後の長さ、基準ファイルへの位置合わせ。ファイルはアップロードされません。', openAnalyzer: '同期アナライザーを開く（PC 用）',
+    resetD: 'すべて初期値に戻し、シーンも消去します。設定は自動で保存されます。2 回押すと実行します。',
     resetAll: 'すべての設定をリセット', resetConfirm: 'もう一度押してリセット', resetDone: 'リセットしました',
     schedP: '指定した時刻に自動で開始し、それまではマイナスの時間を表示します。カウントダウンは下で長さを選んでください。カウントアップは 0 から始まります。',
     schedAt: 'または時刻を指定', startTime: '開始時刻', cancel: 'キャンセル', schedOk: '予約する', quick: '{n}分後',
@@ -151,14 +211,36 @@ var I18N = {
     pvToday: '今日 {t} に開始（あと {left}）', pvTomorrow: '明日 {t} に開始（あと {left}）', pvUp: '0 からカウントアップ', pvCd: '{when} に終了、長さ {dur}'
   },
   ko: {
+    grpDigit: '숫자 모드',
+    grpLtc: 'LTC',
+    grpOther: '기타',
+    sndDBeep: '매초 비프, 정분에는 길게 울립니다. 녹음기를 가까이 두세요.',
+    sndDWave: '파형 코드: 편집 프로그램의 파형에서 초를 읽을 수 있고 분석기가 자동으로 싱크합니다.',
+    syncDSquare: '매초 절반은 흰색, 절반은 검정입니다. 검정에서 흰색이 매초 시작이며 멀리서도 잘 보입니다.',
+    syncDFlash: '매초 시작에 짧게 흰색으로 깜박입니다. 배터리를 아끼고 덜 눈부십니다.',
+    fpsHigh: ' 60Hz 휴대폰 화면에서는 일부 프레임 번호를 건너뜁니다.',
+    dfK: 'DF／NDF',
+    dfD: 'DF: 규칙에 따라 프레임 번호를 건너뛰어 실제 시간과 맞춥니다.',
+    ndfD: 'NDF: 프레임 번호를 건너뛰지 않으며, 한 시간에 실제 시간보다 약 3.6초 늦어집니다.',
+    dfNa: '29.97·59.94·119.88 fps에서만 선택할 수 있습니다. 현재 프레임 레이트에는 필요 없습니다.',
+    customD: '메인 화면에서 ‘맞춤’을 누르면 이 길이로 카운트다운을 시작합니다.',
+    calVideoD: '화면 갱신 지연은 자동으로 보정됩니다. 테스트 촬영 후에도 오차가 있을 때만 미세 조정하세요. 양수 값은 더 이르게 맞춥니다. 휴대폰마다 한 번.',
+    calAudioD: '오디오 출력 지연입니다. 테스트 촬영 후에도 오차가 있을 때만 미세 조정하세요. 양수 값은 더 이르게 맞춥니다. 휴대폰마다 한 번.',
+    palDDefault: '시·분은 파랑, 초는 흰색, 프레임은 노랑.',
+    palDWhite: '숫자를 모두 흰색으로. 가장 잘 보입니다.',
+    palDRed: '붉은 색조로 어두운 현장에서 눈부시지 않습니다.',
+    palDLight: '조작부와 설정 화면을 밝은 배경으로 바꿉니다. 숫자는 검은 배경 그대로입니다.',
+    langDAuto: '휴대폰의 언어 설정을 따릅니다.',
+    langDFixed: '휴대폰 설정과 관계없이 이 언어를 사용합니다.',
+    analyzerK: '싱크 분석기',
+    resetK: '초기화',
     modeTag: 'Tag', modeLtc: 'LTC', muteAria: '음소거',
     hintClock: '휴대폰 시계(프리런)를 보고 듣는 모드입니다. 검정→흰색이 매초 시작입니다. 숫자를 탭하면 버튼이 숨겨집니다.',
     hintUp: '0부터 카운트업하며 시작을 예약할 수 있습니다. 검정→흰색이 매초 시작입니다.',
     hintCd: '길이를 누르면 카운트다운이 시작되며 예약도 할 수 있습니다. 검정→흰색이 매초 시작입니다.',
     hintTag: '화면만 찍는 카메라용: 처음과 끝에 5–10초씩 찍으면 분석기가 자동으로 싱크를 맞춥니다.',
     hintLtc: 'LTC를 녹음기나 카메라의 오디오 입력에 연결하고 화면도 카메라에 담으면 분석기가 자동으로 싱크합니다. MIC 입력에는 감쇠가 필요합니다.',
-    soundK: '숫자 모드의 소리',
-    soundD: '시계·카운트업·카운트다운의 소리. 비프: 매초 한 번, 정분에는 길게. 파형 코드: 편집 프로그램의 파형에서 초를 읽을 수 있고 분석기가 자동으로 싱크합니다.',
+    soundK: '소리',
     sBeep: '비프',
     sWave: '파형 코드',
     ltcMuted: 'LTC 음소거됨',
@@ -167,17 +249,15 @@ var I18N = {
     cdLen: '카운트다운 길이', schedTitle: '시작 시간 예약', schedLbl: '예약',
     goCd: '카운트다운 시작', goUp: '카운트업 시작', goStop: '정지', goCancelSched: '예약 취소', hintNoWake: '참고: 화면이 어두워지지 않도록 휴대폰 설정에서 자동 잠금을 잠시 꺼 주세요.',
     hintWakeFail: '참고: 화면 켜짐을 자동으로 유지할 수 없습니다. 휴대폰 설정에서 자동 잠금을 잠시 꺼 주세요.',
-    grpShoot: '촬영', fpsK: '프레임 레이트', fpsD: '카메라와 같게 맞추세요. 30 fps를 넘으면 60Hz 휴대폰 화면에서는 일부 프레임 번호를 건너뜁니다.',
-    syncK: '화면 싱크 신호', syncD: '시계·카운트업·카운트다운의 화면 신호. 흑백 사각파: 검정에서 흰색이 매초 시작이며 멀리서도 잘 보입니다. 짧은 플래시: 배터리를 아끼고 덜 눈부십니다.', fsSquare: '흑백 사각파', fsFlash: '짧은 플래시',
-    grpLook: '화면', paletteK: '색상', paletteD: '화이트: 숫자가 가장 잘 보입니다. 레드: 어두운 현장에서 눈부시지 않습니다. 라이트: 조작부와 설정 화면을 밝은 배경으로 바꿉니다. 사각파에는 영향이 없습니다.',
-    pDefault: '기본', pWhite: '화이트', pRed: '레드', pLight: '라이트',
-    langK: '언어', langD: '자동: 휴대폰의 언어 설정을 따릅니다.', langAuto: '자동',
+    fpsK: '프레임 레이트', fpsD: '{fps} fps: 카메라와 같게 맞추세요. 시계의 프레임 숫자와 LTC({label})가 이를 따릅니다.',
+    syncK: '화면 싱크 신호', fsSquare: '흑백 사각파', fsFlash: '짧은 플래시',
+    grpLook: '화면', paletteK: '색상', pDefault: '기본', pWhite: '화이트', pRed: '레드', pLight: '라이트',
+    langK: '언어', langAuto: '자동',
     grpCd: '카운트다운', customK: '맞춤 길이', edit: '변경',
-    grpAudio: '오디오 출력', audioD: '소리는 모드가 정합니다. 시계·카운트업·카운트다운은 아래 설정을, Tag는 파형 코드를, LTC는 LTC를 출력합니다. 메인 화면의 음소거 버튼은 모든 모드에 적용됩니다. MIC 입력에 연결할 때는 감쇠가 필요합니다.',
-    ltcK: 'LTC 형식', ltcRate: '현재 프레임 레이트로 출력: {label}', ltc23976: '23.976 (24프레임 타임코드)', ltcWait: 'LTC 준비 중',
-    grpCal: '보정 (휴대폰마다 한 번)', calD: '화면 갱신 지연은 자동으로 보정됩니다. 테스트 촬영 후에도 오차가 있을 때만 미세 조정하세요. 양수 값은 더 이르게 맞춥니다.', ofsVideo: '영상', ofsAudio: '오디오',
-    grpTools: '기타 도구', toolsD: '촬영 후 컴퓨터에서 소스를 분석합니다: 속도 비율, 보정 후 길이, 기준 파일에 맞추기. 파일은 업로드되지 않습니다.', openAnalyzer: '싱크 분석기 열기 (PC용)',
-    grpReset: '초기화', resetD: '모든 설정을 기본값으로 되돌리고 씬을 지웁니다. 설정은 자동으로 저장되며, 두 번 눌러야 실행됩니다.',
+    ltc23976: '23.976 (24프레임 타임코드)', ltcWait: 'LTC 준비 중',
+    grpCal: '보정', ofsVideo: '영상', ofsAudio: '오디오',
+    toolsD: '촬영 후 컴퓨터에서 소스를 분석합니다: 속도 비율, 보정 후 길이, 기준 파일에 맞추기. 파일은 업로드되지 않습니다.', openAnalyzer: '싱크 분석기 열기 (PC용)',
+    resetD: '모든 설정을 기본값으로 되돌리고 씬을 지웁니다. 설정은 자동으로 저장되며, 두 번 눌러야 실행됩니다.',
     resetAll: '모든 설정 초기화', resetConfirm: '한 번 더 누르면 초기화', resetDone: '초기화됨',
     schedP: '지정한 시간에 자동으로 시작되며, 시작 전에는 음수 시간이 표시됩니다. 카운트다운은 아래에서 길이를 선택하세요. 카운트업은 0부터 시작합니다.',
     schedAt: '또는 시간 지정', startTime: '시작 시간', cancel: '취소', schedOk: '예약하기', quick: '{n}분 후',
@@ -562,10 +642,13 @@ function ltcNowText(W) {
   var tc = countToTC(ltc.startCount + k, ltc.p);
   return 'LTC ' + pad(tc.h) + ':' + pad(tc.m) + ':' + pad(tc.s) + (ltc.p.df ? ';' : ':') + pad(tc.f);
 }
+// Settings → LTC: the frame rate card says what the chosen rate does; DF / NDF can only be chosen for the 29.97 family.
 function renderLtc() {
-  $('ltcRate').textContent = t('ltcRate', { label: ltcLabel(ltcParams(state.fps, state.df)) });
-  $('dfSeg').hidden = !(state.fps === 29.97 || state.fps === 59.94 || state.fps === 119.88);
+  var p = ltcParams(state.fps, state.df), df29 = dfSelectable(state.fps);
+  $('fpsD').textContent = t('fpsD', { fps: state.fps, label: ltcLabel(p) }) + (state.fps > 30 ? t('fpsHigh') : '');
+  $('dfBtn').disabled = $('ndfBtn').disabled = !df29;
   $('dfBtn').setAttribute('aria-pressed', state.df); $('ndfBtn').setAttribute('aria-pressed', !state.df);
+  setKey($('dfD'), descKeys(state).df);
 }
 function setDf(v) { state.df = v; save(); renderLtc(); if (ltc.on) ltcStart(); }
 $('dfBtn').addEventListener('click', function () { setDf(true); });
@@ -592,6 +675,7 @@ function scheduleWave(targetMs) {
 // Digit-mode sound (settings): beep or waveform code.
 function renderSound() {
   $('sndBeep').setAttribute('aria-pressed', state.sound === 'beep'); $('sndWave').setAttribute('aria-pressed', state.sound === 'wave');
+  setKey($('soundD'), descKeys(state).sound);
 }
 $('sndBeep').addEventListener('click', function () { state.sound = 'beep'; save(); renderSound(); applyAudio(); });
 $('sndWave').addEventListener('click', function () { state.sound = 'wave'; save(); renderSound(); applyAudio(); });
@@ -600,6 +684,7 @@ $('sndWave').addEventListener('click', function () { state.sound = 'wave'; save(
 function renderVisual() {
   var sc = screenOf(state);
   $('fsSquare').setAttribute('aria-pressed', state.flashStyle === 'square'); $('fsFlash').setAttribute('aria-pressed', state.flashStyle === 'flash');
+  setKey($('syncD'), descKeys(state).sync);
   document.body.classList.toggle('sq', sc.sync === 'square');
   document.body.classList.toggle('ltcm', !sc.digits);
   if (sc.tag !== document.body.classList.contains('atag')) { document.body.classList.toggle('atag', sc.tag); relayout(); }
@@ -649,6 +734,7 @@ function renderPalette() {
   Array.prototype.forEach.call($('paletteSeg').children, function (b) {
     b.setAttribute('aria-pressed', b.getAttribute('data-p') === state.palette);
   });
+  setKey($('paletteD'), descKeys(state).palette);
 }
 Array.prototype.forEach.call($('paletteSeg').children, function (b) {
   b.addEventListener('click', function () { state.palette = b.getAttribute('data-p'); save(); renderPalette(); });
@@ -673,6 +759,7 @@ function langPref() {
 function renderLang() {
   var pref = langPref();
   Array.prototype.forEach.call($('langSeg').children, function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-l') === pref); });
+  setKey($('langD'), descKeys(state, pref).lang);
 }
 Array.prototype.forEach.call($('langSeg').children, function (b) {
   b.addEventListener('click', function () {

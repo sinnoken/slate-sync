@@ -59,3 +59,17 @@ export function secondRow(mode) { return mode === 'cd' ? 'cd' : mode === 'up' ? 
 export function modeLocked(mode, current, busy) { return busy && mode !== current; }
 
 export function hintKey(mode) { return 'hint' + { clock: 'Clock', up: 'Up', cd: 'Cd', tag: 'Tag', ltc: 'Ltc' }[mode]; }
+
+// Settings → LTC: DF / NDF can only be chosen for the 29.97 family (LTC at 30000/1001 frames a second).
+export function dfSelectable(fps) { return fps === 29.97 || fps === 59.94 || fps === 119.88; }
+
+// Settings: each card's description speaks only of the chosen option (docs/slate-ui.md, rule 4). The i18n key per card.
+export function descKeys(s, langPref) {
+  return {
+    sound: s.sound === 'wave' ? 'sndDWave' : 'sndDBeep',
+    sync: s.flashStyle === 'flash' ? 'syncDFlash' : 'syncDSquare',
+    df: !dfSelectable(s.fps) ? 'dfNa' : s.df ? 'dfD' : 'ndfD',
+    palette: { default: 'palDDefault', white: 'palDWhite', red: 'palDRed', light: 'palDLight' }[s.palette],
+    lang: langPref === 'auto' ? 'langDAuto' : 'langDFixed',
+  };
+}
