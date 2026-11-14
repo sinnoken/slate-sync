@@ -768,6 +768,7 @@ function applyI18n() {
   renderLang(); renderControls(); renderLtc();
   if (!$('schedWrap').hidden) { renderSchedDur(); renderSched(); }
   statusKey = '';   // the main loop only rewrites the status line when this key changes
+  sizeHint();
 }
 function langPref() {
   try { var s = localStorage.getItem('slate-lang'); return LANGS.indexOf(s) >= 0 ? s : 'auto'; } catch (e) { return 'auto'; }
@@ -813,7 +814,26 @@ function fit() {
   clockEl.style.setProperty('--k', w > avail ? (avail / w).toFixed(3) : '1');
 }
 // The digits are fitted after the tag, because with AprilTag their box is the space the tag leaves.
-function relayout() { layoutTag(); fit(); }
+function relayout() { sizeHint(); layoutTag(); fit(); }
+// The hint keeps the height of the tallest of the five mode hints (current language and width), so switching modes
+// never changes the control area's height and the stage does not jump. Measured with a hidden copy of the hint;
+// the wake-lock warning is a line of its own and not counted. In landscape the hint is hidden (width 0): nothing to do.
+var hintProbe = null;
+function sizeHint() {
+  var el = $('hint'), w = el.clientWidth;
+  if (!w) return;
+  if (!hintProbe) {
+    hintProbe = document.createElement('p');
+    hintProbe.className = 'hint'; hintProbe.setAttribute('aria-hidden', 'true');
+    hintProbe.style.cssText = 'position:absolute;visibility:hidden;left:0;top:0;pointer-events:none';
+    el.parentNode.appendChild(hintProbe);
+  }
+  hintProbe.style.width = w + 'px';
+  var max = 0;
+  MODES.forEach(function (m) { hintProbe.textContent = t(hintKey(m)); max = Math.max(max, hintProbe.offsetHeight); });
+  var mh = max + 'px';
+  if (el.style.minHeight !== mh) el.style.minHeight = mh;
+}
 window.addEventListener('resize', relayout);
 if (window.ResizeObserver) new ResizeObserver(relayout).observe($('stage'));
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(relayout);
