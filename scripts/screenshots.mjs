@@ -168,6 +168,9 @@ async function cdp(port) {
   return { send, once, problems, close: () => ws.close() };
 }
 
+// 把值寫成可放進執行碼的 JS 字面值：JSON 之外再跳脫 < > / 與 U+2028／U+2029，字串無法跳出字面值。
+const lit = v => JSON.stringify(v).replace(/[<>/\u2028\u2029]/g, ch => '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0'));
+
 // 每張截圖用的頁面操作；每張都從重新載入開始，彼此不互相影響。
 function pageApi(c) {
   const p = {
@@ -177,8 +180,8 @@ function pageApi(c) {
       if (r.exceptionDetails) throw new Error(`${r.exceptionDetails.exception?.description || r.exceptionDetails.text}\n  in: ${expr.slice(0, 160)}`);
       return r.result.value;
     },
-    click: sel => p.ev(`document.querySelector(${JSON.stringify(sel)}).click()`),
-    check: sel => p.ev(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e.checked) e.click(); })()`),
+    click: sel => p.ev(`document.querySelector(${lit(sel)}).click()`),
+    check: sel => p.ev(`(() => { const e = document.querySelector(${lit(sel)}); if (!e.checked) e.click(); })()`),
     // 開啟設定頁或對話框時焦點會移入第一個按鈕（無障礙行為），程式移入的焦點會畫出焦點框，拍照前先移開。
     blur: () => p.ev('document.activeElement && document.activeElement.blur()'),
     // 場記板的黑白方波每秒有半秒全白：等到黑色那半秒（毫秒 620–760）才拍，數字才看得清楚，每次結果也一致。
@@ -186,7 +189,7 @@ function pageApi(c) {
     async analyze(files) {
       await p.ev(`(async () => {
         const dt = new DataTransfer();
-        for (const n of ${JSON.stringify(files)}) {
+        for (const n of ${lit(files)}) {
           const b = await (await fetch('/fixtures/' + n)).blob();
           dt.items.add(new File([b], n, { type: b.type, lastModified: ${MTIME} }));
         }
@@ -222,7 +225,7 @@ async function shoot(c, base, shot, loc, rawFile) {
   // localStorage 只能在頁面載入後設定（about:blank 不能存取），所以先載入一次、設定後再重新載入。
   // 用 127.0.0.1 而非 localhost：service worker 只在 localhost／https 註冊，避免拍到快取裡的舊版頁面。
   await load(c, url);
-  await p.ev(`localStorage.clear(); localStorage.setItem('slate-lang', ${JSON.stringify(loc.lang)});` +
+  await p.ev(`localStorage.clear(); localStorage.setItem('slate-lang', ${lit(loc.lang)});` +
     (slate ? ` localStorage.setItem('slate-tag', '12A');` : ''));
   await load(c, url);
   await p.ev('document.fonts.ready.then(() => true)');
@@ -239,7 +242,7 @@ async function shoot(c, base, shot, loc, rawFile) {
     params.captureBeyondViewport = true;
     params.clip = { x: 0, y: 0, width: w, height: Math.ceil(m.cssContentSize.height), scale: 1 };
   } else if (shot.capture.clip) {
-    const r = await p.ev(`(() => { const b = document.querySelector(${JSON.stringify(shot.capture.clip)}).getBoundingClientRect(); return { x: b.left, y: b.top + scrollY, w: b.width, h: b.height }; })()`);
+    const r = await p.ev(`(() => { const b = document.querySelector(${lit(shot.capture.clip)}).getBoundingClientRect(); return { x: b.left, y: b.top + scrollY, w: b.width, h: b.height }; })()`);
     params.clip = { x: Math.round(r.x - 16), y: Math.round(r.y - 16), width: Math.round(r.w + 32), height: Math.round(r.h + 32), scale: 1 };
   }
   const shotData = await c.send('Page.captureScreenshot', params);
