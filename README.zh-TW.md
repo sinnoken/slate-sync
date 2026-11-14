@@ -12,25 +12,30 @@ slate-sync 把手機變成同步場記板。每段開頭和結尾各錄一次，
 [![授權：MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 <p>
-<img src="docs/images/slate-portrait-zh-TW.png" alt="手機直拿的同步場記板：時、分、秒、格分四行" width="220">
-<img src="docs/images/slate-landscape-zh-TW.png" alt="手機橫拿的同步場記板：時鐘兩行" width="476">
+<img src="docs/images/slate-portrait-zh-TW.png" alt="手機直拿的同步場記板，時鐘模式：時、分、秒、格分四行，下方是五個模式按鈕" width="220">
+<img src="docs/images/slate-landscape-zh-TW.png" alt="手機橫拿的同步場記板，時鐘模式：時鐘兩行" width="476">
 </p>
 
-*手機上的同步場記板：直拿時時、分、秒、格分四行，橫拿時兩行；點一下數字可隱藏按鈕。*
+*手機上的同步場記板（時鐘模式）：直拿時時、分、秒、格分四行，橫拿時兩行；下方切換五種模式，右上角是靜音與設定；點一下數字可隱藏按鈕。*
 
 ![電腦瀏覽器中的同步分析器：分析兩個測試檔後的分析結果、聲畫同步檢查、對齊與換算、文字報告](docs/images/analyzer-full-zh-TW.png)
 
 *電腦瀏覽器中的同步分析器：分析完成後的整頁，含分析結果、聲畫同步檢查、對齊與換算與文字報告。*
 
 <details>
-<summary>更多畫面：AprilTag 模式、設定頁、對話框、分析器選單</summary>
+<summary>更多畫面：倒數、Tag 與 LTC 模式、設定頁、對話框、分析器選單</summary>
 
-<img src="docs/images/slate-apriltag-zh-TW.png" alt="場記板的 AprilTag 模式" width="220">
+<img src="docs/images/slate-countdown-zh-TW.png" alt="場記板的倒數模式，倒數進行中" width="220">
+<img src="docs/images/slate-tag-zh-TW.png" alt="場記板的 Tag 模式：AprilTag 與一行手機時鐘" width="220">
+<img src="docs/images/slate-ltc-zh-TW.png" alt="場記板的 LTC 模式：AprilTag 與一行輸出中的 LTC 時間碼" width="220">
+
+*場記板：倒數進行中、Tag 模式（AprilTag＋手機時鐘）、LTC 模式（AprilTag＋輸出中的 LTC 時間碼）。*
+
 <img src="docs/images/slate-settings-zh-TW.png" alt="場記板的設定頁" width="220">
 <img src="docs/images/slate-schedule-zh-TW.png" alt="排程開始時間對話框" width="220">
 <img src="docs/images/slate-custom-zh-TW.png" alt="自訂倒數對話框" width="220">
 
-*場記板：AprilTag 畫面碼、設定頁（完整高度）、排程開始時間、自訂倒數。*
+*場記板：設定頁（完整高度）、排程開始時間、自訂倒數。*
 
 ![分析器的選項列](docs/images/analyzer-options-zh-TW.png)
 
@@ -45,10 +50,12 @@ slate-sync 把手機變成同步場記板。每段開頭和結尾各錄一次，
 ## 特色
 
 - **手機場記板，免安裝**：開啟網頁、加到主畫面即可，全螢幕，第一次開啟後**離線也能用**。
-  - **時鐘、倒數、正數**三種模式，可排程開始。
-  - **全螢幕黑白方波**：黑變白就是整秒，只拍得到螢幕的攝影機也能對齊。
-  - **AprilTag 畫面碼**：機器可讀的標記，每個整秒換一次，和波形碼同步；只拍到螢幕的攝影機也能由分析器自動對時。
-  - **聲音同步訊號**：嗶聲、**波形碼**或 **LTC**，支援 23.976–120 fps。
+  - **五種模式**，畫面與聲音由模式決定：
+    - **時鐘、正數、倒數**給人看與聽：大字的時間、全螢幕黑白方波（黑變白就是整秒）或短閃白，聲音是嗶聲或**波形碼**；正數與倒數可排程開始。
+    - **Tag** 給只拍得到螢幕的攝影機：全螢幕的 **AprilTag 畫面碼**每個整秒換一次，聲音是波形碼，分析器自動對時。
+    - **LTC** 給能錄時間碼的設備：同樣顯示 AprilTag，聲音輸出 **LTC**。
+  - **靜音鈕**：五種模式都有效，只關聲音、畫面照常，會記住。
+  - **設定頁**：放數字模式的聲音、影格率、校準等少用的設定；模式與各項設定的規格見 [docs/slate-ui.md](docs/slate-ui.md)。
 - **用眼睛就能讀的波形碼**：每秒的數字以脈衝數量表示，在任何剪輯軟體的波形畫面都看得出來。不怕削波、限幅、自動增益與有損壓縮；用手機喇叭播放、攝影機內建麥克風收音也能用。
   - **音高帶出 9 分鐘循環**：每秒的音高取自五聲音階 11 個音，和秒數一起標出 9 分鐘內的位置，與 AprilTag 共用同一個循環。
 - **瀏覽器拖放分析**：檔案不會上傳，只讀每個檔案的頭尾，不必讀完整段。
@@ -64,12 +71,12 @@ slate-sync 把手機變成同步場記板。每段開頭和結尾各錄一次，
 
 ## 工作流程
 
-1. **拍攝前**：每台錄音機或攝影機的一個聲道接手機的耳機輸出（MIC 輸入需衰減），場記板切到「波形碼」。沒有音訊輸入的設備，可以用手機喇叭播放、由內建麥克風收音：
+1. **拍攝前**：每台錄音機或攝影機的一個聲道接手機的耳機輸出（MIC 輸入需衰減），場記板用 **Tag** 模式，或在時鐘、正數、倒數模式把「設定 → 聲音」設為「波形碼」；要錄 LTC、又拍得到畫面的設備改用 **LTC** 模式。沒有音訊輸入的設備，可以用手機喇叭播放、由內建麥克風收音：
    - 手機距麥克風 30 cm 內最穩定；
    - 1 m 內在安靜時仍可用；
    - 不要用 LTC 走空氣傳播。
 2. **開頭與結尾**：每段錄影的開頭和結尾各錄場記板 5–10 秒，中間可以拔掉（見[錄製指引](#錄製指引)）。
-   - **只拍得到畫面的攝影機**：把「設定 → 畫面同步訊號」切到 **AprilTag**，拍攝時讓 tag 清楚、正面、佔畫面夠大的範圍。點一下數字把按鈕藏起來，tag 會更大。
+   - **只拍得到畫面的攝影機**：場記板切到 **Tag** 模式，拍攝時讓 tag 清楚、正面、佔畫面夠大的範圍。點一下數字把按鈕藏起來，tag 會更大。
 3. **事後分析**：把所有檔案丟進分析器，或執行命令列版。
 4. **在剪輯軟體中**：跨機對齊以畫面為準，分析器的數字用來換算與確認；以速度比例、修正後影格率或校正後長度修正每個檔案。
 
@@ -166,13 +173,14 @@ npm install -g .                                                   # 在 repo �
 
 ## 自行架設與開發
 
-網頁由 `web/` 與 `src/` 建置到 `dist/`；分析器建置成單一 HTML 檔。需要 Node 20 以上。
+網頁由 `web/` 與 `src/` 建置到 `dist/`；場記板與分析器各建置成單一 HTML 檔。需要 Node 20 以上。
 
 ```bash
 npm ci          # 第一次：安裝建置工具（esbuild）
 npm run build   # 建置到 dist/
 npm run dev     # 開發：改檔後自動重建，開啟 http://localhost:8000/
 npm test        # 全部測試（需要 ffmpeg／ffprobe，網頁測試另需 Chrome 或 Edge）
+npm run screenshots   # 重拍 docs/images/ 的截圖（需要 Node 22 以上、ffmpeg 與 Edge 或 Chrome）
 ```
 
 - **GitHub Pages**：fork 這個 repo，在 Settings → Pages 把 Source 設為「GitHub Actions」。之後每次推到 `main`，[`.github/workflows/test.yml`](.github/workflows/test.yml) 會建置 `dist/`、跑測試，通過後發布同一份建置結果。任何支援 HTTPS 的靜態網站空間也可以。
@@ -183,11 +191,11 @@ npm test        # 全部測試（需要 ffmpeg／ffprobe，網頁測試另需 Ch
 
 | 路徑 | 內容 |
 |---|---|
-| [`web/`](web/) | 首頁、同步場記板 [`sync-slate.html`](web/sync-slate.html)（手機 PWA）與 PWA 檔案；建置時原樣複製到 `dist/` |
-| [`src/core/`](src/core/) | 分析核心：波形碼、LTC、畫面碼、擬合、報告與四種語言（網頁與命令列共用） |
-| [`src/web/`](src/web/) | 網頁分析器：MP4／WAV 讀取、WebCodecs 解碼與介面；建置成 `dist/sync-analyzer.html` |
+| [`web/`](web/) | 首頁與 PWA 檔案；建置時原樣複製到 `dist/` |
+| [`src/core/`](src/core/) | 分析核心：波形碼、LTC、畫面碼、擬合、報告與四種語言（網頁與命令列共用）；[`slate.js`](src/core/slate.js) 是場記板、分析核心與測試共用的編碼（波形碼、LTC、tag） |
+| [`src/web/`](src/web/) | 網頁：同步場記板 [`sync-slate.html`](src/web/sync-slate.html)＋[`slate.js`](src/web/slate.js)（手機 PWA），建置成 `dist/sync-slate.html`；分析器（MP4／WAV 讀取、WebCodecs 解碼與介面），建置成 `dist/sync-analyzer.html` |
 | [`cli/`](cli/) | 命令列分析器：以 ffmpeg／ffprobe 讀檔，交給分析核心 |
-| [`scripts/build.mjs`](scripts/build.mjs) | 建置與開發伺服器 |
+| [`scripts/`](scripts/) | [`build.mjs`](scripts/build.mjs) 建置與開發伺服器；[`screenshots.mjs`](scripts/screenshots.mjs) 重拍文件截圖 |
 | [`tests/`](tests/) | 測試（`node --test`）、固定的測試檔（`tests/fixtures/`），以及產生已知漂移量測試檔的 [`make_test_media.mjs`](tests/make_test_media.mjs) |
 | [`docs/`](docs/README.md) | 規格與驗證結果；[索引](docs/README.md)列出每份文件負責的規格 |
 | [`CHANGELOG.md`](CHANGELOG.md) | 更新紀錄 |

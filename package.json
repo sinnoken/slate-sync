@@ -14,10 +14,11 @@
     "build": "node scripts/build.mjs",
     "dev": "node scripts/build.mjs --serve",
     "check": "node tests/check_web.js && node tests/check_core.js",
-    "test": "npm run check && node --test"
+    "test": "npm run check && node --test",
+    "screenshots": "node scripts/screenshots.mjs"
   },
   "devDependencies": {
     "esbuild": "0.28.2"
   },
-  "version": "1.1.0"
+  "version": "1.2.0"
 }

@@ -12,25 +12,30 @@ slate-sync turns a phone into a sync slate. Record it at the head and tail of ea
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 <p>
-<img src="docs/images/slate-portrait-en.png" alt="The sync slate on a phone held upright: hours, minutes, seconds and frames on four rows" width="220">
-<img src="docs/images/slate-landscape-en.png" alt="The sync slate on a phone held sideways: the clock on two rows" width="476">
+<img src="docs/images/slate-portrait-en.png" alt="The sync slate in clock mode on a phone held upright: hours, minutes, seconds and frames on four rows, with the five mode buttons below" width="220">
+<img src="docs/images/slate-landscape-en.png" alt="The sync slate in clock mode on a phone held sideways: the clock on two rows" width="476">
 </p>
 
-*The sync slate on a phone. Held upright, the clock shows hours, minutes, seconds and frames on four rows. Held sideways, it shows two rows. Tap the digits to hide the controls.*
+*The sync slate on a phone, in clock mode. Held upright, the clock shows hours, minutes, seconds and frames on four rows. Held sideways, it shows two rows. The five modes are switched at the bottom; mute and settings sit top right. Tap the digits to hide the controls.*
 
 ![The analyzer in a desktop browser after analyzing two test files: results, audio/video sync check, alignment and conversion, and the text report](docs/images/analyzer-full-en.png)
 
 *The analyzer in a desktop browser after an analysis: results, audio/video sync check, alignment and conversion, and the text report.*
 
 <details>
-<summary>More screens: AprilTag mode, settings, dialogs, analyzer menus</summary>
+<summary>More screens: countdown, Tag and LTC modes, settings, dialogs, analyzer menus</summary>
 
-<img src="docs/images/slate-apriltag-en.png" alt="The slate in AprilTag mode" width="220">
+<img src="docs/images/slate-countdown-en.png" alt="The slate in countdown mode, counting down" width="220">
+<img src="docs/images/slate-tag-en.png" alt="The slate in Tag mode: the AprilTag with one line of phone clock" width="220">
+<img src="docs/images/slate-ltc-en.png" alt="The slate in LTC mode: the AprilTag with one line showing the LTC being sent" width="220">
+
+*The slate: a countdown running, Tag mode (AprilTag and the phone clock) and LTC mode (AprilTag and the LTC time code being sent).*
+
 <img src="docs/images/slate-settings-en.png" alt="The slate's settings page" width="220">
 <img src="docs/images/slate-schedule-en.png" alt="The schedule start dialog" width="220">
 <img src="docs/images/slate-custom-en.png" alt="The custom countdown dialog" width="220">
 
-*The slate: AprilTag visual code, the settings page (full height), scheduling a start, and a custom countdown.*
+*The slate: the settings page (full height), scheduling a start, and a custom countdown.*
 
 ![The analyzer's options bar](docs/images/analyzer-options-en.png)
 
@@ -45,10 +50,12 @@ slate-sync turns a phone into a sync slate. Record it at the head and tail of ea
 ## Features
 
 - **Phone slate, no install.** Open the page and add it to the home screen. It runs full screen and **works offline** after the first visit.
-  - **Clock, countdown or count-up**, with scheduled starts.
-  - **Full-screen black/white square wave.** Black to white marks the whole second, so a camera that only sees the screen can still be aligned.
-  - **AprilTag visual code.** A machine-readable tag that changes on every whole second, together with the waveform code. A camera that films only the screen can then be timed automatically.
-  - **Audio sync signal:** beep, **waveform code** or **LTC**, at 23.976 to 120 fps.
+  - **Five modes.** The mode decides what the screen shows and what the phone plays:
+    - **Clock, Count up and Countdown** are for people to see and hear: large digits, a full-screen black/white square wave (black to white marks the whole second) or a short flash, and a beep or the **waveform code**. Count-up and countdown can be scheduled.
+    - **Tag** is for cameras that only see the screen: a full-screen **AprilTag visual code** that changes on every whole second, with the waveform code, so the analyzer times them automatically.
+    - **LTC** is for devices that record time code: the same AprilTag, with **LTC** on the audio output.
+  - **Mute button.** Works in every mode, silences only the sound (the screen carries on) and is remembered.
+  - **Settings page** for the less-used options, such as the digit modes' sound, the frame rate and calibration; the modes and every setting are specified in [docs/slate-ui.md](docs/slate-ui.md) (Traditional Chinese).
 - **Waveform code you can read by eye.** Each second's number is encoded as pulse counts, so you can read it in any editor's waveform view. It survives clipping, limiters, auto gain and lossy compression, and works through the phone speaker and a camera's built-in mic.
   - **A 9-minute cycle in the pitch.** Each second's pitch is one of 11 pentatonic notes. Together with the second's number it gives the position within 9 minutes, the same cycle the AprilTag uses.
 - **Drag-and-drop analyzer in the browser.** Files never leave your computer. It reads only the head and tail of each file, not the whole recording.
@@ -64,12 +71,12 @@ slate-sync turns a phone into a sync slate. Record it at the head and tail of ea
 
 ## How it works
 
-1. **Before the shoot.** Feed one audio channel of each recorder or camera from the phone's headphone output (attenuate it for a MIC input), and set the slate to **waveform code**. A device with no audio input can record the phone speaker through its built-in mic:
+1. **Before the shoot.** Feed one audio channel of each recorder or camera from the phone's headphone output (attenuate it for a MIC input), and use the slate's **Tag** mode, or set Settings → Sound to **Waveform code** for clock, count-up and countdown. For a device that should record LTC and can also see the screen, use **LTC** mode instead. A device with no audio input can record the phone speaker through its built-in mic:
    - within 30 cm it is most reliable;
    - up to 1 m works in a quiet room;
    - don't send LTC over the air.
 2. **At the head and the tail.** Record the slate for 5–10 seconds at the head and at the tail of each take. You can unplug it in between (see [Recording guide](#recording-guide)).
-   - **Cameras that only see picture:** set Settings → Visual sync signal to **AprilTag** and film the phone so the tag fills a good part of the frame, in focus and facing the camera. Tap the digits to hide the controls, which makes the tag larger.
+   - **Cameras that only see picture:** switch the slate to **Tag** mode and film the phone so the tag fills a good part of the frame, in focus and facing the camera. Tap the digits to hide the controls, which makes the tag larger.
 3. **Afterwards.** Drop all files into the analyzer, or run the command line.
 4. **In your editor.** Align cameras by picture and use the analyzer's numbers to check and convert. Correct each file with its speed ratio, adjusted frame rate or corrected length.
 
@@ -166,13 +173,14 @@ Every second that is read goes into one fit. While reading, the analyzer estimat
 
 ## Self-hosting and development
 
-The web pages are built from `web/` and `src/` into `dist/`; the analyzer becomes a single HTML file. Node 20 or later is required.
+The web pages are built from `web/` and `src/` into `dist/`; the slate and the analyzer each become a single HTML file. Node 20 or later is required.
 
 ```bash
 npm ci          # first time: install the build tool (esbuild)
 npm run build   # build into dist/
 npm run dev     # development: rebuild on change, open http://localhost:8000/
 npm test        # all tests (needs ffmpeg / ffprobe; the web tests also need Chrome or Edge)
+npm run screenshots   # retake the screenshots in docs/images/ (needs Node 22+, ffmpeg and Edge or Chrome)
 ```
 
 - **GitHub Pages.** Fork the repo and set Settings → Pages → Source to **GitHub Actions**. Every push to `main` then builds `dist/`, runs the tests and publishes the tested build through [`.github/workflows/test.yml`](.github/workflows/test.yml). Any static host with HTTPS also works.
@@ -183,11 +191,11 @@ npm test        # all tests (needs ffmpeg / ffprobe; the web tests also need Chr
 
 | Path | What it is |
 |---|---|
-| [`web/`](web/) | Home page, the sync slate [`sync-slate.html`](web/sync-slate.html) (phone PWA) and the PWA files; copied as is into `dist/` |
-| [`src/core/`](src/core/) | Analysis core: waveform code, LTC, visual code, fitting, reports and the four languages (shared by the web page and the command line) |
-| [`src/web/`](src/web/) | Web analyzer: MP4/WAV reading, WebCodecs decoding and the page; built into `dist/sync-analyzer.html` |
+| [`web/`](web/) | Home page and the PWA files; copied as is into `dist/` |
+| [`src/core/`](src/core/) | Analysis core: waveform code, LTC, visual code, fitting, reports and the four languages (shared by the web page and the command line); [`slate.js`](src/core/slate.js) holds the encoders (waveform code, LTC, tag) shared by the slate, the analysis core and the tests |
+| [`src/web/`](src/web/) | Web pages: the sync slate [`sync-slate.html`](src/web/sync-slate.html) + [`slate.js`](src/web/slate.js) (phone PWA), built into `dist/sync-slate.html`; the analyzer (MP4/WAV reading, WebCodecs decoding and the page), built into `dist/sync-analyzer.html` |
 | [`cli/`](cli/) | Command-line analyzer: reads files with ffmpeg / ffprobe and hands them to the core |
-| [`scripts/build.mjs`](scripts/build.mjs) | Build and development server |
+| [`scripts/`](scripts/) | [`build.mjs`](scripts/build.mjs): build and development server; [`screenshots.mjs`](scripts/screenshots.mjs): retakes the documentation screenshots |
 | [`tests/`](tests/) | Tests (`node --test`), fixed test files (`tests/fixtures/`) and [`make_test_media.mjs`](tests/make_test_media.mjs), which generates test files with a known drift |
 | [`docs/`](docs/README.md) | Specifications and test results (Traditional Chinese); [the index](docs/README.md) lists which document owns which specification |
 | [`CHANGELOG.md`](CHANGELOG.md) | Release notes (Traditional Chinese) |
