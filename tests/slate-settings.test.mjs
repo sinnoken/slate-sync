@@ -32,10 +32,17 @@ test('排版規則 1：每個設定是一張卡片（標題、一行說明、控
   }
 });
 
-test('排版規則 2：設定頁的選取只有白底黑字一種樣式，黃色不用於選取', () => {
+test('排版規則 2：選取只有白底黑字一種樣式，黃色不用於選取（主畫面的倒數長度與靜音鈕除外）', () => {
   assert.match(HTML, /\.seg button\[aria-pressed="true"\] \{ background: var\(--ink\); color: var\(--ground\); \}/);
   assert.match(HTML, /button\[aria-pressed="true"\]\.sel \{ background: var\(--ink\); border-color: var\(--ink\); color: var\(--ground\); \}/);
-  assert.ok(!/\.(sel|page[^{]*)\[aria-pressed="true"\][^{]*\{[^}]*--mark/.test(HTML), '選取不用 --mark');
+  const css = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>')).replace(/\/\*[\s\S]*?\*\//g, '');
+  const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter(([, sel]) => sel.includes('[aria-pressed="true"]'));
+  assert.ok(rules.length >= 3, `只找到 ${rules.length} 條選取規則`);
+  for (const [, sel, body] of rules) {
+    const own = sel.split(',').filter(s => s.includes('[aria-pressed="true"]') && !/\.chip|\.mute/.test(s));
+    if (own.length) assert.ok(!body.includes('--mark'), `${sel.trim()} 用了 --mark`);
+  }
+  assert.ok(!/\.time-field input\.on \{[^}]*--mark/.test(css), '排程的指定時間也不用 --mark');
 });
 
 test('排版規則 3：4 個以內用分段按鈕，超過 4 個用格狀（「自動」在同一個格子裡）', () => {
@@ -62,6 +69,11 @@ test('排版規則 4：說明只講目前選中的選項，每個 key 都有定�
       Object.values(pick({ sound, flashStyle, fps, df, palette }, pref)).forEach(k => keys.add(k));
   for (const k of keys) assert.match(ZH, new RegExp(`\\b${k}: '`), k);
   assert.equal(keys.size, 13);
+  // 每個依選項改寫的說明（id 以 D 結尾的 <p>）都由頁面程式更新：用 descKeys() 或在 renderLtc() 直接寫入。
+  const ids = [...PAGE.matchAll(/<p class="item-d" id="(\w+D)"/g)].map(x => x[1]);
+  assert.deepEqual(ids.sort(), ['dfD', 'fpsD', 'langD', 'paletteD', 'soundD', 'syncD']);
+  for (const id of ids)
+    assert.match(JS, new RegExp(`setKey\\(\\$\\('${id}'\\), descKeys\\(|\\$\\('${id}'\\)\\.textContent = `), `${id} 沒有被更新`);
 });
 
 test('DF／NDF 只在 29.97 系列可選', () => {

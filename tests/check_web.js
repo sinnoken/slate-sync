@@ -42,10 +42,10 @@ function bundledPage(name, template, entry, sources) {
     return [name, h, src, null];
   } catch (e) { return [name, h, src, e.message]; }
 }
-const SLATE_JS = path.join(ROOT, 'src/web/slate.js');
-const slatePage = () => bundledPage('場記板（src/web/slate.js）', 'src/web/sync-slate.html', 'src/web/slate.js', [SLATE_JS]);
+const SLATE_SRC = ['src/web/slate.js', 'src/web/slate-mode.js'].map(f => path.join(ROOT, f));
+const slatePage = () => bundledPage('場記板（src/web/slate.js）', 'src/web/sync-slate.html', 'src/web/slate.js', SLATE_SRC);
 const analyzerPage = () => bundledPage('分析器（src/）', 'src/web/sync-analyzer.html', 'src/web/main.js',
-  jsUnder(path.join(ROOT, 'src')).filter(f => f !== SLATE_JS));
+  jsUnder(path.join(ROOT, 'src')).filter(f => !SLATE_SRC.includes(f)));
 
 for (const [name, h, src, err] of [inlinePage('web/index.html'), slatePage(), analyzerPage()]) {
   if (err) {
